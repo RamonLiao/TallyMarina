@@ -10,6 +10,7 @@ export interface RawEffect {
   counterparty?: string;
   objectId?: string;
   rawRef?: string;      // pointer back into rawJson for re-derive (esp. 'unknown')
+  note?: string;
 }
 
 export interface RawTxEnvelope {

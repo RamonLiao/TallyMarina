@@ -27,6 +27,14 @@ describe('deconstruct', () => {
     expect(gas[0].rawRef).toBe('effects.gasUsed');
   });
 
+  it('gas effect carries balance_change_gas_inclusive marker', () => {
+    const { effects } = deconstruct(base({
+      effects: { gasUsed: { computationCost: '700', storageCost: '300', storageRebate: '100', nonRefundableStorageFee: '0' } },
+    }));
+    const gas = effects.find(e => e.kind === 'gas')!;
+    expect(gas.note).toBe('balance_change_gas_inclusive');
+  });
+
   it('classifies StakedSui objectChange as staking', () => {
     const { effects } = deconstruct(base({
       objectChanges: [{ type: 'created', objectType: '0x3::staking_pool::StakedSui', objectId: '0xs' }],

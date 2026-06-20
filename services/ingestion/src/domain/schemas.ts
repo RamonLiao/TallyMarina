@@ -19,4 +19,5 @@ export const rawEffectSchema = z.object({
   counterparty: z.string().optional(),
   objectId: z.string().optional(),
   rawRef: z.string().optional(),
+  note: z.string().optional(),
 });

@@ -32,6 +32,20 @@ describe('ingestEntity', () => {
     expect(r2.duplicate).toBe(3);
   });
 
+  it('resumes from mid-stream cursor and skips already-fetched pages', async () => {
+    // Pre-seed cursor to 'c1' so ingestEntity starts at page 2 (skips page 1 containing A,B)
+    const repo = new InMemoryRepository();
+    const src = new FixtureSource('cid', 1, twoPages());
+    await repo.setCursor({ entityRef: 'e', address: '0xa', sourceKind: 'fixture' }, 'c1', null);
+    const r = await ingestEntity({ source: src, repo, entityRef: 'e', address: '0xa' });
+    // Only page-2 tx C should be inserted
+    expect(r.inserted).toBe(1);
+    expect(r.pages).toBe(1);
+    expect(repo.dump().has('C')).toBe(true);
+    expect(repo.dump().has('A')).toBe(false);
+    expect(repo.dump().has('B')).toBe(false);
+  });
+
   it('records content_mismatch anomaly and keeps the original', async () => {
     const repo = new InMemoryRepository();
     const first = new FixtureSource('cid', 1, [{ txs: [env('A', { x: 1 })], nextCursor: null, hasNextPage: false }]);

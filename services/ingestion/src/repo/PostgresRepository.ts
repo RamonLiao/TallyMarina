@@ -16,7 +16,9 @@ export class PostgresRepository implements Repository {
       );
       if ((ins.rowCount ?? 1) === 0) {
         const row = await client.query('SELECT content_hash FROM raw_transaction WHERE digest=$1', [tx.digest]);
-        const existingHash = row.rows[0].content_hash as string;
+        const existing = row.rows[0];
+        if (!existing) throw new Error(`content_mismatch check: digest ${tx.digest} vanished`);
+        const existingHash = existing.content_hash as string;
         await client.query('COMMIT');
         return existingHash === tx.contentHash ? 'duplicate' : { conflict: 'content_mismatch', existingHash };
       }

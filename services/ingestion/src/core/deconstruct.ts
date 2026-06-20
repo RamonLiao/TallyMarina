@@ -50,7 +50,7 @@ export function deconstruct(
 
   const gasUsed = (json.effects as Record<string, unknown> | undefined)?.gasUsed;
   if (gasUsed && typeof gasUsed === 'object') {
-    if (!push({ kind: 'gas', coinType: '0x2::sui::SUI', rawRef: 'effects.gasUsed' })) {
+    if (!push({ kind: 'gas', coinType: '0x2::sui::SUI', rawRef: 'effects.gasUsed', note: 'balance_change_gas_inclusive' })) {
       return { effects, overflow };
     }
   }
