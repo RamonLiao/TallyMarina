@@ -16,6 +16,10 @@ export async function ingestEntity(args: {
 
   let inserted = 0, duplicate = 0, anomalies = 0, pages = 0;
 
+  const CURSOR_NULL_SENTINEL = ':null';
+  const visitedCursors = new Set<string>();
+  visitedCursors.add(cursor === null ? CURSOR_NULL_SENTINEL : cursor);
+
   for (;;) {
     const page = await source.fetchTransactions({ entityRef, address, cursor, limit: pageLimit });
     pages++;
@@ -39,6 +43,15 @@ export async function ingestEntity(args: {
     await repo.setCursor(key, page.nextCursor, page.txs.at(-1)?.checkpoint ?? stored?.lastCheckpoint ?? null);
     cursor = page.nextCursor;
     if (!page.hasNextPage) break;
+
+    // Guard against cursor cycles: detect if the next cursor was already fetched
+    const nextCursorKey = cursor === null ? CURSOR_NULL_SENTINEL : cursor;
+    if (visitedCursors.has(nextCursorKey)) {
+      await repo.recordAnomaly({ digest: null, entityRef, kind: 'cursor_cycle', detail: { cursor } });
+      anomalies++;
+      break;
+    }
+    visitedCursors.add(nextCursorKey);
   }
   return { inserted, duplicate, anomalies, pages };
 }

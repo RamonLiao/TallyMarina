@@ -44,25 +44,18 @@ describe('[monkey] S1 – 50k balanceChanges overflow cap', () => {
 
 // ─── Scenario 2: Cursor loop (infinite page cycle) ──────────────────────────
 //
-// FINDING [MEDIUM]: ingestEntity has NO visited-cursor guard. If nextCursor on
-// page N points back to a previously-seen cursor and hasNextPage stays true,
-// the loop runs forever. The test below confirms the defect safely by counting
-// fetches and throwing after a threshold. Production fix needed: track visited
-// cursors and break on repeat.
+// FIX [S2 RESOLVED]: ingestEntity now tracks visited cursors in a Set and breaks
+// with a cursor_cycle anomaly when a repeat cursor is detected. This test verifies
+// the guarded behavior: the loop terminates deterministically without a harness throw.
 
-describe('[monkey] S2 – cursor loop detected by fetch counter', () => {
-  it('confirmed: loops indefinitely without a guard (bounded by test harness)', async () => {
-    // A source that alternates between two cursors indefinitely
-    const FETCH_LIMIT = 25; // if we exceed this, the loop is confirmed
+describe('[monkey] S2 – cursor cycle guard terminates with anomaly', () => {
+  it('terminates without hang, returns tally, records cursor_cycle anomaly', async () => {
     let fetchCount = 0;
 
     const loopSource: IngestionSource = {
       kind: 'fixture' as const,
       async fetchTransactions(_req: FetchPage): Promise<FetchResult> {
         fetchCount++;
-        if (fetchCount > FETCH_LIMIT) {
-          throw new Error(`LOOP_DETECTED: fetchTransactions called ${fetchCount} times — no cursor guard`);
-        }
         // Alternate between cursor 'c1' and 'c2' endlessly
         const useCursor1 = fetchCount % 2 === 1;
         return {
@@ -76,20 +69,22 @@ describe('[monkey] S2 – cursor loop detected by fetch counter', () => {
 
     const repo = new InMemoryRepository();
 
-    // The loop IS expected to throw our sentinel error (confirming the defect).
-    // We assert that the error is our sentinel, not a crash from production code.
-    await expect(
-      ingestEntity({ source: loopSource, repo, entityRef: 'e', address: '0xa' })
-    ).rejects.toThrow('LOOP_DETECTED');
+    // Guard makes it terminate — no throw, no infinite loop
+    const result = await ingestEntity({ source: loopSource, repo, entityRef: 'e', address: '0xa' });
 
-    // Confirm it ran more than FETCH_LIMIT times before we killed it
-    expect(fetchCount).toBeGreaterThan(FETCH_LIMIT);
+    // Should have fetched a small bounded number of pages (null→c2→c1→c2 cycle caught)
+    // fetch1: cursor=null→nextCursor=c2, fetch2: cursor=c2→nextCursor=c1, fetch3: cursor=c1→nextCursor=c2 (already visited → break)
+    expect(fetchCount).toBe(3);
 
-    // DEFECT: No visited-cursor guard in ingestEntity. Without the harness
-    // throw above, this would hang CI indefinitely.
-    // Severity: MEDIUM — requires a malformed/adversarial source to trigger;
-    // production Sui RPC sources should not create cursor cycles, but a buggy
-    // custom IngestionSource or a compromised fixture would cause an infinite loop.
+    // Should have inserted 3 txs (one per page fetched before the cycle was caught)
+    expect(result.inserted).toBe(3);
+
+    // Should have recorded exactly 1 cursor_cycle anomaly
+    expect(result.anomalies).toBe(1);
+
+    // Verify the anomaly was recorded in the repo
+    const anomalies = (repo as unknown as { anomalies: Array<{ kind: string }> }).anomalies;
+    expect(anomalies.some((a) => a.kind === 'cursor_cycle')).toBe(true);
   });
 });
 
