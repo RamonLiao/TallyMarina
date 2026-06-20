@@ -1,11 +1,14 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { Pool } from 'pg';
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { PostgresRepository } from '../src/repo/PostgresRepository.js';
 import type { RawTransaction } from '../src/domain/types.js';
 
 const url = process.env.DATABASE_URL;
 const d = url ? describe : describe.skip;
+
+const migrationPath = fileURLToPath(new URL('../src/migrations/001_init.sql', import.meta.url));
 
 const tx = (digest: string, h: string): RawTransaction => ({
   digest, checkpoint: '1', timestampMs: '1', status: 'success', rawJson: { a: 1 }, entityRef: 'e', contentHash: h,
@@ -15,7 +18,7 @@ d('PostgresRepository', () => {
   let repo: PostgresRepository;
   beforeAll(async () => {
     const pool = new Pool({ connectionString: url });
-    await pool.query(readFileSync('src/migrations/001_init.sql', 'utf8'));
+    await pool.query(readFileSync(migrationPath, 'utf8'));
     await pool.query('TRUNCATE raw_effect, raw_transaction, ingestion_checkpoint, ingestion_anomaly');
     repo = new PostgresRepository(pool);
   });

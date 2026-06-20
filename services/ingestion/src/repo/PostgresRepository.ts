@@ -14,7 +14,7 @@ export class PostgresRepository implements Repository {
          VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (digest) DO NOTHING`,
         [tx.digest, tx.entityRef, tx.checkpoint, tx.timestampMs, tx.status, tx.rawJson, tx.contentHash],
       );
-      if (ins.rowCount === 0) {
+      if ((ins.rowCount ?? 1) === 0) {
         const row = await client.query('SELECT content_hash FROM raw_transaction WHERE digest=$1', [tx.digest]);
         const existingHash = row.rows[0].content_hash as string;
         await client.query('COMMIT');
@@ -31,7 +31,7 @@ export class PostgresRepository implements Repository {
       await client.query('COMMIT');
       return 'inserted';
     } catch (err) {
-      await client.query('ROLLBACK');
+      try { await client.query('ROLLBACK'); } catch { /* ignore rollback failure */ }
       throw err;
     } finally {
       client.release();
