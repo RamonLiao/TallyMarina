@@ -1,0 +1,48 @@
+import { describe, it, expect } from 'vitest';
+import { deconstruct } from '../src/core/deconstruct.js';
+import type { RawTxEnvelope } from '../src/domain/types.js';
+
+const base = (rawJson: unknown): RawTxEnvelope => ({
+  digest: 'D1', checkpoint: '1', timestampMs: '1', status: 'success', rawJson,
+});
+
+describe('deconstruct', () => {
+  it('maps a balanceChange to a coin_balance_change effect with string amount', () => {
+    const { effects } = deconstruct(base({
+      balanceChanges: [{ coinType: '0x2::sui::SUI', owner: { AddressOwner: '0xb' }, amount: '-1000' }],
+    }));
+    const c = effects.find(e => e.kind === 'coin_balance_change')!;
+    expect(c.amount).toBe('-1000');
+    expect(c.coinType).toBe('0x2::sui::SUI');
+    expect(typeof c.amount).toBe('string');
+  });
+
+  it('emits exactly one gas effect tagged so it is not double-booked', () => {
+    const { effects } = deconstruct(base({
+      balanceChanges: [{ coinType: '0x2::sui::SUI', owner: { AddressOwner: '0xb' }, amount: '-1000' }],
+      effects: { gasUsed: { computationCost: '700', storageCost: '300', storageRebate: '100', nonRefundableStorageFee: '0' } },
+    }));
+    const gas = effects.filter(e => e.kind === 'gas');
+    expect(gas).toHaveLength(1);
+    expect(gas[0].rawRef).toBe('effects.gasUsed');
+  });
+
+  it('classifies StakedSui objectChange as staking', () => {
+    const { effects } = deconstruct(base({
+      objectChanges: [{ type: 'created', objectType: '0x3::staking_pool::StakedSui', objectId: '0xs' }],
+    }));
+    expect(effects.some(e => e.kind === 'staking' && e.objectId === '0xs')).toBe(true);
+  });
+
+  it('never throws on unrecognized shape and yields unknown with rawRef', () => {
+    const { effects } = deconstruct(base({ weirdField: [{ z: 1 }] }));
+    expect(effects.some(e => e.kind === 'unknown')).toBe(true);
+    expect(effects.find(e => e.kind === 'unknown')!.rawRef).toBeDefined();
+  });
+
+  it('sets overflow when effect count exceeds the cap', () => {
+    const many = Array.from({ length: 5 }, (_, i) => ({ coinType: 'c', owner: { AddressOwner: '0x' + i }, amount: '1' }));
+    const { overflow } = deconstruct(base({ balanceChanges: many }), { maxEffects: 3 });
+    expect(overflow).toBe(true);
+  });
+});
