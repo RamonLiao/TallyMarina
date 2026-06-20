@@ -25,3 +25,7 @@ move/**/build/
 
 # CLAUDE-authored review docs (per user global rule)
 reviews/claude-review-*.md
+
+# Project plan and notes (kept local)
+plan.md
+*-notes.md
