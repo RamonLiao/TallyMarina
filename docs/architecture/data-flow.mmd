@@ -1,0 +1,20 @@
+flowchart TD
+    SUI[Sui RPC gRPC 唯讀] -->|read tx/objects| ING[1 Ingestion]
+    ING -->|append-only| RAW[(RawTransaction)]
+    RAW --> NORM[2 Normalize + AI Assist]
+    AI[AI Assistant 僅建議] -.suggestion.-> NORM
+    NORM -->|revisioned| NEV[(NormalizedEvent)]
+    NEV --> PRICE[3 Pricing/FX/Lots FIFO]
+    PRICE --> POS[(PricePoint / PositionLot)]
+    NEV -->|approved event| RULE[4 Rules Engine deterministic fail-closed]
+    POL[(PolicySet + MappingRule)] --> RULE
+    RULE --> REV[5 Review/Approval maker-checker RBAC/SoD]
+    REV -->|balanced| JE[(JournalEntry)]
+    JE --> RECON[6 Reconciliation wallet qty]
+    JE --> EXP[7 ERP Export CSV + dedup hash]
+    JE --> SNAP[8 Snapshot Svc freeze→manifest→hash]
+    SNAP -->|必須 §17| AS[(internal AuditSnapshot)]
+    SNAP -.optional.-> WAL[Walrus blob]
+    SNAP -.optional.-> ANCHOR[AuditAnchor.anchor_snapshot]
+    ANCHOR --> CHAIN[EntityAnchorChain shared, hash chain]
+    CAP[AnchorCap owned by backend] -.授權.-> ANCHOR

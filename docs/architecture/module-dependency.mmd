@@ -1,0 +1,21 @@
+flowchart LR
+    subgraph OffChain[Off-chain 系統]
+        ING[Ingestion] --> NORM[Normalize+AI]
+        NORM --> PRICE[Pricing/FX/Lots]
+        PRICE --> RULE[Rules Engine]
+        RULE --> REVIEW[Review/Approval]
+        REVIEW --> RECON[Reconciliation]
+        REVIEW --> EXPORT[ERP Export]
+        REVIEW --> SNAP[Snapshot Svc]
+        SEC[Security/RBAC/SoD] -.-> REVIEW
+        AIA[AI Assistant 旁路] -.-> NORM
+    end
+    subgraph OnChain[AuditAnchor Move package]
+        CHAIN[EntityAnchorChain shared]
+        CAPO[AnchorCap owned]
+        EVT[SnapshotAnchored event]
+        CAPO -->|gates| CHAIN
+        CHAIN --> EVT
+    end
+    SNAP -->|manifest_hash + merkle_root| CHAIN
+    AUD[Auditor] -->|verify inclusion proof| EVT

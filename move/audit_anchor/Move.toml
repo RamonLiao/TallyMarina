@@ -1,0 +1,10 @@
+[package]
+name = "audit_anchor"
+edition = "2024.beta"
+license = "Apache-2.0"
+
+[dependencies]
+# Sui framework is bundled with the CLI (system dependency); no explicit git dep needed.
+
+[addresses]
+audit_anchor = "0x0"

@@ -1,0 +1,27 @@
+# progress / session state
+tasks/progress.md
+tasks/lessons.md
+
+# CLAUDE-related (per user global rule: 不上傳 git)
+.claude/
+CLAUDE.md
+**/memory/
+
+# node / build
+node_modules/
+dist/
+*.tsbuildinfo
+
+# env / secrets
+.env
+.env.*
+!.env.example
+
+# move build artifacts
+move/**/build/
+
+# os
+.DS_Store
+
+# CLAUDE-authored review docs (per user global rule)
+reviews/claude-review-*.md
