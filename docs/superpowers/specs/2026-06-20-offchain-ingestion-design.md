@@ -174,15 +174,19 @@ IngestionAnomaly (
 
 ## 10. 驗收標準（success criteria）
 
-1. `SuiRpcSource` 能對一個 testnet 真實地址分頁拉取 tx，落 `RawTransaction` + `RawEffect`。
-2. 重跑同一抓取 → 0 重複 row（冪等驗證）。
-3. 注入「同 digest 不同 content」→ 產生 `IngestionAnomaly`，原始包不被改。
-4. 中途 kill → 重啟從 cursor 續抓不漏不重。
-5. `FixtureSource` 同介面回放，CI 不打網路即可跑 §10.2–10.4。
-6. 解構涵蓋 coin/object/gas/event，未知活動標 `unknown` 不丟，且 `unknown` 攜帶指回 raw_json 的 context（F4-4）。
-7. **完整性斷言（F2）**：首次抓某地址時記錄節點最早可得 checkpoint；若無法證明抓到 entity 真實首筆 tx → 產生 `IngestionAnomaly(retention_gap)`，不假設完整。
-8. **不雙重計 gas（F4-2）**：對含 gas 的 tx，驗證 SUI 淨額與 `effects.gasUsed` 不被重複入帳（標記正確，留 normalize 處理）。
-9. `describe()` 經 `getChainIdentifier()` 實作並斷言 == 預期 testnet id（F3）。
+狀態標記（2026-06-21 實作後校準）：✅ 已測覆蓋 / ⏸ 刻意 deferred（type 保留、非 silent drop）。
+
+1. ✅ `SuiJsonRpcSource`（pilot；§4.1）對 testnet 地址分頁拉 tx，落 `RawTransaction` + `RawEffect`（離線以 `FixtureSource` + acceptance test 驗證；live smoke 為手動可選）。
+2. ✅ 重跑同一抓取 → 0 重複 row（冪等驗證；`ingestEntity` 測試 + acceptance test）。
+3. ✅ 注入「同 digest 不同 content」→ 產生 `IngestionAnomaly(content_mismatch)`，原始包不被改。
+4. ✅ 中途 kill → 重啟從 cursor 續抓不漏不重（`ingestEntity` 測試含 re-scan 冪等 + resume-from-midpoint 兩種；真實 mid-cursor 續抓已補測）。
+5. ✅ `FixtureSource` 同介面回放，CI 不打網路即可跑 §10.2–10.4。
+6. ✅ 解構涵蓋 coin/object/gas/event，未知活動標 `unknown` 不丟（每個未識別欄位各發一個，spec 版語義），且 `unknown` 攜帶指回 raw_json 的 context（F4-4）。
+7. ⏸ **完整性斷言（F2）— DEFERRED**：`AnomalyKind` 已保留 `'retention_gap'`，但 live 偵測（記錄節點最早 checkpoint）依賴 pin archival node，列 post-pilot（見 §8.1）。**非 silent**：type 在位、deferral 明示於此與 §8.1。
+8. ✅ **不雙重計 gas（F4-2）**：gas effect 帶 `note='balance_change_gas_inclusive'` 標記，downstream 可辨識 balanceChanges SUI delta 已含 gas（deconstruct 測試斷言該 note）。
+9. ✅ `describe()` 經 `getChainIdentifier()` 實作並斷言 == 預期 testnet id（F3；`SuiJsonRpcSource` 單元測試 + CLI 啟動 guard）。
+
+> §10 校準依據：2026-06-21 最終 whole-branch review（opus）verdict SHIP WITH FIXES → I1（gas 標記）、I2（PG mismatch guard）、§10.4 resume 測試已落地；§10.7 明確改標 DEFERRED（fail-loud，不再框成已達成）。Monkey testing（rules/test.md）5 場景：4 安全通過，S2 cursor-cycle 確認缺陷 → 已補 `cursor_cycle` anomaly guard；S3 BIGINT 上界為 PG 層文件化限制。
 
 ## 11. Review 整合紀錄（2026-06-20）
 
