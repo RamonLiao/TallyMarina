@@ -40,9 +40,19 @@ describe('deconstruct', () => {
     expect(effects.find(e => e.kind === 'unknown')!.rawRef).toBeDefined();
   });
 
-  it('sets overflow when effect count exceeds the cap', () => {
+  it('sets overflow when effect count exceeds the cap and honors exact cap', () => {
     const many = Array.from({ length: 5 }, (_, i) => ({ coinType: 'c', owner: { AddressOwner: '0x' + i }, amount: '1' }));
-    const { overflow } = deconstruct(base({ balanceChanges: many }), { maxEffects: 3 });
+    const { overflow, effects } = deconstruct(base({ balanceChanges: many }), { maxEffects: 3 });
     expect(overflow).toBe(true);
+    expect(effects.length).toBe(3);
+  });
+
+  it('emits unknown for each unrecognized top-level field even when recognized fields also exist', () => {
+    const { effects } = deconstruct(base({
+      balanceChanges: [{ coinType: '0x2::sui::SUI', owner: { AddressOwner: '0xb' }, amount: '-1000' }],
+      mysteryField: [{ q: 1 }],
+    }));
+    expect(effects.some(e => e.kind === 'coin_balance_change')).toBe(true);
+    expect(effects.some(e => e.kind === 'unknown' && e.rawRef === 'mysteryField')).toBe(true);
   });
 });

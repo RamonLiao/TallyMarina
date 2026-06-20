@@ -60,11 +60,16 @@ export function deconstruct(
     if (!push({ kind: 'event', rawRef: `events.${i}` })) return { effects, overflow };
   }
 
-  // Exception-first: if we recognized nothing, record an unknown so the tx is never silently empty.
+  // Emit one unknown effect per unrecognized top-level field.
   const known = new Set(['balanceChanges', 'objectChanges', 'effects', 'events']);
-  if (effects.length === 0) {
-    const otherKey = Object.keys(json).find(k => !known.has(k)) ?? '$root';
-    push({ kind: 'unknown', rawRef: otherKey });
+  const unknownKeys = Object.keys(json).filter(k => !known.has(k));
+  if (unknownKeys.length > 0) {
+    for (const key of unknownKeys) {
+      if (!push({ kind: 'unknown', rawRef: key })) return { effects, overflow };
+    }
+  } else if (effects.length === 0) {
+    // No recognized fields and no unknown fields: emit a root-level unknown so tx is never silent.
+    push({ kind: 'unknown', rawRef: '$root' });
   }
 
   return { effects, overflow };
