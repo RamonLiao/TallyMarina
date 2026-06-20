@@ -19,7 +19,12 @@
   - README 採用英式英文 (British English) 撰寫，為評審呈現清晰的 6 大 Crypto 會計痛點與對應的 TallyMarina 6 大解決方案。
   - 提供簡短的 GitHub Repository Description 供設置。
 - **更動檔案**：
-  - [README.md](file:///Users/ramonliao/Documents/Code/Project/Web3/Hackathon/2026_Sui_Overflow/Tracks/0-Agentic-Web/Sui-Agentic-Subledger/README.md) (新建)
+  - [README.md](file:///Users/ramonliao/Documents/Code/Project/Web3/Hackathon/2026_Sui_Overflow/Tracks/0-Agentic-Web/Sui-Agentic-Subledger/README.md) (新增 Emojis 美化)
+  - [plan.md](file:///Users/ramonliao/Documents/Code/Project/Web3/Hackathon/2026_Sui_Overflow/Tracks/0-Agentic-Web/Sui-Agentic-Subledger/plan.md) (新增/更新)
+- **Git 狀態與倉庫推動**：
+  - 本地分支重新命名為 `main`。
+  - 設定遠端 Github 倉庫 `git@github.com:RamonLiao/TallyMarina.git`。
+  - 順利將本地所有變更 (包含 untracked 的 `BRAND_NAMES.md`, `README.md`, `plan.md` 與 `test/` 目錄) 提交並 Push 至遠端 `main` 分支。
 
 ## 4. 後續 TODO (未完成事項)
 - [ ] 執行 `sui-developer` 相關 Move 模組開發與審計錨定合約的鏈上測試。
