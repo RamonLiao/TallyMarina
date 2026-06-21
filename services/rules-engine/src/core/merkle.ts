@@ -13,8 +13,13 @@ export interface MerkleManifest {
   leafCodecVersion: 'JE_LEAF_BCS_V1';
 }
 
-function sha256(buf: Buffer): Buffer {
+function sha256(buf: Uint8Array): Buffer {
   return createHash('sha256').update(buf).digest();
+}
+
+function sortByIdempotencyKey(jes: JournalEntry[]): JournalEntry[] {
+  return [...jes].sort((a, b) =>
+    a.idempotencyKey < b.idempotencyKey ? -1 : a.idempotencyKey > b.idempotencyKey ? 1 : 0);
 }
 
 export function leafHash(je: JournalEntry): string {
@@ -27,7 +32,7 @@ function nodeHash(left: Buffer, right: Buffer): Buffer {
 
 // sorted leaf hashes (idempotencyKey asc) -> root hex
 function rootFromLeaves(leafHexes: string[]): string {
-  let level: Buffer[] = leafHexes.map((h) => Buffer.from(h, 'hex') as Buffer);
+  let level: Buffer[] = leafHexes.map((h) => Buffer.from(h, 'hex'));
   while (level.length > 1) {
     const next: Buffer[] = [];
     for (let i = 0; i < level.length; i += 2) {
@@ -46,8 +51,7 @@ export interface InclusionProof {
 }
 
 export function inclusionProof(jes: JournalEntry[], idempotencyKey: string): InclusionProof {
-  const sorted = [...jes].sort((a, b) =>
-    a.idempotencyKey < b.idempotencyKey ? -1 : a.idempotencyKey > b.idempotencyKey ? 1 : 0);
+  const sorted = sortByIdempotencyKey(jes);
   const sortedKeys = sorted.map((j) => j.idempotencyKey);
   const leafHexes = sorted.map(leafHash);
   const leafIndex = sortedKeys.indexOf(idempotencyKey);
@@ -89,8 +93,7 @@ export function buildMerkle(jes: JournalEntry[]): { manifest: MerkleManifest; le
     if (keys.has(je.idempotencyKey)) throw new Error(`merkle: duplicate idempotencyKey ${je.idempotencyKey}`);
     keys.add(je.idempotencyKey);
   }
-  const sorted = [...jes].sort((a, b) =>
-    a.idempotencyKey < b.idempotencyKey ? -1 : a.idempotencyKey > b.idempotencyKey ? 1 : 0);
+  const sorted = sortByIdempotencyKey(jes);
   const leafHashes = sorted.map(leafHash);
   return {
     manifest: {
