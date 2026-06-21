@@ -62,4 +62,16 @@ describe('InMemorySnapshotRepo', () => {
     const res = r.freeze({ ...base(), periodId: '2026-Q3', manifest: { ...base().manifest, periodId: '2026-Q3' } });
     expect(res.snapshot.seq).toBe(0);
   });
+  it('immutability: mutating returned snapshot or input after freeze must not corrupt stored snapshot', () => {
+    const r = new InMemorySnapshotRepo();
+    const input = base();
+    const { snapshot: returned } = r.freeze(input);
+    // mutate the returned snapshot's policyVersions
+    returned.manifest.policyVersions.push('INJECTED');
+    // mutate the original input's policyVersions
+    input.manifest.policyVersions.push('ALSO_INJECTED');
+    // stored snapshot must still have exactly ['a']
+    const stored = r.get('e1', '2026-Q2')!;
+    expect(stored.manifest.policyVersions).toEqual(['a']);
+  });
 });

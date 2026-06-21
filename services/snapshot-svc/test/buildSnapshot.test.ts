@@ -84,6 +84,14 @@ describe('buildSnapshot', () => {
     const b = buildSnapshot([out('POSTABLE', [je('k1')], ['p'])], { ...meta, createdAtLogical: 8 }, new InMemorySnapshotRepo()).auditSnapshot.manifestHash;
     expect(a).not.toBe(b);
   });
+  it('policyVersions with lone surrogate → INVALID_ENCODING', () => {
+    const repo = new InMemorySnapshotRepo();
+    let code = 'NO_THROW';
+    try {
+      buildSnapshot([out('POSTABLE', [je('k1')], ['\uD800'])], meta, repo);
+    } catch (e) { code = e instanceof SnapshotError ? e.code : 'WRONG'; }
+    expect(code).toBe('INVALID_ENCODING');
+  });
   it('restate path: second freeze with restate → supersedesSeq 0', () => {
     const repo = new InMemorySnapshotRepo();
     buildSnapshot([out('POSTABLE', [je('k1')], ['p'])], meta, repo);

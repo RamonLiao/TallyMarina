@@ -1,6 +1,6 @@
 import { buildMerkle } from '../deps/rulesEngine.js';
 import type { RuleOutput, JournalEntry } from '../deps/rulesEngine.js';
-import { validateMeta } from './validate.js';
+import { validateMeta, assertPolicyVersionsUtf8 } from './validate.js';
 import { manifestHash } from './manifestHash.js';
 import { MANIFEST_CODEC_VERSION } from './manifestCodec.js';
 import { AuditSnapshotRepo } from '../repo/snapshotRepo.js';
@@ -39,6 +39,7 @@ export function buildSnapshot(
   const { manifest: mm } = merkle;
 
   const policyVersions = dedupeSort(postable.flatMap((o) => o.explanation.policyVersions));
+  assertPolicyVersionsUtf8(policyVersions);
 
   const manifest: SnapshotManifestStruct = {
     manifestVersion: MANIFEST_CODEC_VERSION,

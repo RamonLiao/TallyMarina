@@ -26,4 +26,7 @@ describe('manifestHash', () => {
       .digest('hex');
     expect(manifestHash(m)).not.toBe(leafLike);
   });
+  it('golden literal (cross-language ground truth, spec §9)', () => {
+    expect(manifestHash(m)).toBe('c57940c662f49e732cafaa5e51a90d88646e4e33d67243630a1bf9b61e7b5342');
+  });
 });
