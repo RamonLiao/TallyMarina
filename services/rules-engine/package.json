@@ -7,7 +7,10 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
   },
-  "dependencies": { "zod": "^3.23.0" },
+  "dependencies": {
+    "@mysten/bcs": "2.1.0",
+    "zod": "^3.23.0"
+  },
   "devDependencies": {
     "@types/node": "^20.0.0",
     "tsx": "^4.0.0",
