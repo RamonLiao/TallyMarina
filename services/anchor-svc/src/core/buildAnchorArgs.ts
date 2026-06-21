@@ -11,7 +11,7 @@ export interface AnchorPayloadInput {
 function hexToHash(hex: string, field: string): Uint8Array {
   const s = hex.startsWith('0x') ? hex.slice(2) : hex;
   if (s.length !== HASH_LEN * 2 || !/^[0-9a-fA-F]+$/.test(s)) {
-    throw new AnchorError('BAD_HASH_LEN', `BAD_HASH_LEN: ${field} must be ${HASH_LEN}-byte hex, got "${hex}"`);
+    throw new AnchorError('BAD_HASH_LEN', `${field} must be ${HASH_LEN}-byte hex, got "${hex}"`);
   }
   const out = new Uint8Array(HASH_LEN);
   for (let i = 0; i < HASH_LEN; i++) out[i] = parseInt(s.slice(i * 2, i * 2 + 2), 16);
@@ -24,15 +24,15 @@ export function buildAnchorArgs(payload: AnchorPayloadInput): AnchorCallArgs {
 
   const periodId = new Uint8Array(Buffer.from(payload.periodId, 'utf8'));
   if (periodId.length > MAX_REF_LEN) {
-    throw new AnchorError('PERIOD_TOO_LONG', `PERIOD_TOO_LONG: period_id is ${periodId.length} bytes (max ${MAX_REF_LEN})`);
+    throw new AnchorError('PERIOD_TOO_LONG', `period_id is ${periodId.length} bytes (max ${MAX_REF_LEN})`);
   }
 
   if (!Number.isInteger(payload.supersedesSeq) || payload.supersedesSeq < 0) {
-    throw new AnchorError('SEQ_OUT_OF_RANGE', `SEQ_OUT_OF_RANGE: supersedesSeq must be a non-negative integer, got ${payload.supersedesSeq}`);
+    throw new AnchorError('SEQ_OUT_OF_RANGE', `supersedesSeq must be a non-negative integer, got ${payload.supersedesSeq}`);
   }
   const supersedesSeq = BigInt(payload.supersedesSeq);
   if (supersedesSeq > U64_MAX) {
-    throw new AnchorError('SEQ_OUT_OF_RANGE', `SEQ_OUT_OF_RANGE: supersedesSeq exceeds u64 max`);
+    throw new AnchorError('SEQ_OUT_OF_RANGE', `supersedesSeq exceeds u64 max`);
   }
 
   return { manifestHash, merkleRoot, periodId, supersedesSeq };

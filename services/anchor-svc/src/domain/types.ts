@@ -13,7 +13,9 @@ export type AnchorErrorCode =
 
 export class AnchorError extends Error {
   constructor(public readonly code: AnchorErrorCode, message?: string) {
-    super(message ?? code);
+    // Always surface the code in the message so logs and string matchers
+    // (and consistency across throw sites) carry it without manual prefixing.
+    super(message ? `${code}: ${message}` : code);
     this.name = 'AnchorError';
   }
 }
