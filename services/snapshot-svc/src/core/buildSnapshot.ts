@@ -61,17 +61,9 @@ export function buildSnapshot(
 
   const mh = manifestHash(manifest);
 
-  const { snapshot } = repo.freeze(
-    {
-      entityId: meta.entityId,
-      periodId: meta.periodId,
-      manifest,
-      manifestHash: mh,
-      merkleRoot: mm.merkleRoot,
-      leafCount: mm.leafCount,
-    },
-    opts,
-  );
+  // entityId/periodId/merkleRoot/leafCount are derived from `manifest` inside freeze,
+  // so they cannot drift from it — only the manifest + its hash are passed.
+  const { snapshot } = repo.freeze({ manifest, manifestHash: mh }, opts);
 
   const anchorPayload: AnchorPayload = {
     manifestHash: snapshot.manifestHash,

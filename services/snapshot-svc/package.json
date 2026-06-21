@@ -8,7 +8,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@mysten/bcs": "2.1.0"
+    "@mysten/bcs": "2.1.0",
+    "@subledger/rules-engine": "file:../rules-engine"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

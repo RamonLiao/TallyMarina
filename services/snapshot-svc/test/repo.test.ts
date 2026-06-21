@@ -1,19 +1,20 @@
 import { describe, it, expect } from 'vitest';
 import { InMemorySnapshotRepo } from '../src/repo/snapshotRepo.js';
 import { SnapshotError } from '../src/domain/types.js';
-import type { AuditSnapshot } from '../src/domain/types.js';
+import type { FreezeInput } from '../src/repo/snapshotRepo.js';
+import type { SnapshotManifestStruct } from '../src/domain/types.js';
 
-function base(): Omit<AuditSnapshot, 'seq' | 'supersedesSeq'> {
+function manifestOf(entityId: string, periodId: string): SnapshotManifestStruct {
   return {
-    entityId: 'e1', periodId: '2026-Q2',
-    manifest: {
-      manifestVersion: 'SNAPSHOT_MANIFEST_BCS_V1', entityId: 'e1', periodId: '2026-Q2',
-      merkleRoot: 'aa'.repeat(32), leafCount: 1, leafCodecVersion: 'JE_LEAF_BCS_V1',
-      merkleParams: { algo: 'SHA256', leafDomainPrefix: '0x00', nodeDomainPrefix: '0x01', oddNodePolicy: 'PROMOTE', orderingPolicy: 'IDEMPOTENCY_KEY_LEX_V1' },
-      policyVersions: ['a'], createdAtLogical: 0,
-    },
-    manifestHash: 'bb'.repeat(32), merkleRoot: 'aa'.repeat(32), leafCount: 1,
+    manifestVersion: 'SNAPSHOT_MANIFEST_BCS_V1', entityId, periodId,
+    merkleRoot: 'aa'.repeat(32), leafCount: 1, leafCodecVersion: 'JE_LEAF_BCS_V1',
+    merkleParams: { algo: 'SHA256', leafDomainPrefix: '0x00', nodeDomainPrefix: '0x01', oddNodePolicy: 'PROMOTE', orderingPolicy: 'IDEMPOTENCY_KEY_LEX_V1' },
+    policyVersions: ['a'], createdAtLogical: 0,
   };
+}
+
+function base(): FreezeInput {
+  return { manifest: manifestOf('e1', '2026-Q2'), manifestHash: 'bb'.repeat(32) };
 }
 
 describe('InMemorySnapshotRepo', () => {
@@ -49,8 +50,8 @@ describe('InMemorySnapshotRepo', () => {
     // JSON tuple key: ["a|b","c"] vs ["a","b|c"] → distinct slots.
     // This test MUST fail against the old "|" implementation.
     const r = new InMemorySnapshotRepo();
-    const snap1 = { ...base(), entityId: 'a|b', periodId: 'c', manifest: { ...base().manifest, entityId: 'a|b', periodId: 'c' } };
-    const snap2 = { ...base(), entityId: 'a', periodId: 'b|c', manifest: { ...base().manifest, entityId: 'a', periodId: 'b|c' } };
+    const snap1: FreezeInput = { ...base(), manifest: manifestOf('a|b', 'c') };
+    const snap2: FreezeInput = { ...base(), manifest: manifestOf('a', 'b|c') };
     const res1 = r.freeze(snap1);
     const res2 = r.freeze(snap2); // must NOT throw SNAPSHOT_EXISTS
     expect(res1.snapshot.seq).toBe(1);
@@ -61,8 +62,25 @@ describe('InMemorySnapshotRepo', () => {
   it('distinct periods isolated', () => {
     const r = new InMemorySnapshotRepo();
     r.freeze(base());
-    const res = r.freeze({ ...base(), periodId: '2026-Q3', manifest: { ...base().manifest, periodId: '2026-Q3' } });
+    const res = r.freeze({ ...base(), manifest: manifestOf('e1', '2026-Q3') });
     expect(res.snapshot.seq).toBe(1);
+  });
+  it('HARDENING: top-level entityId/periodId/merkleRoot/leafCount are derived from manifest, never drift', () => {
+    // Why: AuditSnapshot duplicates these fields at top level and inside manifest. The old
+    // freeze() took them as separate inputs, so a caller could store an internally
+    // inconsistent snapshot (top-level merkleRoot != manifest.merkleRoot). The input type
+    // now only accepts {manifest, manifestHash}; the mirror fields are derived. This test
+    // pins that derivation — if freeze ever reads mirror fields from elsewhere, it fails.
+    const r = new InMemorySnapshotRepo();
+    const manifest = manifestOf('acme', '2026-Q4');
+    manifest.merkleRoot = 'cd'.repeat(32);
+    manifest.leafCount = 7;
+    const { snapshot } = r.freeze({ manifest, manifestHash: 'ef'.repeat(32) });
+    expect(snapshot.entityId).toBe(manifest.entityId);
+    expect(snapshot.periodId).toBe(manifest.periodId);
+    expect(snapshot.merkleRoot).toBe(manifest.merkleRoot);
+    expect(snapshot.leafCount).toBe(manifest.leafCount);
+    expect(snapshot.manifestHash).toBe('ef'.repeat(32));
   });
   it('immutability: mutating returned snapshot or input after freeze must not corrupt stored snapshot', () => {
     const r = new InMemorySnapshotRepo();
