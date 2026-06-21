@@ -94,7 +94,7 @@ function evaluateInner(input: RuleInput): RuleOutput {
   const je: JournalEntry = { idempotencyKey: key, lineageHash: lh, lines: carry.journalLines as JeLine[], reversalOf: null };
   return {
     decision: 'POSTABLE',
-    assessment: { eventType: 'DIGITAL_ASSET_RECEIPT', accountingClass: input.assetAssessment.accountingClass, measurementModel: input.assetAssessment.measurementModel },
+    assessment: { eventType: input.event.eventType, accountingClass: input.assetAssessment.accountingClass, measurementModel: input.assetAssessment.measurementModel },
     measurements: carry.measurements as RuleOutput['measurements'],
     lotMovements: carry.lotMovements as LotMovement[],
     journalEntries: [je],

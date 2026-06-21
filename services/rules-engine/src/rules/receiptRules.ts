@@ -25,11 +25,14 @@ export const receiptStrategy: EventStrategy = {
     return [{ name: 'consideration_fv', amountMinor: fv, currency: ctx.input.policySet.functionalCurrency, track: 'FV' }];
   },
   buildJeLines: (ctx): JeLine[] | RuleException => {
+    const assetAccount = ctx.input.coaMapping.resolve({ eventType: 'DIGITAL_ASSET_RECEIPT', leg: 'ACQUISITION', coinType: ctx.input.event.coinType });
+    const arAccount = ctx.input.coaMapping.resolve({ eventType: 'DIGITAL_ASSET_RECEIPT', leg: 'RECEIVABLE_SETTLEMENT', coinType: ctx.input.event.coinType });
+    if (!assetAccount || !arAccount) return { phase: 9, code: 'MAPPING_MISSING', detail: { assetAccount, arAccount } };
     const fv = ctx.carry.fvFunctionalMinor as string;
     const { event } = ctx.input;
     const lines: JeLine[] = [
-      { account: ctx.carry.assetAccount as string, side: 'DEBIT', amountMinor: fv, origCoinType: event.coinType, origQtyMinor: event.quantityMinor, priceRef: ctx.carry.priceRef as string, fxRef: ctx.carry.fxRef as string, leg: 'ACQUISITION' },
-      { account: ctx.carry.arAccount as string, side: 'CREDIT', amountMinor: fv, origCoinType: null, origQtyMinor: null, priceRef: null, fxRef: null, leg: 'RECEIVABLE_SETTLEMENT' },
+      { account: assetAccount, side: 'DEBIT', amountMinor: fv, origCoinType: event.coinType, origQtyMinor: event.quantityMinor, priceRef: ctx.carry.priceRef as string, fxRef: ctx.carry.fxRef as string, leg: 'ACQUISITION' },
+      { account: arAccount, side: 'CREDIT', amountMinor: fv, origCoinType: null, origQtyMinor: null, priceRef: null, fxRef: null, leg: 'RECEIVABLE_SETTLEMENT' },
     ];
     return balanceCheck(lines);
   },

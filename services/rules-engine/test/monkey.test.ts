@@ -76,8 +76,8 @@ describe('monkey: 極端輸入不得 silent 過或 crash', () => {
     expect(out.exceptions[0]!.code).toBe('NOT_IMPLEMENTED_IN_SLICE');
   });
 
-  it('each non-receipt pilot event → NOT_IMPLEMENTED_IN_SLICE phase 3', () => {
-    for (const t of ['DIGITAL_ASSET_PAYMENT', 'INTERNAL_TRANSFER', 'SPOT_TRADE_SWAP', 'GAS_FEE'] as const) {
+  it('each non-receipt/non-payment pilot event → NOT_IMPLEMENTED_IN_SLICE phase 3', () => {
+    for (const t of ['INTERNAL_TRANSFER', 'SPOT_TRADE_SWAP', 'GAS_FEE'] as const) {
       const i = makeReceiptInput('HAPPY');
       (i.event as { eventType: string }).eventType = t;
       const out = evaluate(i);

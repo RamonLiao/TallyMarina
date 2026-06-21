@@ -17,7 +17,6 @@ describe('phase 6-9', () => {
     expect(r.carry.lotMovements).toEqual([
       expect.objectContaining({ deltaQtyMinor: '100', deltaCostMinor: '300' }),
     ]);
-    expect(r.carry.assetAccount).toBeTruthy();
   });
   it('missing price → PRICE_MISSING at phase 6 (GF-RCV-MISSING-PXFX)', () => {
     const r = runPipeline(makeReceiptInput('NO_PRICE'), phases);
