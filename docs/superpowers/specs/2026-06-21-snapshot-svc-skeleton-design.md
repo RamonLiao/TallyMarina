@@ -27,6 +27,8 @@
 - 真 DB schema / migration
 - Walrus 上傳
 
+**聯調風險註記（sui-architect A4）**：`anchor_snapshot` 簽名不收 entityId，靠 `cap.chain_id == object::id(chain)` 綁 entity。manifest 雖綁 entityId，但 off-chain↔on-chain 對應**未在 hash 層強制** → A 主體 manifest 可被錨到 B 的 chain（manifest_hash 仍合法）。聯調階段必須建立可信的 `entityId → EntityAnchorChain object id` 映射並 gate。
+
 ## 3. Manifest 序列化決策
 
 - **Encoding**: BCS，`SNAPSHOT_MANIFEST_BCS_V1`。與 leaf codec（`JE_LEAF_BCS_V1`）同序列化家族，避免跨語言 JSON 數字/BigInt edge case，且不與既有 BCS 路線分裂。
@@ -44,7 +46,7 @@
 | `merkleRoot` | bytes (32) | 綁 JE 集合 |
 | `leafCount` | u64 | 防截斷（少塞 JE） |
 | `leafCodecVersion` | string (`'JE_LEAF_BCS_V1'`) | 綁 leaf 編碼版本 |
-| `merkleParams` | struct | 綁 merkle 建構規則，防換算法 |
+| `merkleParams` | struct | 綁 merkle 建構規則；冗餘但自描述（auditor 重算不需外部文件） |
 | `policyVersions` | vector\<string\>（dedupe + lex sort） | 綁 Rules Engine 政策版本 |
 | `createdAtLogical` | u64 | 決定性序（period close 邏輯序，**非** wall clock） |
 
@@ -95,7 +97,8 @@ anchorPayload = { manifestHash(hex 32B), merkleRoot(hex 32B), periodId, supersed
 |---|---|
 | `EMPTY_SNAPSHOT` | 無 POSTABLE JE |
 | `DUPLICATE_IDEMPOTENCY_KEY` | 跨 RuleOutput 撞 idempotencyKey（buildMerkle throw 冒泡；視為上游 bug） |
-| `PERIOD_ID_TOO_LONG` | periodId > 64B（對齊 Move ≤64B，提前擋） |
+| `PERIOD_ID_TOO_LONG` | periodId UTF-8 byte 長度 > 64（`Buffer.byteLength(periodId,'utf8')`，**非** `.length`；對齊 Move `vector<u8>` ≤64 bytes） |
+| `INVALID_ENCODING` | entityId / periodId 非 valid UTF-8（對齊 Move `String::utf8` 約束；否則鏈上 BCS decode → `String::utf8` abort，auditor 無法重算 manifest_hash） |
 | `INVALID_META` | entityId 空 / createdAtLogical 非整數（含負數、非 finite） |
 | `SNAPSHOT_EXISTS` | 同 (entityId, periodId) 已凍結且未帶 `restate: true` |
 
@@ -139,3 +142,5 @@ interface AuditSnapshotRepo {
 | createdAtLogical | u64 | `u64` |
 
 序列化順序 = 上表由上而下（BCS 為 positional，順序即 schema，不可重排）。
+
+**UTF-8 約束（sui-architect A1）**：所有映成 Move `String` 的欄位（entityId/periodId/leafCodecVersion/merkleParams.*/policyVersions/manifestVersion）必須為 valid UTF-8。off-chain encode 前驗證（見 §7 `INVALID_ENCODING`），確保鏈上 BCS decode → `String::utf8` 不 abort。
