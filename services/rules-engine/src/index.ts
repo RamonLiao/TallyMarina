@@ -12,7 +12,7 @@ import { phaseMapping } from './pipeline/phases/p09_mapping.js';
 import { phaseJe } from './pipeline/phases/p10_je.js';
 import { phaseDisclosure } from './pipeline/phases/p11_disclosure.js';
 import { idempotencyKey, lineageHash } from './core/idempotency.js';
-import { getStrategy } from './rules/registry.js';
+import { getStrategy, STRATEGIES } from './rules/registry.js';
 
 const PHASES = [
   phaseSchema, phaseOwnership, phaseClassification, phaseAssetScope, phaseRecognition,
@@ -63,6 +63,10 @@ function evaluateInner(input: RuleInput): RuleOutput {
   // Period close gate（§6.6）
   if (!input.policySet.periodOpen && input.runContext.mode !== 'REPLAY') {
     return rejectOutput({ phase: 0, code: 'PERIOD_CLOSED', detail: { periodId: input.runContext.periodId } }, input);
+  }
+
+  if (!STRATEGIES[input.event.eventType]) {
+    return rejectOutput({ phase: 3, code: 'NOT_IMPLEMENTED_IN_SLICE', detail: { eventType: input.event.eventType } }, input);
   }
 
   const key = idempotencyKey(input, null);

@@ -68,6 +68,14 @@ describe('monkey: 極端輸入不得 silent 過或 crash', () => {
     }
   });
 
+  it('unregistered eventType → REVIEW_REQUIRED NOT_IMPLEMENTED_IN_SLICE (不 throw)', () => {
+    const inp = makeReceiptInput('HAPPY');
+    (inp.event as any).eventType = 'STAKING_REWARD'; // not in STRATEGIES
+    const out = evaluate(inp);
+    expect(out.decision).toBe('REVIEW_REQUIRED');
+    expect(out.exceptions[0]!.code).toBe('NOT_IMPLEMENTED_IN_SLICE');
+  });
+
   it('each non-receipt pilot event → NOT_IMPLEMENTED_IN_SLICE phase 3', () => {
     for (const t of ['DIGITAL_ASSET_PAYMENT', 'INTERNAL_TRANSFER', 'SPOT_TRADE_SWAP', 'GAS_FEE'] as const) {
       const i = makeReceiptInput('HAPPY');
