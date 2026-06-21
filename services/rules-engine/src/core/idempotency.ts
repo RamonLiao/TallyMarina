@@ -1,7 +1,7 @@
 import { canonicalJson, sha256Hex } from './canonical.js';
 import type { RuleInput } from '../domain/types.js';
 
-// §7.8 lineage hash inputs；不適用欄位以顯式 null 參與序列化。
+// 穩定 key：只取 event identity + policy versions。刻意不含 price/fx/lot（→ lineageHash）。
 export function idempotencyKey(input: RuleInput, priorJeId: string | null): string {
   const ps = input.policySet;
   const lineage = {
@@ -14,11 +14,19 @@ export function idempotencyKey(input: RuleInput, priorJeId: string | null): stri
     assetPolicyVersion: ps.assetPolicyVersion,
     eventPolicyVersion: ps.eventPolicyVersion,
     ruleVersion: ps.ruleVersion,
-    pricePointIds: input.prices.map((p) => p.id).sort(),
-    fxRateIds: input.fxRates.map((f) => f.id).sort(),
-    lotIds: input.lots.map((l) => l.lotId).sort(),
-    approvalIds: [] as string[],   // slice 無 approval workflow；顯式空陣列
     priorJeId: priorJeId ?? null,
   };
   return sha256Hex(canonicalJson(lineage));
+}
+
+// resolved refs 審計用 sidecar；進 JournalEntry.lineageHash，不進 merkle leaf。
+export function lineageHash(args: {
+  priceRefs: string[]; fxRefs: string[]; consumedLotIds: string[]; approvalIds: string[];
+}): string {
+  return sha256Hex(canonicalJson({
+    priceRefs: [...args.priceRefs].sort(),
+    fxRefs: [...args.fxRefs].sort(),
+    consumedLotIds: [...args.consumedLotIds].sort(),
+    approvalIds: [...args.approvalIds].sort(),
+  }));
 }

@@ -11,7 +11,7 @@ import { phaseMeasure } from './pipeline/phases/p08_measure.js';
 import { phaseMapping } from './pipeline/phases/p09_mapping.js';
 import { phaseJe } from './pipeline/phases/p10_je.js';
 import { phaseDisclosure } from './pipeline/phases/p11_disclosure.js';
-import { idempotencyKey } from './core/idempotency.js';
+import { idempotencyKey, lineageHash } from './core/idempotency.js';
 import { RECEIPT_RULE_IDS } from './rules/receiptRules.js';
 
 const PHASES = [
@@ -81,7 +81,13 @@ function evaluateInner(input: RuleInput): RuleOutput {
   const { exception, carry } = runPipeline(input, PHASES);
   if (exception) return rejectOutput(exception, input);
 
-  const je: JournalEntry = { idempotencyKey: key, lines: carry.journalLines as JeLine[], reversalOf: null };
+  const lh = lineageHash({
+    priceRefs: carry.priceRef ? [carry.priceRef as string] : [],
+    fxRefs: carry.fxRef ? [carry.fxRef as string] : [],
+    consumedLotIds: ((carry.consumedLots as { lotId: string }[]) ?? []).map((c) => c.lotId),
+    approvalIds: [],
+  });
+  const je: JournalEntry = { idempotencyKey: key, lineageHash: lh, lines: carry.journalLines as JeLine[], reversalOf: null };
   return {
     decision: 'POSTABLE',
     assessment: { eventType: 'DIGITAL_ASSET_RECEIPT', accountingClass: input.assetAssessment.accountingClass, measurementModel: input.assetAssessment.measurementModel },
@@ -105,5 +111,5 @@ export function reverse(input: RuleInput, priorJe: JournalEntry): JournalEntry {
   const lines: JeLine[] = priorJe.lines.map((l) => ({
     ...l, side: l.side === 'DEBIT' ? 'CREDIT' : 'DEBIT', amountMinor: l.amountMinor,
   }));
-  return { idempotencyKey: key, lines, reversalOf: priorJe.idempotencyKey };
+  return { idempotencyKey: key, lineageHash: priorJe.lineageHash, lines, reversalOf: priorJe.idempotencyKey };
 }

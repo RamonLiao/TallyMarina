@@ -76,10 +76,18 @@ export interface FxRate {
 
 export interface PositionLot {
   lotId: string;
+  seq: number;                 // 單調遞增，FIFO 排序鍵（上游 lot store 賦值）
   coinType: string;
   wallet: string;
   remainingQtyMinor: string;
   costMinor: string;                    // functional ccy
+}
+
+export interface Measurement {
+  name: string;                // consideration_fv | disposal_carrying | realized_gain
+  amountMinor: string;
+  currency: string;
+  track: 'FV' | 'CARRYING' | 'GAIN' | 'TAX_BASIS' | 'REVAL_RESERVE';
 }
 
 export interface CoaMapping {
@@ -128,6 +136,7 @@ export interface RuleInput {
 
 export interface JournalEntry {
   idempotencyKey: string;
+  lineageHash: string;         // resolved refs（off-chain sidecar，不進 merkle leaf）
   lines: JeLine[];
   reversalOf: string | null;            // prior idempotencyKey if reversal
 }
@@ -135,7 +144,7 @@ export interface JournalEntry {
 export interface RuleOutput {
   decision: Decision;
   assessment: { eventType: EventType; accountingClass: string; measurementModel: string };
-  measurements: Array<{ name: string; amountMinor: string; currency: string }>;
+  measurements: Measurement[];
   lotMovements: LotMovement[];
   journalEntries: JournalEntry[];
   disclosureFacts: DisclosureFact[];
