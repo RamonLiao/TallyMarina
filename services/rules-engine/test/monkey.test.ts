@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { evaluate } from '../src/index.js';
 import { makeReceiptInput } from './fixtures/receipt.js';
+import { makePaymentInput } from './fixtures/payment.js';
+import { makeSwapInput } from './fixtures/swap.js';
 
 describe('monkey: 極端輸入不得 silent 過或 crash', () => {
   it('negative quantity rejected at schema (phase 1); 方向由 event type 表達，不以負量承載', () => {
@@ -94,5 +96,34 @@ describe('monkey: 極端輸入不得 silent 過或 crash', () => {
     const out = evaluate(i);
     expect(out.exceptions[0]).toMatchObject({ phase: 5, code: 'NOT_IMPLEMENTED_IN_SLICE' });
     expect(out.decision).toBe('REVIEW_REQUIRED');
+  });
+});
+
+describe('monkey: cross-event 邊界', () => {
+  it('carrying > FV → 走 disposal_loss（DEBIT gain account）', () => {
+    // why: carrying 200 > FV 20*4=80 → loss 120；DEBIT LOSS account（gain side DEBIT 表示損失）
+    const inp = makePaymentInput('HAPPY');
+    inp.lots = [{ lotId: 'L', seq: 1, coinType: '0x2::sui::SUI', wallet: '0xA', remainingQtyMinor: '20', costMinor: '200' }];
+    const je = evaluate(inp).journalEntries[0]!;
+    const lossLine = je.lines.find((l) => l.leg === 'DISPOSAL_LOSS');
+    expect(lossLine).toMatchObject({ side: 'DEBIT', amountMinor: '120' });
+  });
+
+  it('replay 後不重複消耗 lot（lotMovements 空）', () => {
+    // why: idempotency — replaying same event must not create new lot movements
+    const base = makePaymentInput('HAPPY');
+    const prior = evaluate(base).journalEntries[0]!;
+    const r = evaluate({ ...base, runContext: { ...base.runContext, mode: 'REPLAY' as const }, priorJournalEntries: { [prior.idempotencyKey]: prior } });
+    expect(r.lotMovements).toEqual([]);
+  });
+
+  it('uniform JE-line shape：所有 event 的 line 都有相同 key 集（canonical-complete）', () => {
+    // why: N3 canonical-complete leaf shape — every JeLine must have identical Object.keys
+    // regardless of event type; missing fields (vs explicit null) break merkle proof portability
+    const keys = (je: { lines: object[] }) => je.lines.map((l) => Object.keys(l).sort().join(','));
+    const pay = evaluate(makePaymentInput('HAPPY')).journalEntries[0]!;
+    const swp = evaluate(makeSwapInput('HAPPY')).journalEntries[0]!;
+    const allShapes = [...keys(pay), ...keys(swp)];
+    expect(new Set(allShapes).size).toBe(1);
   });
 });
