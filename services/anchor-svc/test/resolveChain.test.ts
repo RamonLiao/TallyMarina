@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { resolveChain } from '../src/core/resolveChain.js';
-import { deriveEntityRef, AnchorError, type SuiChainPort, type ChainState } from '../src/domain/types.js';
+import { AnchorError, type SuiChainPort, type ChainState } from '../src/domain/types.js';
+import { deriveEntityRef } from '../src/core/entityRef.js';
 
 function fakePort(state: Partial<ChainState>, capEpoch = 0n): SuiChainPort {
   return {
