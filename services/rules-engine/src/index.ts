@@ -112,8 +112,8 @@ function evaluateInner(input: RuleInput): RuleOutput {
 // 沖銷：產反向 JE，lineage 指回 prior（§6.6）。金額皆正，僅借貸對調。
 export function reverse(input: RuleInput, priorJe: JournalEntry): JournalEntry {
   const key = idempotencyKey(input, priorJe.idempotencyKey);
-  const lines: JeLine[] = priorJe.lines.map((l) => ({
-    ...l, side: l.side === 'DEBIT' ? 'CREDIT' : 'DEBIT', amountMinor: l.amountMinor,
-  }));
-  return { idempotencyKey: key, lineageHash: priorJe.lineageHash, lines, reversalOf: priorJe.idempotencyKey };
+  const lines: JeLine[] = priorJe.lines.map((l) => ({ ...l, side: l.side === 'DEBIT' ? 'CREDIT' : 'DEBIT' }));
+  // reversal lineage 指回 prior；resolved refs 沿用 prior（同一筆原始 resolution）
+  const lh = lineageHash({ priceRefs: [], fxRefs: [], consumedLotIds: [], approvalIds: [priorJe.idempotencyKey] });
+  return { idempotencyKey: key, lineageHash: lh, lines, reversalOf: priorJe.idempotencyKey };
 }
