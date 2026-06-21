@@ -54,6 +54,11 @@ function rootFromLeaves(leafHexes: string[]): string {
 }
 
 export interface InclusionProof {
+  // NON-AUTHORITATIVE: generation-time sort position only. verifyInclusion does NOT read or
+  // trust leafIndex — membership is proven solely by re-hashing leafBytes and folding `siblings`
+  // by their L/R position. Do NOT use leafIndex as an authenticated fact (e.g. for ordering /
+  // prefix proofs); under a future SNAPSHOT_BUSINESS_ORDER_V2 the sequence number must live in
+  // the leaf preimage, not here. (dual-review tie-breaker: codex / grok / whole-branch)
   leafIndex: number;
   siblings: { hash: string; position: 'L' | 'R' }[];
 }
