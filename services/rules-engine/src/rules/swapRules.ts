@@ -2,7 +2,7 @@ import type { EventStrategy, LotPlan } from './registry.js';
 import type { PipelineCtx } from '../pipeline/context.js';
 import type { JeLine, Measurement, DisclosureFact, RuleException } from '../domain/types.js';
 import { allocateFifo } from '../core/fifo.js';
-import { subMinor, ltMinor, negMinor } from '../core/decimal.js';
+import { subMinor, ltMinor, negMinor, isZeroMinor } from '../core/decimal.js';
 import { balanceCheck } from './receiptRules.js';
 
 export const swapStrategy: EventStrategy = {
@@ -56,16 +56,20 @@ export const swapStrategy: EventStrategy = {
     const gain = subMinor(fv, carrying);
     const acqAcct = coaMapping.resolve({ eventType: 'SPOT_TRADE_SWAP', leg: 'ACQUISITION', coinType: event.considerationAsset! });
     const dispAcct = coaMapping.resolve({ eventType: 'SPOT_TRADE_SWAP', leg: 'DISPOSAL', coinType: event.coinType });
-    const gainAcct = coaMapping.resolve({ eventType: 'SPOT_TRADE_SWAP', leg: ltMinor(gain, '0') ? 'DISPOSAL_LOSS' : 'DISPOSAL_GAIN', coinType: event.coinType });
-    if (!acqAcct || !dispAcct || !gainAcct) return { phase: 9, code: 'MAPPING_MISSING', detail: {} };
+    if (!acqAcct || !dispAcct) return { phase: 9, code: 'MAPPING_MISSING', detail: {} };
     const lines: JeLine[] = [
       { account: acqAcct, side: 'DEBIT', amountMinor: fv, origCoinType: event.considerationAsset, origQtyMinor: event.considerationQtyMinor, priceRef: ctx.carry.priceRef as string, fxRef: ctx.carry.fxRef as string, leg: 'ACQUISITION' },
       { account: dispAcct, side: 'CREDIT', amountMinor: carrying, origCoinType: event.coinType, origQtyMinor: event.quantityMinor, priceRef: null, fxRef: null, leg: 'DISPOSAL' },
     ];
-    if (ltMinor(gain, '0')) {
-      lines.push({ account: gainAcct, side: 'DEBIT', amountMinor: negMinor(gain), origCoinType: null, origQtyMinor: null, priceRef: null, fxRef: null, leg: 'DISPOSAL_LOSS' });
-    } else {
-      lines.push({ account: gainAcct, side: 'CREDIT', amountMinor: gain, origCoinType: null, origQtyMinor: null, priceRef: null, fxRef: null, leg: 'DISPOSAL_GAIN' });
+    if (!isZeroMinor(gain)) {
+      const gainLeg = ltMinor(gain, '0') ? 'DISPOSAL_LOSS' : 'DISPOSAL_GAIN';
+      const gainAcct = coaMapping.resolve({ eventType: 'SPOT_TRADE_SWAP', leg: gainLeg, coinType: event.coinType });
+      if (!gainAcct) return { phase: 9, code: 'MAPPING_MISSING', detail: { gainLeg } };
+      if (ltMinor(gain, '0')) {
+        lines.push({ account: gainAcct, side: 'DEBIT', amountMinor: negMinor(gain), origCoinType: null, origQtyMinor: null, priceRef: null, fxRef: null, leg: 'DISPOSAL_LOSS' });
+      } else {
+        lines.push({ account: gainAcct, side: 'CREDIT', amountMinor: gain, origCoinType: null, origQtyMinor: null, priceRef: null, fxRef: null, leg: 'DISPOSAL_GAIN' });
+      }
     }
     return balanceCheck(lines);
   },

@@ -40,6 +40,17 @@ describe('allocateFifo', () => {
     if (r.ok) expect(r.consumed[0]!.lotId).toBe('A'); // FIFO takes seq=1 lot first
   });
 
+  it('零餘額 lot 被跳過，從真實 lot 正確分配', () => {
+    // why: a fully-spent lot (remainingQtyMinor='0') must not participate in FIFO allocation
+    const r = allocateFifo([L(1, 'SPENT', '0', '0'), L(2, 'REAL', '50', '100')], 'SUI', '0xA', '30');
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.consumed).toHaveLength(1);
+      expect(r.consumed[0]!.lotId).toBe('REAL');
+      expect(r.consumed[0]!.costMinor).toBe('60'); // floor(100*30/50)=60
+    }
+  });
+
   it('duplicate seq → fail-closed throw', () => {
     expect(() => allocateFifo([L(1, 'X', '10', '10'), L(1, 'Y', '10', '10')], 'SUI', '0xA', '5')).toThrow(/duplicate lot seq/);
   });

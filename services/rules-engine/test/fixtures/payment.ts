@@ -1,10 +1,16 @@
 import type { RuleInput, CoaMapping } from '../../src/domain/types.js';
 
-type Variant = 'HAPPY' | 'SCOPE' | 'NO_PRICE' | 'NO_FX' | 'INSUFFICIENT_LOT';
+type Variant = 'HAPPY' | 'SCOPE' | 'NO_PRICE' | 'NO_FX' | 'INSUFFICIENT_LOT' | 'BREAK_EVEN';
 
 const coa: CoaMapping = {
   resolve: ({ leg }) =>
     ({ EXPENSE: 'SVC-EXP', DISPOSAL: 'ASSET-SUI', DISPOSAL_GAIN: 'GAIN', DISPOSAL_LOSS: 'LOSS' }[leg] ?? null),
+};
+
+// COA that omits gain/loss mappings entirely — valid for break-even disposals
+const coaNoGain: CoaMapping = {
+  resolve: ({ leg }) =>
+    ({ EXPENSE: 'SVC-EXP', DISPOSAL: 'ASSET-SUI' }[leg] ?? null),
 };
 
 export function makePaymentInput(variant: Variant): RuleInput {
@@ -38,5 +44,7 @@ export function makePaymentInput(variant: Variant): RuleInput {
     case 'NO_PRICE': return { ...base, prices: [] };
     case 'NO_FX': return { ...base, prices: [{ id: 'PX-EUR', coinType: '0x2::sui::SUI', priceCurrency: 'EUR', asOfDate: '2026-06-01', unitPriceMinor: '4' }] };
     case 'INSUFFICIENT_LOT': return { ...base, lots: [{ lotId: 'LOT1', seq: 1, coinType: '0x2::sui::SUI', wallet: '0xA', remainingQtyMinor: '5', costMinor: '12' }] };
+    // carrying == FV == 80 (20 units × price 4 = 80; lot costMinor = 80)
+    case 'BREAK_EVEN': return { ...base, lots: [{ lotId: 'LOT1', seq: 1, coinType: '0x2::sui::SUI', wallet: '0xA', remainingQtyMinor: '20', costMinor: '80' }], coaMapping: coaNoGain };
   }
 }

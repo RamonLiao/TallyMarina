@@ -32,6 +32,18 @@ describe('GF-PAY golden (§7.8.2)', () => {
     expect(out.lotMovements).toEqual([]);
   });
 
+  it('BREAK-EVEN: carrying==FV → POSTABLE, exactly 2 JE lines (no gain/loss line), balanced; works with null DISPOSAL_GAIN mapping', () => {
+    // why: when gain==0, no gain/loss line should be emitted and no DISPOSAL_GAIN COA mapping is needed
+    const out = evaluate(makePaymentInput('BREAK_EVEN'));
+    expect(out.decision).toBe('POSTABLE');
+    const je = out.journalEntries[0]!;
+    expect(je.lines).toHaveLength(2);
+    expect(je.lines.find((l) => l.leg === 'EXPENSE')).toMatchObject({ side: 'DEBIT', amountMinor: '80' });
+    expect(je.lines.find((l) => l.leg === 'DISPOSAL')).toMatchObject({ side: 'CREDIT', amountMinor: '80' });
+    expect(je.lines.find((l) => l.leg === 'DISPOSAL_GAIN')).toBeUndefined();
+    expect(je.lines.find((l) => l.leg === 'DISPOSAL_LOSS')).toBeUndefined();
+  });
+
   it('REPLAY-REVERSAL: replay 回原 JE; reversal Dr ASSET-SUI / Dr GAIN / Cr SVC-EXP; lot negated', () => {
     const happy = evaluate(makePaymentInput('HAPPY'));
     const prior = happy.journalEntries[0]!;

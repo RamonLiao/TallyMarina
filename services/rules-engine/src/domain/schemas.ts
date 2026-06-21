@@ -5,8 +5,8 @@ export const eventTypeSchema = z.enum([
   'INTERNAL_TRANSFER', 'SPOT_TRADE_SWAP', 'GAS_FEE',
 ]);
 
-// 事件數量為非負 minor-unit；方向由 event type / leg 表達，不以負數承載。
-const qtyMinorStr = z.string().regex(/^\d+$/, 'non-negative minor-unit integer string');
+// 事件數量為正整數 minor-unit；零量無意義且產生空 JE，fail-closed 在此擋下。
+const qtyMinorStr = z.string().regex(/^[1-9]\d*$/, 'positive minor-unit integer string (≥1)');
 
 export const normalizedEventSchema = z.object({
   schemaVersion: z.string().min(1),

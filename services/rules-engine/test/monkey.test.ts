@@ -7,6 +7,16 @@ import { makeGasInput } from './fixtures/gas.js';
 import { makeInternalTransferInput } from './fixtures/internalTransfer.js';
 
 describe('monkey: 極端輸入不得 silent 過或 crash', () => {
+  it('zero quantity rejected at schema (phase 1); 零量事件無意義，fail-closed 擋下', () => {
+    // why: zero-qty produces zero-amount JEs; fail-closed at schema prevents downstream confusion
+    const i = makeReceiptInput('HAPPY');
+    (i.event as { quantityMinor: string }).quantityMinor = '0';
+    const out = evaluate(i);
+    expect(out.decision).toBe('REJECTED');
+    expect(out.exceptions[0]).toMatchObject({ phase: 1, code: 'SCHEMA_INVALID' });
+    expect(out.journalEntries).toEqual([]);
+  });
+
   it('negative quantity rejected at schema (phase 1); 方向由 event type 表達，不以負量承載', () => {
     // why: 負量產負借貸金額、語義壞；fail-closed 在最前面擋下
     const i = makeReceiptInput('HAPPY');

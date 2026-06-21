@@ -8,7 +8,7 @@ export type FifoResult =
 
 export function allocateFifo(lots: PositionLot[], coinType: string, wallet: string, qtyNeededMinor: string): FifoResult {
   // 過濾後依 seq 升冪；fail-closed：seq 不得重複（重複代表上游排序契約被破壞）。
-  const pool = lots.filter((l) => l.coinType === coinType && l.wallet === wallet).slice().sort((a, b) => a.seq - b.seq);
+  const pool = lots.filter((l) => l.coinType === coinType && l.wallet === wallet && l.remainingQtyMinor !== '0').slice().sort((a, b) => a.seq - b.seq);
   for (let i = 1; i < pool.length; i++) {
     if (pool[i]!.seq === pool[i - 1]!.seq) throw new Error(`allocateFifo: duplicate lot seq ${pool[i]!.seq}`);
   }
