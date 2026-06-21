@@ -3,6 +3,8 @@ import { evaluate } from '../src/index.js';
 import { makeReceiptInput } from './fixtures/receipt.js';
 import { makePaymentInput } from './fixtures/payment.js';
 import { makeSwapInput } from './fixtures/swap.js';
+import { makeGasInput } from './fixtures/gas.js';
+import { makeInternalTransferInput } from './fixtures/internalTransfer.js';
 
 describe('monkey: 極端輸入不得 silent 過或 crash', () => {
   it('negative quantity rejected at schema (phase 1); 方向由 event type 表達，不以負量承載', () => {
@@ -121,9 +123,13 @@ describe('monkey: cross-event 邊界', () => {
     // why: N3 canonical-complete leaf shape — every JeLine must have identical Object.keys
     // regardless of event type; missing fields (vs explicit null) break merkle proof portability
     const keys = (je: { lines: object[] }) => je.lines.map((l) => Object.keys(l).sort().join(','));
+    const rec = evaluate(makeReceiptInput('HAPPY')).journalEntries[0]!;
     const pay = evaluate(makePaymentInput('HAPPY')).journalEntries[0]!;
     const swp = evaluate(makeSwapInput('HAPPY')).journalEntries[0]!;
-    const allShapes = [...keys(pay), ...keys(swp)];
+    const gas = evaluate(makeGasInput('HAPPY')).journalEntries[0]!;
+    // HAPPY ITX: wallet 0xA → 0xB, different CoA accounts → produces TRANSFER_IN/TRANSFER_OUT lines
+    const itx = evaluate(makeInternalTransferInput('HAPPY')).journalEntries[0]!;
+    const allShapes = [...keys(rec), ...keys(pay), ...keys(swp), ...keys(gas), ...keys(itx)];
     expect(new Set(allShapes).size).toBe(1);
   });
 });
