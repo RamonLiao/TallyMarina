@@ -30,3 +30,11 @@ export function applyFx(amountMinor: string, rateMinor: string, scale: number): 
   if (product % denom !== 0n) throw new Error('non-integer FX result; scale mismatch');
   return (product / denom).toString();
 }
+
+export function mulDivFloor(a: string, b: string, d: string): string {
+  const dd = toBig(d);
+  if (dd === 0n) throw new Error('mulDivFloor: div by zero');
+  return ((toBig(a) * toBig(b)) / dd).toString();
+}
+export function ltMinor(a: string, b: string): boolean { return toBig(a) < toBig(b); }
+export function subMinor(a: string, b: string): string { return (toBig(a) - toBig(b)).toString(); }
