@@ -21,7 +21,8 @@ export class InMemorySnapshotRepo implements AuditSnapshotRepo {
     const k = keyOf(snapshot.entityId, snapshot.periodId);
     const chain = this.versions.get(k);
     if (!chain || chain.length === 0) {
-      const frozen: AuditSnapshot = structuredClone({ ...snapshot, seq: 0, supersedesSeq: null });
+      // seq starts at 1; 0 is permanently reserved as the "no prior version" sentinel in supersedesSeq
+      const frozen: AuditSnapshot = structuredClone({ ...snapshot, seq: 1, supersedesSeq: null });
       this.versions.set(k, [frozen]);
       return { snapshot: structuredClone(frozen), created: true };
     }

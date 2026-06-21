@@ -57,15 +57,18 @@ describe('snapshot-svc monkey', () => {
       catch (e) { code = e instanceof SnapshotError ? e.code : 'WRONG'; }
       expect(code).toBe('SNAPSHOT_EXISTS');
     }
-    expect(repo.get('e1', '2026-Q2')?.seq).toBe(0); // 未被污染
+    expect(repo.get('e1', '2026-Q2')?.seq).toBe(1); // 未被污染；first freeze seq=1
   });
   it('many restatements → monotonic seq + supersedesSeq chain', () => {
+    // 0 is the reserved no-prior-version sentinel; valid version seq starts at 1
+    // so a restatement's supersedesSeq can never collide with it.
+    // After first freeze: seq=1. i-th restatement (i=1..10): seq=i+1, supersedesSeq=i (always ≥1).
     const repo = new InMemorySnapshotRepo();
     buildSnapshot([out([je('k')])], meta, repo);
     for (let i = 1; i <= 10; i++) {
       const { anchorPayload } = buildSnapshot([out([je('k')], [`p${i}`])], meta, repo, { restate: true });
-      expect(anchorPayload.supersedesSeq).toBe(i - 1);
+      expect(anchorPayload.supersedesSeq).toBe(i); // supersedes version i (≥1, never 0 sentinel)
     }
-    expect(repo.get('e1', '2026-Q2')?.seq).toBe(10);
+    expect(repo.get('e1', '2026-Q2')?.seq).toBe(11);
   });
 });

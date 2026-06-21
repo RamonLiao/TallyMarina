@@ -34,8 +34,9 @@ describe('buildSnapshot', () => {
     expect(auditSnapshot.manifest.policyVersions).toEqual(['ps-1', 'rule-1', 'rule-2']); // dedupe+sort
     expect(anchorPayload.manifestHash).toMatch(/^[0-9a-f]{64}$/);
     expect(anchorPayload.merkleRoot).toBe(auditSnapshot.merkleRoot);
+    // supersedesSeq=0 means "no prior version" (sentinel); first freeze → seq=1
     expect(anchorPayload.supersedesSeq).toBe(0);
-    expect(repo.get('e1', '2026-Q2')?.seq).toBe(0);
+    expect(repo.get('e1', '2026-Q2')?.seq).toBe(1);
   });
   it('filters out non-POSTABLE outputs (not in merkle / policyVersions)', () => {
     const repo = new InMemorySnapshotRepo();
@@ -92,11 +93,12 @@ describe('buildSnapshot', () => {
     } catch (e) { code = e instanceof SnapshotError ? e.code : 'WRONG'; }
     expect(code).toBe('INVALID_ENCODING');
   });
-  it('restate path: second freeze with restate → supersedesSeq 0', () => {
+  it('restate path: second freeze with restate → supersedesSeq 1 (supersedes v1), repo seq 2', () => {
     const repo = new InMemorySnapshotRepo();
     buildSnapshot([out('POSTABLE', [je('k1')], ['p'])], meta, repo);
     const { anchorPayload } = buildSnapshot([out('POSTABLE', [je('k1'), je('k2')], ['p'])], meta, repo, { restate: true });
-    expect(anchorPayload.supersedesSeq).toBe(0);
-    expect(repo.get('e1', '2026-Q2')?.seq).toBe(1);
+    // supersedesSeq=1 ≥ 1, so it is unambiguously a superseded real version, not the sentinel
+    expect(anchorPayload.supersedesSeq).toBe(1);
+    expect(repo.get('e1', '2026-Q2')?.seq).toBe(2);
   });
 });
