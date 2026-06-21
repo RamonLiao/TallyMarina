@@ -17,6 +17,7 @@ export function makePaymentInput(variant: Variant): RuleInput {
       coinType: '0x2::sui::SUI', assetDecimals: 0, quantityMinor: '20',
       eventTime: '2026-06-01T00:00:00Z', economicPurpose: 'SERVICE_PAYMENT',
       ownershipChange: true, considerationAsset: null,
+      considerationQtyMinor: null, considerationDecimals: null,
       rawPayloadHash: 'rawpay', txDigest: 'digpay', eventIndex: 0,
     },
     policySet: {

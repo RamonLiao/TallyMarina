@@ -24,6 +24,8 @@ export const normalizedEventSchema = z.object({
   economicPurpose: z.string().min(1),
   ownershipChange: z.boolean(),
   considerationAsset: z.string().nullable(),
+  considerationQtyMinor: qtyMinorStr.nullable(),
+  considerationDecimals: z.number().int().min(0).max(36).nullable(),
   rawPayloadHash: z.string().min(1),
   txDigest: z.string().min(1),
   eventIndex: z.number().int().min(0),

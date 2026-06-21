@@ -30,6 +30,8 @@ export interface NormalizedEvent {
   economicPurpose: string;              // e.g. 'RECEIVABLE_SETTLEMENT'
   ownershipChange: boolean;
   considerationAsset: string | null;
+  considerationQtyMinor: string | null;
+  considerationDecimals: number | null;
   // lineage refs
   rawPayloadHash: string;
   txDigest: string;

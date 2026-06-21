@@ -13,10 +13,10 @@ describe('phase 3-5', () => {
     expect(r.exception).toBeNull();
     expect(r.carry.recognize).toBe(true);
   });
-  it('non-receipt event → NOT_IMPLEMENTED_IN_SLICE at phase 3 (non-silent)', () => {
-    // why: §12 fail loud — 未實作的 4 event 不可 silent 通過
+  it('unregistered event → NOT_IMPLEMENTED_IN_SLICE at phase 3 (non-silent)', () => {
+    // why: §12 fail loud — 未實作的 event 不可 silent 通過; SPOT_TRADE_SWAP registered in Task 6 → use GAS_FEE
     const ev = makeReceiptInput('HAPPY');
-    (ev.event as { eventType: string }).eventType = 'SPOT_TRADE_SWAP';
+    (ev.event as { eventType: string }).eventType = 'GAS_FEE';
     const r = runPipeline(ev, phases);
     expect(r.exception).toMatchObject({ phase: 3, code: 'NOT_IMPLEMENTED_IN_SLICE' });
   });

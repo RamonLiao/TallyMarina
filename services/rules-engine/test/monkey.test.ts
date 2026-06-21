@@ -76,13 +76,23 @@ describe('monkey: 極端輸入不得 silent 過或 crash', () => {
     expect(out.exceptions[0]!.code).toBe('NOT_IMPLEMENTED_IN_SLICE');
   });
 
-  it('each non-receipt/non-payment pilot event → NOT_IMPLEMENTED_IN_SLICE phase 3', () => {
-    for (const t of ['INTERNAL_TRANSFER', 'SPOT_TRADE_SWAP', 'GAS_FEE'] as const) {
+  it('each unregistered pilot event → NOT_IMPLEMENTED_IN_SLICE phase 3', () => {
+    // SPOT_TRADE_SWAP is now registered (Task 6); only INTERNAL_TRANSFER + GAS_FEE remain unregistered
+    for (const t of ['INTERNAL_TRANSFER', 'GAS_FEE'] as const) {
       const i = makeReceiptInput('HAPPY');
       (i.event as { eventType: string }).eventType = t;
       const out = evaluate(i);
       expect(out.exceptions[0]).toMatchObject({ phase: 3, code: 'NOT_IMPLEMENTED_IN_SLICE' });
       expect(out.decision).toBe('REVIEW_REQUIRED');
     }
+  });
+
+  it('SPOT_TRADE_SWAP without consideration fields → NOT_IMPLEMENTED_IN_SLICE phase 5', () => {
+    // swap is registered but missing considerationAsset → classify() rejects at phase 5
+    const i = makeReceiptInput('HAPPY');
+    (i.event as { eventType: string }).eventType = 'SPOT_TRADE_SWAP';
+    const out = evaluate(i);
+    expect(out.exceptions[0]).toMatchObject({ phase: 5, code: 'NOT_IMPLEMENTED_IN_SLICE' });
+    expect(out.decision).toBe('REVIEW_REQUIRED');
   });
 });

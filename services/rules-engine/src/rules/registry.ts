@@ -3,6 +3,7 @@ import type { EventType, LotMovement, Measurement, JeLine, DisclosureFact, RuleE
 import type { ConsumedLot } from '../core/fifo.js';
 import { receiptStrategy } from './receiptRules.js';
 import { paymentStrategy } from './paymentRules.js';
+import { swapStrategy } from './swapRules.js';
 
 export interface LotPlan { movements: LotMovement[]; consumed: ConsumedLot[]; }
 export interface EventStrategy {
@@ -18,7 +19,8 @@ export interface EventStrategy {
 const STRATEGIES: Partial<Record<EventType, EventStrategy>> = {
   DIGITAL_ASSET_RECEIPT: receiptStrategy,
   DIGITAL_ASSET_PAYMENT: paymentStrategy,
-  // Task 6-8 逐一註冊
+  SPOT_TRADE_SWAP: swapStrategy,
+  // Task 7-8 逐一註冊
 };
 
 export function getStrategy(t: EventType): EventStrategy {

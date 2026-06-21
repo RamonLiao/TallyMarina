@@ -20,6 +20,7 @@ export function makeReceiptInput(variant: Variant): RuleInput {
       coinType: '0x2::sui::SUI', assetDecimals: 0, quantityMinor: '100',
       eventTime: '2026-06-01T00:00:00Z', economicPurpose: 'RECEIVABLE_SETTLEMENT',
       ownershipChange: true, considerationAsset: null,
+      considerationQtyMinor: null, considerationDecimals: null,
       rawPayloadHash: 'rawhash', txDigest: 'dig1', eventIndex: 0,
     },
     policySet: {
