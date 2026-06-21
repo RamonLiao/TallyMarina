@@ -40,6 +40,48 @@ function rootFromLeaves(leafHexes: string[]): string {
   return (level[0] as Buffer).toString('hex');
 }
 
+export interface InclusionProof {
+  leafIndex: number;
+  siblings: { hash: string; position: 'L' | 'R' }[];
+}
+
+export function inclusionProof(jes: JournalEntry[], idempotencyKey: string): InclusionProof {
+  const sorted = [...jes].sort((a, b) =>
+    a.idempotencyKey < b.idempotencyKey ? -1 : a.idempotencyKey > b.idempotencyKey ? 1 : 0);
+  const sortedKeys = sorted.map((j) => j.idempotencyKey);
+  const leafHexes = sorted.map(leafHash);
+  const leafIndex = sortedKeys.indexOf(idempotencyKey);
+  if (leafIndex < 0) throw new Error(`merkle: idempotencyKey not found ${idempotencyKey}`);
+
+  const siblings: { hash: string; position: 'L' | 'R' }[] = [];
+  let level: Buffer[] = leafHexes.map((h) => Buffer.from(h, 'hex'));
+  let idx = leafIndex;
+  while (level.length > 1) {
+    const isRight = idx % 2 === 1;
+    const pairIdx = isRight ? idx - 1 : idx + 1;
+    if (pairIdx < level.length) {
+      siblings.push({ hash: level[pairIdx]!.toString('hex'), position: isRight ? 'L' : 'R' });
+    }
+    const next: Buffer[] = [];
+    for (let i = 0; i < level.length; i += 2) {
+      if (i + 1 < level.length) next.push(nodeHash(level[i]!, level[i + 1]!));
+      else next.push(level[i]!);
+    }
+    level = next;
+    idx = Math.floor(idx / 2);
+  }
+  return { leafIndex, siblings };
+}
+
+export function verifyInclusion(leafBytes: Uint8Array, proof: InclusionProof, root: string): boolean {
+  let acc = sha256(Buffer.concat([Buffer.from([0x00]), Buffer.from(leafBytes)]));
+  for (const sib of proof.siblings) {
+    const sibBuf = Buffer.from(sib.hash, 'hex');
+    acc = sib.position === 'L' ? nodeHash(sibBuf, acc) : nodeHash(acc, sibBuf);
+  }
+  return acc.toString('hex') === root;
+}
+
 export function buildMerkle(jes: JournalEntry[]): { manifest: MerkleManifest; leafHashes: string[] } {
   if (jes.length === 0) throw new Error('merkle: empty JE set');
   const keys = new Set<string>();
