@@ -24,6 +24,16 @@ const SnapshotManifestBcs = bcs.struct('SnapshotManifestBcs', {
   createdAtLogical: bcs.u64(),
 });
 
+function isValidUtf8(s: string): boolean {
+  return Buffer.from(s, 'utf8').toString('utf8') === s;
+}
+
+function assertUtf8(s: string, fieldName: string): void {
+  if (!isValidUtf8(s)) {
+    throw new Error(`manifestCodec: ${fieldName} is not valid UTF-8`);
+  }
+}
+
 function hexTo32Bytes(hex: string): number[] {
   if (!/^[0-9a-f]{64}$/.test(hex)) {
     throw new Error(`manifestCodec: merkleRoot must be 32-byte lowercase hex, got len ${hex.length}`);
@@ -32,6 +42,20 @@ function hexTo32Bytes(hex: string): number[] {
 }
 
 export function encodeManifest(m: SnapshotManifestStruct): Uint8Array {
+  // spec §10 A1: all string fields must be valid UTF-8 at the serialization boundary
+  assertUtf8(m.manifestVersion, 'manifestVersion');
+  assertUtf8(m.entityId, 'entityId');
+  assertUtf8(m.periodId, 'periodId');
+  assertUtf8(m.leafCodecVersion, 'leafCodecVersion');
+  assertUtf8(m.merkleParams.algo, 'merkleParams.algo');
+  assertUtf8(m.merkleParams.leafDomainPrefix, 'merkleParams.leafDomainPrefix');
+  assertUtf8(m.merkleParams.nodeDomainPrefix, 'merkleParams.nodeDomainPrefix');
+  assertUtf8(m.merkleParams.oddNodePolicy, 'merkleParams.oddNodePolicy');
+  assertUtf8(m.merkleParams.orderingPolicy, 'merkleParams.orderingPolicy');
+  for (const pv of m.policyVersions) {
+    assertUtf8(pv, 'policyVersions[]');
+  }
+
   return SnapshotManifestBcs.serialize({
     manifestVersion: m.manifestVersion,
     entityId: m.entityId,

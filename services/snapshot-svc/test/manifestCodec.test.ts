@@ -31,4 +31,10 @@ describe('encodeManifest (SNAPSHOT_MANIFEST_BCS_V1)', () => {
   it('rejects merkleRoot != 32 bytes', () => {
     expect(() => encodeManifest({ ...m, merkleRoot: 'aa'.repeat(16) })).toThrow();
   });
+  it('rejects lone-surrogate leafCodecVersion (spec §10 A1 UTF-8 boundary)', () => {
+    // '\uD800' is a lone surrogate — not valid UTF-8
+    expect(() => encodeManifest({ ...m, leafCodecVersion: '\uD800' })).toThrow(
+      'manifestCodec: leafCodecVersion is not valid UTF-8',
+    );
+  });
 });
