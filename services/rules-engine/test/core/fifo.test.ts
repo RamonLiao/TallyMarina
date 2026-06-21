@@ -69,6 +69,11 @@ describe('allocateFifo', () => {
     }
   });
 
+  it('negative costMinor lot → fail-closed throw', () => {
+    // why: a lot with negative cost would corrupt pro-rata carrying; must throw before allocation
+    expect(() => allocateFifo([L(1, 'A', '100', '-200')], 'SUI', '0xA', '50')).toThrow(/negative lot qty\/cost/);
+  });
+
   it('multi-lot FIFO: full + floored-partial; totalCarrying exact, no rounding inflation', () => {
     // lot A: qty=2, cost=10 (fully taken); lot B: qty=3, cost=10 (take 1 → floor(10*1/3)=3)
     // totalCarrying should be 10 + 3 = 13; no inflation

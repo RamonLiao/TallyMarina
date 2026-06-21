@@ -5,6 +5,8 @@ import type { RuleInput } from '../domain/types.js';
 export function idempotencyKey(input: RuleInput, priorJeId: string | null): string {
   const ps = input.policySet;
   const lineage = {
+    entityId: input.event.entityId,
+    bookId: input.event.bookId,
     rawPayloadHash: input.event.rawPayloadHash,
     txDigest: input.event.txDigest,
     eventIndex: input.event.eventIndex,
@@ -21,12 +23,12 @@ export function idempotencyKey(input: RuleInput, priorJeId: string | null): stri
 
 // resolved refs 審計用 sidecar；進 JournalEntry.lineageHash，不進 merkle leaf。
 export function lineageHash(args: {
-  priceRefs: string[]; fxRefs: string[]; consumedLotIds: string[]; approvalIds: string[];
+  priceRefs: string[]; fxRefs: string[]; consumedLots: { lotId: string; qtyMinor: string; costMinor: string }[]; approvalIds: string[];
 }): string {
   return sha256Hex(canonicalJson({
     priceRefs: [...args.priceRefs].sort(),
     fxRefs: [...args.fxRefs].sort(),
-    consumedLotIds: [...args.consumedLotIds].sort(),
+    consumedLots: [...args.consumedLots].sort((a, b) => a.lotId < b.lotId ? -1 : a.lotId > b.lotId ? 1 : a.qtyMinor < b.qtyMinor ? -1 : 1),
     approvalIds: [...args.approvalIds].sort(),
   }));
 }

@@ -93,7 +93,7 @@ function evaluateInner(input: RuleInput): RuleOutput {
     const lh = lineageHash({
       priceRefs: carry.priceRef ? [carry.priceRef as string] : [],
       fxRefs: carry.fxRef ? [carry.fxRef as string] : [],
-      consumedLotIds: ((carry.consumedLots as { lotId: string }[]) ?? []).map((c) => c.lotId),
+      consumedLots: (carry.consumedLots as { lotId: string; qtyMinor: string; costMinor: string }[]) ?? [],
       approvalIds: [],
     });
     return [{ idempotencyKey: key, lineageHash: lh, lines: journalLines, reversalOf: null }];
@@ -124,7 +124,7 @@ export function reverse(
   const key = idempotencyKey(input, priorJe.idempotencyKey);
   const lines: JeLine[] = priorJe.lines.map((l) => ({ ...l, side: l.side === 'DEBIT' ? 'CREDIT' : 'DEBIT' }));
   // reversal lineage 指回 prior；resolved refs 沿用 prior（同一筆原始 resolution）
-  const lh = lineageHash({ priceRefs: [], fxRefs: [], consumedLotIds: [], approvalIds: [priorJe.idempotencyKey] });
+  const lh = lineageHash({ priceRefs: [], fxRefs: [], consumedLots: [], approvalIds: [priorJe.idempotencyKey] });
   const je: JournalEntry = { idempotencyKey: key, lineageHash: lh, lines, reversalOf: priorJe.idempotencyKey };
   const lotMovements: LotMovement[] = priorLotMovements.map((m) => ({
     ...m,

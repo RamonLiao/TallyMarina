@@ -12,6 +12,10 @@ export function allocateFifo(lots: PositionLot[], coinType: string, wallet: stri
   for (let i = 1; i < pool.length; i++) {
     if (pool[i]!.seq === pool[i - 1]!.seq) throw new Error(`allocateFifo: duplicate lot seq ${pool[i]!.seq}`);
   }
+  for (const lot of pool) {
+    if (lot.remainingQtyMinor.startsWith('-') || lot.costMinor.startsWith('-'))
+      throw new Error(`allocateFifo: negative lot qty/cost ${lot.lotId}`);
+  }
   const available = pool.reduce((acc, l) => addMinor(acc, l.remainingQtyMinor), '0');
   if (ltMinor(available, qtyNeededMinor)) return { ok: false, insufficient: true, availableQtyMinor: available };
 
