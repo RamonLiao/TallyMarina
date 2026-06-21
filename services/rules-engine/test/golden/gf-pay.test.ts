@@ -32,7 +32,7 @@ describe('GF-PAY golden (§7.8.2)', () => {
     expect(out.lotMovements).toEqual([]);
   });
 
-  it('REPLAY-REVERSAL: replay 回原 JE; reversal Dr ASSET-SUI / Dr GAIN / Cr SVC-EXP', () => {
+  it('REPLAY-REVERSAL: replay 回原 JE; reversal Dr ASSET-SUI / Dr GAIN / Cr SVC-EXP; lot negated', () => {
     const happy = evaluate(makePaymentInput('HAPPY'));
     const prior = happy.journalEntries[0]!;
     const base = makePaymentInput('HAPPY');
@@ -43,9 +43,12 @@ describe('GF-PAY golden (§7.8.2)', () => {
     });
     expect(replay.exceptions[0]!.code).toBe('IDEMPOTENT_REPLAY');
     expect(replay.lotMovements).toEqual([]);
-    const rev = reverse(base, prior);
+    const { je: rev, lotMovements } = reverse(base, prior, happy.lotMovements);
     expect(rev.lines.find((l) => l.account === 'ASSET-SUI')!.side).toBe('DEBIT');
     expect(rev.lines.find((l) => l.account === 'SVC-EXP')!.side).toBe('CREDIT');
     expect(rev.lines.find((l) => l.account === 'GAIN')!.side).toBe('DEBIT');
+    // lot negation: original -20/-50 → reversal +20/+50
+    expect(lotMovements[0]).toMatchObject({ deltaQtyMinor: '20', deltaCostMinor: '50' });
+    expect(lotMovements).toEqual(happy.lotMovements.map((m) => ({ ...m, deltaQtyMinor: String(-BigInt(m.deltaQtyMinor)), deltaCostMinor: String(-BigInt(m.deltaCostMinor)) })));
   });
 });

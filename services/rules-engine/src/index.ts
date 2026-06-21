@@ -1,4 +1,5 @@
 import type { RuleInput, RuleOutput, RuleException, JournalEntry, JeLine, LotMovement, DisclosureFact } from './domain/types.js';
+import { negMinor } from './core/decimal.js';
 import { runPipeline } from './pipeline/runPipeline.js';
 import { phaseSchema } from './pipeline/phases/p01_schema.js';
 import { phaseOwnership } from './pipeline/phases/p02_ownership.js';
@@ -108,17 +109,27 @@ function evaluateInner(input: RuleInput): RuleOutput {
     explanation: {
       ruleIds: getStrategy(input.event.eventType).ruleIds,
       policyVersions: [input.policySet.policySetVersion, input.policySet.ruleVersion],
-      priceRefs: [carry.priceRef as string],
-      fxRefs: [carry.fxRef as string],
+      priceRefs: carry.priceRef ? [carry.priceRef as string] : [],
+      fxRefs: carry.fxRef ? [carry.fxRef as string] : [],
     },
   };
 }
 
-// 沖銷：產反向 JE，lineage 指回 prior（§6.6）。金額皆正，僅借貸對調。
-export function reverse(input: RuleInput, priorJe: JournalEntry): JournalEntry {
+// 沖銷：產反向 JE + negated lot movements，lineage 指回 prior（§6.6）。金額皆正，僅借貸對調。
+export function reverse(
+  input: RuleInput,
+  priorJe: JournalEntry,
+  priorLotMovements: LotMovement[] = [],
+): { je: JournalEntry; lotMovements: LotMovement[] } {
   const key = idempotencyKey(input, priorJe.idempotencyKey);
   const lines: JeLine[] = priorJe.lines.map((l) => ({ ...l, side: l.side === 'DEBIT' ? 'CREDIT' : 'DEBIT' }));
   // reversal lineage 指回 prior；resolved refs 沿用 prior（同一筆原始 resolution）
   const lh = lineageHash({ priceRefs: [], fxRefs: [], consumedLotIds: [], approvalIds: [priorJe.idempotencyKey] });
-  return { idempotencyKey: key, lineageHash: lh, lines, reversalOf: priorJe.idempotencyKey };
+  const je: JournalEntry = { idempotencyKey: key, lineageHash: lh, lines, reversalOf: priorJe.idempotencyKey };
+  const lotMovements: LotMovement[] = priorLotMovements.map((m) => ({
+    ...m,
+    deltaQtyMinor: negMinor(m.deltaQtyMinor),
+    deltaCostMinor: negMinor(m.deltaCostMinor),
+  }));
+  return { je, lotMovements };
 }

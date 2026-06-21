@@ -47,7 +47,7 @@ describe('GF-GAS golden (§7.8.5)', () => {
     expect(drTotal).toBe(crTotal);
   });
 
-  it('REPLAY-REVERSAL: replay 回原 JE; reversal Dr ASSET-SUI / Dr GAIN / Cr NET-FEE', () => {
+  it('REPLAY-REVERSAL: replay 回原 JE; reversal Dr ASSET-SUI / Dr GAIN / Cr NET-FEE; lot negated', () => {
     const happy = evaluate(makeGasInput('HAPPY'));
     const prior = happy.journalEntries[0]!;
     const base = makeGasInput('HAPPY');
@@ -58,9 +58,12 @@ describe('GF-GAS golden (§7.8.5)', () => {
     });
     expect(replay.exceptions[0]!.code).toBe('IDEMPOTENT_REPLAY');
     expect(replay.lotMovements).toEqual([]);
-    const rev = reverse(base, prior);
+    const { je: rev, lotMovements } = reverse(base, prior, happy.lotMovements);
     expect(rev.lines.find((l) => l.account === 'ASSET-SUI')!.side).toBe('DEBIT');
     expect(rev.lines.find((l) => l.account === 'NET-FEE')!.side).toBe('CREDIT');
     expect(rev.lines.find((l) => l.account === 'GAIN')!.side).toBe('DEBIT');
+    // lot negation: original -2/-5 → reversal +2/+5
+    expect(lotMovements[0]).toMatchObject({ deltaQtyMinor: '2', deltaCostMinor: '5' });
+    expect(lotMovements).toEqual(happy.lotMovements.map((m) => ({ ...m, deltaQtyMinor: String(-BigInt(m.deltaQtyMinor)), deltaCostMinor: String(-BigInt(m.deltaCostMinor)) })));
   });
 });

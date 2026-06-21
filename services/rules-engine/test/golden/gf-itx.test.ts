@@ -3,7 +3,7 @@ import { evaluate, reverse } from '../../src/index.js';
 import { makeInternalTransferInput } from '../fixtures/internalTransfer.js';
 
 describe('GF-ITX golden (§7.8.3)', () => {
-  it('HAPPY: Dr SUI-B 120 / Cr SUI-A 120; lotMovements -40/-120@0xA +40/+120@0xB; no gain', () => {
+  it('HAPPY: Dr SUI-B 120 / Cr SUI-A 120; lotMovements -40/-120@0xA +40/+120@0xB; no gain; priceRefs/fxRefs empty', () => {
     const out = evaluate(makeInternalTransferInput('HAPPY'));
     expect(out.decision).toBe('POSTABLE');
     expect(out.assessment.eventType).toBe('INTERNAL_TRANSFER');
@@ -15,6 +15,9 @@ describe('GF-ITX golden (§7.8.3)', () => {
     const mvB = out.lotMovements.find((m) => m.wallet === '0xB');
     expect(mvA).toMatchObject({ deltaQtyMinor: '-40', deltaCostMinor: '-120' });
     expect(mvB).toMatchObject({ deltaQtyMinor: '40', deltaCostMinor: '120' });
+    // F4: valuation skipped → no undefined refs
+    expect(out.explanation.priceRefs).toEqual([]);
+    expect(out.explanation.fxRefs).toEqual([]);
   });
 
   it('SCOPE: SCOPE_UNKNOWN, no JE', () => {
@@ -36,7 +39,7 @@ describe('GF-ITX golden (§7.8.3)', () => {
     expect(out.lotMovements).toEqual([]);
   });
 
-  it('REPLAY-REVERSAL: replay 0-movement; reversal Dr SUI-A 120 / Cr SUI-B 120', () => {
+  it('REPLAY-REVERSAL: replay 0-movement; reversal Dr SUI-A 120 / Cr SUI-B 120; lot negated (B→A)', () => {
     const happy = evaluate(makeInternalTransferInput('REPLAY_REVERSAL'));
     const prior = happy.journalEntries[0]!;
     const base = makeInternalTransferInput('REPLAY_REVERSAL');
@@ -47,9 +50,15 @@ describe('GF-ITX golden (§7.8.3)', () => {
     });
     expect(replay.exceptions[0]!.code).toBe('IDEMPOTENT_REPLAY');
     expect(replay.lotMovements).toEqual([]);
-    const rev = reverse(base, prior);
+    const { je: rev, lotMovements } = reverse(base, prior, happy.lotMovements);
     expect(rev.lines.find((l) => l.account === 'SUI-A')!.side).toBe('DEBIT');
     expect(rev.lines.find((l) => l.account === 'SUI-B')!.side).toBe('CREDIT');
+    // lot negation: original A -40/-120, B +40/+120 → reversal A +40/+120, B -40/-120
+    expect(lotMovements).toEqual(happy.lotMovements.map((m) => ({ ...m, deltaQtyMinor: String(-BigInt(m.deltaQtyMinor)), deltaCostMinor: String(-BigInt(m.deltaCostMinor)) })));
+    const revA = lotMovements.find((m) => m.wallet === '0xA');
+    const revB = lotMovements.find((m) => m.wallet === '0xB');
+    expect(revA).toMatchObject({ deltaQtyMinor: '40', deltaCostMinor: '120' });
+    expect(revB).toMatchObject({ deltaQtyMinor: '-40', deltaCostMinor: '-120' });
   });
 
   it('GF-ITX-ENTITY-BOUNDARY: counterparty null → ENTITY_BOUNDARY, REJECTED, no JE', () => {

@@ -60,7 +60,7 @@ describe('GF-SWP golden (§7.8.4)', () => {
     expect(drTotal).toBe(crTotal);
   });
 
-  it('GF-SWP-REPLAY-REVERSAL: replay回原JE; reversal Dr SUI/GAIN / Cr USDC', () => {
+  it('GF-SWP-REPLAY-REVERSAL: replay回原JE; reversal Dr SUI/GAIN / Cr USDC; lot negated', () => {
     const happy = evaluate(makeSwapInput('HAPPY'));
     const prior = happy.journalEntries[0]!;
     const base = makeSwapInput('HAPPY');
@@ -71,10 +71,16 @@ describe('GF-SWP golden (§7.8.4)', () => {
     });
     expect(replay.exceptions[0]!.code).toBe('IDEMPOTENT_REPLAY');
     expect(replay.lotMovements).toEqual([]);
-    const rev = reverse(base, prior);
+    const { je: rev, lotMovements } = reverse(base, prior, happy.lotMovements);
     expect(rev.lines.find((l) => l.account === 'ASSET-USDC')!.side).toBe('CREDIT');
     expect(rev.lines.find((l) => l.account === 'ASSET-SUI')!.side).toBe('DEBIT');
     expect(rev.lines.find((l) => l.account === 'GAIN')!.side).toBe('DEBIT');
     expect(rev.reversalOf).toBe(prior.idempotencyKey);
+    // lot negation: SUI -100/-200 → +100/+200; USDC +300/+300 → -300/-300
+    expect(lotMovements).toEqual(happy.lotMovements.map((m) => ({ ...m, deltaQtyMinor: String(-BigInt(m.deltaQtyMinor)), deltaCostMinor: String(-BigInt(m.deltaCostMinor)) })));
+    const suiRev = lotMovements.find((m) => m.coinType === '0x2::sui::SUI');
+    const usdcRev = lotMovements.find((m) => m.coinType === '0x2::usdc::USDC');
+    expect(suiRev).toMatchObject({ deltaQtyMinor: '100', deltaCostMinor: '200' });
+    expect(usdcRev).toMatchObject({ deltaQtyMinor: '-300', deltaCostMinor: '-300' });
   });
 });

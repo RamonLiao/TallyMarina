@@ -3,7 +3,7 @@ import { evaluate, reverse } from '../../src/index.js';
 import { makeReceiptInput } from '../fixtures/receipt.js';
 
 describe('GF-RCV golden fixtures (§7.8.1)', () => {
-  it('GF-RCV-HAPPY: Dr SUI 300 / Cr AR 300; +lot 100/300; acquisition fact; no exception', () => {
+  it('GF-RCV-HAPPY: Dr SUI 300 / Cr AR 300; +lot 100/300; acquisition fact; no exception; priceRef present', () => {
     const out = evaluate(makeReceiptInput('HAPPY'));
     expect(out.decision).toBe('POSTABLE');
     expect(out.exceptions).toEqual([]);
@@ -12,6 +12,8 @@ describe('GF-RCV golden fixtures (§7.8.1)', () => {
     expect(je.lines.find((l) => l.side === 'CREDIT')!.amountMinor).toBe('300');
     expect(out.lotMovements[0]).toMatchObject({ deltaQtyMinor: '100', deltaCostMinor: '300' });
     expect(out.disclosureFacts[0]!.kind).toBe('acquisition');
+    // F4: valued event → priceRefs non-empty
+    expect(out.explanation.priceRefs.length).toBeGreaterThan(0);
   });
 
   it('GF-RCV-SCOPE: no JE; SCOPE_UNKNOWN; REVIEW_REQUIRED', () => {
@@ -37,7 +39,7 @@ describe('GF-RCV golden fixtures (§7.8.1)', () => {
     expect(out.lotMovements.every((m) => BigInt(m.deltaQtyMinor) >= 0n)).toBe(true);
   });
 
-  it('GF-RCV-REPLAY-REVERSAL: replay 回原 JE; reversal Dr AR 300 / Cr SUI 300, lineage 指回 prior', () => {
+  it('GF-RCV-REPLAY-REVERSAL: replay 回原 JE; reversal Dr AR 300 / Cr SUI 300, lineage 指回 prior; lot negated', () => {
     const happy = evaluate(makeReceiptInput('HAPPY'));
     const priorJe = happy.journalEntries[0]!;
     const replayBase = makeReceiptInput('HAPPY');
@@ -46,10 +48,13 @@ describe('GF-RCV golden fixtures (§7.8.1)', () => {
     expect(replay.journalEntries[0]!.idempotencyKey).toBe(priorJe.idempotencyKey);
     expect(replay.exceptions[0]!.code).toBe('IDEMPOTENT_REPLAY');
 
-    const rev = reverse(makeReceiptInput('HAPPY'), priorJe);
+    const { je: rev, lotMovements } = reverse(makeReceiptInput('HAPPY'), priorJe, happy.lotMovements);
     expect(rev.reversalOf).toBe(priorJe.idempotencyKey);
     // 原 Dr ASSET / Cr AR → reversal Cr ASSET / Dr AR
     expect(rev.lines.find((l) => l.account === 'AR')!.side).toBe('DEBIT');
     expect(rev.lines.find((l) => l.account === 'ASSET-SUI')!.side).toBe('CREDIT');
+    // lot negation: original +100/+300 → reversal -100/-300
+    expect(lotMovements).toEqual(happy.lotMovements.map((m) => ({ ...m, deltaQtyMinor: String(-BigInt(m.deltaQtyMinor)), deltaCostMinor: String(-BigInt(m.deltaCostMinor)) })));
+    expect(lotMovements[0]).toMatchObject({ deltaQtyMinor: '-100', deltaCostMinor: '-300' });
   });
 });
