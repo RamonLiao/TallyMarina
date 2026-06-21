@@ -12,9 +12,10 @@ describe('reverse', () => {
     expect(rev.lines.find((l) => l.account === 'ASSET-SUI')!.side).toBe('CREDIT');
     expect(rev.idempotencyKey).not.toBe(prior.idempotencyKey);
     expect(typeof rev.lineageHash).toBe('string');
+    expect(rev.lineageHash).not.toBe(prior.lineageHash);
   });
 
-  it('idempotent：reverse(reverse) 行為一致（金額不漂移）', () => {
+  it('reversal 金額不漂移（僅借貸對調，金額不變）', () => {
     const prior = evaluate(makeReceiptInput('HAPPY')).journalEntries[0]!;
     const r1 = reverse(makeReceiptInput('HAPPY'), prior);
     expect(r1.lines.map((l) => l.amountMinor)).toEqual(prior.lines.map((l) => l.amountMinor));
