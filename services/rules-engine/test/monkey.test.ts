@@ -77,8 +77,8 @@ describe('monkey: 極端輸入不得 silent 過或 crash', () => {
   });
 
   it('each unregistered pilot event → NOT_IMPLEMENTED_IN_SLICE phase 3', () => {
-    // SPOT_TRADE_SWAP is now registered (Task 6); only INTERNAL_TRANSFER + GAS_FEE remain unregistered
-    for (const t of ['INTERNAL_TRANSFER', 'GAS_FEE'] as const) {
+    // SPOT_TRADE_SWAP registered (Task 6), GAS_FEE registered (Task 7); only INTERNAL_TRANSFER remains unregistered
+    for (const t of ['INTERNAL_TRANSFER'] as const) {
       const i = makeReceiptInput('HAPPY');
       (i.event as { eventType: string }).eventType = t;
       const out = evaluate(i);
