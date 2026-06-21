@@ -55,4 +55,12 @@ describe('leafCodec (JE_LEAF_BCS_V1)', () => {
     const c = encodeJeLeaf(je({ lines: [{ ...je().lines[0], side: 'CREDIT' }] }));
     expect(Buffer.from(d).toString('hex')).not.toBe(Buffer.from(c).toString('hex'));
   });
+
+  it('throws on invalid JeLine.side (fail-closed)', () => {
+    // why: invalid accounting direction must not be silently coerced into the audit root —
+    // runtime data bypassing TypeScript (e.g. malformed API payload) must throw, not silently
+    // encode as CREDIT, which would corrupt the audit evidence irreversibly.
+    const badJe = je({ lines: [{ ...je().lines[0], side: 'INVALID' as any }] });
+    expect(() => encodeJeLeaf(badJe)).toThrow(/leafCodec: invalid JeLine\.side/);
+  });
 });

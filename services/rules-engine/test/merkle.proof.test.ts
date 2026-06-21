@@ -42,4 +42,13 @@ describe('merkle inclusion proof', () => {
   it('throws for absent key', () => {
     expect(() => inclusionProof(jes, '9'.repeat(64))).toThrow();
   });
+
+  it('throws on duplicate idempotencyKey (fail-closed, same invariant as buildMerkle)', () => {
+    // why: proof must honor the same uniqueness invariant as buildMerkle — a proof built from
+    // a duplicate-containing set silently picks the first match, making it impossible to
+    // validate against a (non-existent) root. Callers must not be able to silently build
+    // proofs from corrupt input.
+    const dupJes = [je('1'.repeat(64)), je('2'.repeat(64)), je('1'.repeat(64))];
+    expect(() => inclusionProof(dupJes, '1'.repeat(64))).toThrow(/merkle: duplicate idempotencyKey/);
+  });
 });

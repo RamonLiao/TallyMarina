@@ -17,6 +17,14 @@ function sha256(buf: Uint8Array): Buffer {
   return createHash('sha256').update(buf).digest();
 }
 
+function assertNoDuplicateKeys(jes: JournalEntry[]): void {
+  const keys = new Set<string>();
+  for (const je of jes) {
+    if (keys.has(je.idempotencyKey)) throw new Error(`merkle: duplicate idempotencyKey ${je.idempotencyKey}`);
+    keys.add(je.idempotencyKey);
+  }
+}
+
 function sortByIdempotencyKey(jes: JournalEntry[]): JournalEntry[] {
   return [...jes].sort((a, b) =>
     a.idempotencyKey < b.idempotencyKey ? -1 : a.idempotencyKey > b.idempotencyKey ? 1 : 0);
@@ -51,6 +59,7 @@ export interface InclusionProof {
 }
 
 export function inclusionProof(jes: JournalEntry[], idempotencyKey: string): InclusionProof {
+  assertNoDuplicateKeys(jes);
   const sorted = sortByIdempotencyKey(jes);
   const sortedKeys = sorted.map((j) => j.idempotencyKey);
   const leafHexes = sorted.map(leafHash);
@@ -88,11 +97,7 @@ export function verifyInclusion(leafBytes: Uint8Array, proof: InclusionProof, ro
 
 export function buildMerkle(jes: JournalEntry[]): { manifest: MerkleManifest; leafHashes: string[] } {
   if (jes.length === 0) throw new Error('merkle: empty JE set');
-  const keys = new Set<string>();
-  for (const je of jes) {
-    if (keys.has(je.idempotencyKey)) throw new Error(`merkle: duplicate idempotencyKey ${je.idempotencyKey}`);
-    keys.add(je.idempotencyKey);
-  }
+  assertNoDuplicateKeys(jes);
   const sorted = sortByIdempotencyKey(jes);
   const leafHashes = sorted.map(leafHash);
   return {

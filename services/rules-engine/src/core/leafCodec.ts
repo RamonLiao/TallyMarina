@@ -22,7 +22,9 @@ const JournalEntryLeaf = bcs.struct('JournalEntryLeaf', {
 });
 
 function sideToU8(side: JeLine['side']): number {
-  return side === 'DEBIT' ? 0 : 1;       // exhaustive: JeLine.side is 'DEBIT' | 'CREDIT'
+  if (side === 'DEBIT') return 0;
+  if (side === 'CREDIT') return 1;
+  throw new Error(`leafCodec: invalid JeLine.side ${String(side)}`);
 }
 
 export function encodeJeLeaf(je: JournalEntry): Uint8Array {
