@@ -16,7 +16,7 @@
 | C1-iso | **Do NOT touch** `canonicalJson` / `idempotencyKey` / `lineageHash` | They are internal same-binary dedup. Changing them risks drifting `idempotencyKey`, which would break all replay dedup. Merkle leaf gets its own codec. |
 | C2-gran | Leaf granularity = **per `JournalEntry`** | One leaf = whole JE (idempotencyKey + all lines, BCS). Line order frozen inside the preimage → completeness guaranteed natively. Auditor proves inclusion of a single JE. |
 | C2-ord | Leaf ordering = **idempotencyKey lexical (hex)** | Pure function, no external state; auditor with the same JE set MUST derive the same root. idempotencyKey is content-addressed and unique. |
-| C2-ord-future | Reserve versioned `orderingPolicy` for a future **business-order** index | Preserving business sequence matters; a future Snapshot Svc may assign a snapshot-local order index. Switching policy value is non-breaking (leaf preimage/hash rules unchanged); manifest records which policy was used. |
+| C2-ord-future | Reserve versioned `orderingPolicy` for a future **business-order** index | Preserving business sequence matters; a future Snapshot Svc may assign a snapshot-local order index. Switching policy value is non-breaking (leaf preimage/hash rules unchanged); manifest records which policy was used. **V2 caveat below.** |
 | C2-hash | `sha256`, RFC 6962-style domain separation | Matches the on-chain 32-byte hash store. Leaf/node prefixes prevent second-preimage & CVE-2012-2459 duplicate-leaf forgery. |
 
 ## C1 — `core/leafCodec.ts` (new)
@@ -45,6 +45,20 @@ JeLineBcs {
   leg:          string
 }
 ```
+
+### BCS ↔ Move type mapping (FROZEN — for future on-chain leaf recompute)
+
+The auditor's BCS lib and any future Move recompute MUST agree on this mapping.
+`@mysten/bcs` `bcs.string()` = ULEB128 length + UTF-8 bytes, byte-identical to Move
+`std::string::String` (which is `vector<u8>` of valid UTF-8). `Option` = 1 tag byte
+(`0x00` none / `0x01` some) then the inner value.
+
+| BCS field type | `@mysten/bcs` | Move type |
+|----------------|---------------|-----------|
+| `string`         | `bcs.string()`              | `std::string::String` |
+| `Option<string>` | `bcs.option(bcs.string())`  | `std::option::Option<std::string::String>` |
+| `u8`             | `bcs.u8()`                  | `u8` |
+| `vector<JeLineBcs>` | `bcs.vector(JeLineBcs)`   | `vector<JeLineBcs>` |
 
 - `lineageHash` is **excluded** from the leaf (off-chain sidecar).
 - `lines` order = the JE's existing production order, frozen inside the preimage.
@@ -94,6 +108,11 @@ export function verifyInclusion(leafBytes: Uint8Array, proof: InclusionProof, ro
 ```
 
 - `manifest_hash` algorithm is **NOT** frozen here — that is the Snapshot Service's job. C2 only emits `merkleRoot` + manifest fields.
+
+### orderingPolicy reconstruction contract
+
+- **`IDEMPOTENCY_KEY_LEX_V1` (current)**: ordering is derivable from the JE set alone — the auditor sorts by `idempotencyKey` and reproduces the tree without external state. Self-contained.
+- **`SNAPSHOT_BUSINESS_ORDER_V2` (reserved)**: the business-order index is **NOT** in the leaf preimage, so the JE set alone is insufficient to reconstruct leaf positions. Under V2 the snapshot manifest MUST carry the **ordered list of idempotencyKeys**; the auditor reconstructs the tree from that list, not from a sort. Inclusion-proof verification is unaffected (it only walks sibling hashes), but tree/root reconstruction depends on the manifest's ordered key list. This is why the switch is non-breaking for leaf/hash rules yet requires the manifest to grow a field.
 
 ## Scope boundaries
 
