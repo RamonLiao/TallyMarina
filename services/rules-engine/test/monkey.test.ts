@@ -76,9 +76,9 @@ describe('monkey: 極端輸入不得 silent 過或 crash', () => {
     expect(out.exceptions[0]!.code).toBe('NOT_IMPLEMENTED_IN_SLICE');
   });
 
-  it('each unregistered pilot event → NOT_IMPLEMENTED_IN_SLICE phase 3', () => {
-    // SPOT_TRADE_SWAP registered (Task 6), GAS_FEE registered (Task 7); only INTERNAL_TRANSFER remains unregistered
-    for (const t of ['INTERNAL_TRANSFER'] as const) {
+  it('unimplemented (non-pilot) event → NOT_IMPLEMENTED_IN_SLICE phase 3', () => {
+    // 5 個 pilot event 皆已註冊(Task 8)；用非 pilot 型別驗 fail-closed guard 仍擋未實作事件
+    for (const t of ['STAKING_REWARD', 'CEX_DEPOSIT'] as const) {
       const i = makeReceiptInput('HAPPY');
       (i.event as { eventType: string }).eventType = t;
       const out = evaluate(i);

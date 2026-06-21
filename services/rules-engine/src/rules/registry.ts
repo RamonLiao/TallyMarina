@@ -5,6 +5,7 @@ import { receiptStrategy } from './receiptRules.js';
 import { paymentStrategy } from './paymentRules.js';
 import { swapStrategy } from './swapRules.js';
 import { gasStrategy } from './gasRules.js';
+import { internalTransferStrategy } from './internalTransferRules.js';
 
 export interface LotPlan { movements: LotMovement[]; consumed: ConsumedLot[]; }
 export interface EventStrategy {
@@ -22,6 +23,7 @@ const STRATEGIES: Partial<Record<EventType, EventStrategy>> = {
   DIGITAL_ASSET_PAYMENT: paymentStrategy,
   SPOT_TRADE_SWAP: swapStrategy,
   GAS_FEE: gasStrategy,
+  INTERNAL_TRANSFER: internalTransferStrategy,
 };
 
 export function getStrategy(t: EventType): EventStrategy {
