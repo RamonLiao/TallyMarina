@@ -68,6 +68,8 @@ interface Measurement {
 - `idempotencyKey` = `sha256(canonical(event identity「rawPayloadHash/txDigest/eventIndex」+ 全部 policy versions))`。**移除** price/fx/lot id 陣列 → 修掉 codex #4（無關 price 改 key → double-post），且 replay 不必重跑 FIFO 即可用穩定 key 查 `priorJournalEntries`。
 - 新增 `JournalEntry.lineageHash` = `sha256(canonical(resolved priceRef/fxRef/consumed lotIds/approvalIds))`，供 audit + 未來 Snapshot sidecar。
 - **S1（採納，釘死契約）**：未來 merkle **leaf = canonical JE-line + `idempotencyKey`**；`lineageHash` **不進 leaf**，為 off-chain sidecar。Snapshot Svc 對 canonical JE-line bytes 做 merkle，**絕不**對 key/lineageHash 單獨 hash。
+- **key schema migration（採納 sui-architect concern #1）**：本變更使 `idempotencyKey` 格式從舊版（含 `pricePointIds/fxRateIds/lotIds`）改為新版（移除）。舊 key 下 posted 的 JE 在 replay 會 miss → 重跑 pipeline → double-post 風險。**B 是 greenfield，無已 posted 正式 ledger，無需 migration**；但本契約明文：**對已有 posted 資料的環境變更 key schema，必須 reset 或版本標記 `priorJournalEntries`**，禁止靜默換格式。
+- **可驗斷言（concern #2）**：`idempotencyKey` 計算**不得引用** `input.lots` / `input.prices` / `input.fxRates`（這些移入 `lineageHash`）。否則 §5 的「replay 不必重跑 FIFO 即可用穩定 key 查」主張不成立、會被 golden 推翻。列入接受標準。
 
 ### 6. reversal（採納 S3）
 `reverse()` 泛化：
@@ -86,6 +88,7 @@ interface Measurement {
 - 5 event 全 happy/exception/replay golden pass，舊 37 receipt 測試不回歸。
 - typecheck clean。
 - 新增 event 不需動 phase（只加 rules module + registry 註冊）。
+- `idempotencyKey` 計算不引用 `input.lots/prices/fxRates`（單元測試斷言）；replay golden 在新 key 格式下命中 `IDEMPOTENT_REPLAY`。
 - 不需改動 AuditAnchor Move 合約（N2 確認）。
 - dual-review（codex + sui skills）通過。
 
