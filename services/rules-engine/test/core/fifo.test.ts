@@ -15,12 +15,14 @@ describe('allocateFifo', () => {
   it('部分消耗：carrying 按比例 floor，餘額留 lot', () => {
     // 取 40/100，cost 200 → 200*40/100 = 80
     const r = allocateFifo([L(1, 'A', '100', '200')], 'SUI', '0xA', '40');
+    expect(r.ok).toBe(true);
     if (r.ok) expect(r.consumed[0]!.costMinor).toBe('80');
   });
 
   it('多 lot 跨筆 FIFO 依 seq；最後一筆吸收尾差', () => {
     // 需 50：A(30/100) 全取 cost100；B 取 20/40，cost = floor(50*20/40)=25
     const r = allocateFifo([L(2, 'B', '40', '50'), L(1, 'A', '30', '100')], 'SUI', '0xA', '50');
+    expect(r.ok).toBe(true);
     if (r.ok) {
       expect(r.consumed.map((c) => c.lotId)).toEqual(['A', 'B']);
       expect(r.totalCarryingMinor).toBe('125');
@@ -32,8 +34,13 @@ describe('allocateFifo', () => {
     expect(r).toEqual({ ok: false, insufficient: true, availableQtyMinor: '10' });
   });
 
-  it('未按 seq 排序 → fail-closed throw', () => {
-    expect(() => allocateFifo([L(2, 'B', '10', '10'), L(1, 'A', '10', '10')], 'SUI', '0xA', '5')).not.toThrow();
-    // 注意：函式內部會先 filter+sort 自己排序並斷言一致性；此處驗證輸入亂序仍正確（見 Step 3 設計）
+  it('亂序輸入仍正確排序（不拋例外）', () => {
+    const r = allocateFifo([L(2, 'B', '10', '10'), L(1, 'A', '10', '10')], 'SUI', '0xA', '5');
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.consumed[0]!.lotId).toBe('A'); // FIFO takes seq=1 lot first
+  });
+
+  it('duplicate seq → fail-closed throw', () => {
+    expect(() => allocateFifo([L(1, 'X', '10', '10'), L(1, 'Y', '10', '10')], 'SUI', '0xA', '5')).toThrow(/duplicate lot seq/);
   });
 });
