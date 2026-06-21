@@ -1,4 +1,5 @@
 import type { RuleInput, RuleOutput, RuleException, JournalEntry, JeLine, LotMovement, DisclosureFact } from './domain/types.js';
+import { negMinor } from './core/decimal.js';
 import { runPipeline } from './pipeline/runPipeline.js';
 import { phaseSchema } from './pipeline/phases/p01_schema.js';
 import { phaseOwnership } from './pipeline/phases/p02_ownership.js';
@@ -11,8 +12,8 @@ import { phaseMeasure } from './pipeline/phases/p08_measure.js';
 import { phaseMapping } from './pipeline/phases/p09_mapping.js';
 import { phaseJe } from './pipeline/phases/p10_je.js';
 import { phaseDisclosure } from './pipeline/phases/p11_disclosure.js';
-import { idempotencyKey } from './core/idempotency.js';
-import { RECEIPT_RULE_IDS } from './rules/receiptRules.js';
+import { idempotencyKey, lineageHash } from './core/idempotency.js';
+import { getStrategy, STRATEGIES } from './rules/registry.js';
 
 const PHASES = [
   phaseSchema, phaseOwnership, phaseClassification, phaseAssetScope, phaseRecognition,
@@ -65,6 +66,10 @@ function evaluateInner(input: RuleInput): RuleOutput {
     return rejectOutput({ phase: 0, code: 'PERIOD_CLOSED', detail: { periodId: input.runContext.periodId } }, input);
   }
 
+  if (!STRATEGIES[input.event.eventType]) {
+    return rejectOutput({ phase: 3, code: 'NOT_IMPLEMENTED_IN_SLICE', detail: { eventType: input.event.eventType } }, input);
+  }
+
   const key = idempotencyKey(input, null);
 
   // Replay：已 posted 回原 JE（idempotent）
@@ -74,36 +79,57 @@ function evaluateInner(input: RuleInput): RuleOutput {
       assessment: { eventType: input.event.eventType, accountingClass: input.assetAssessment.accountingClass, measurementModel: input.assetAssessment.measurementModel },
       measurements: [], lotMovements: [], journalEntries: [input.priorJournalEntries[key]!],
       disclosureFacts: [], exceptions: [{ phase: 0, code: 'IDEMPOTENT_REPLAY', detail: { key } }],
-      explanation: { ...emptyExplanation(), ruleIds: RECEIPT_RULE_IDS },
+      explanation: { ...emptyExplanation(), ruleIds: getStrategy(input.event.eventType).ruleIds },
     };
   }
 
   const { exception, carry } = runPipeline(input, PHASES);
   if (exception) return rejectOutput(exception, input);
 
-  const je: JournalEntry = { idempotencyKey: key, lines: carry.journalLines as JeLine[], reversalOf: null };
+  const journalLines = carry.journalLines as JeLine[];
+  // §7.8.3: zero-value subledger movement (e.g. same-wallet ITX) emits NO JournalEntry — only lot location move.
+  // Normal events always produce ≥2 balanced lines, so this branch is unreachable for them.
+  const journalEntries: JournalEntry[] = journalLines.length === 0 ? [] : (() => {
+    const lh = lineageHash({
+      priceRefs: carry.priceRef ? [carry.priceRef as string] : [],
+      fxRefs: carry.fxRef ? [carry.fxRef as string] : [],
+      consumedLots: (carry.consumedLots as { lotId: string; qtyMinor: string; costMinor: string }[]) ?? [],
+      approvalIds: [],
+    });
+    return [{ idempotencyKey: key, lineageHash: lh, lines: journalLines, reversalOf: null }];
+  })();
   return {
     decision: 'POSTABLE',
-    assessment: { eventType: 'DIGITAL_ASSET_RECEIPT', accountingClass: input.assetAssessment.accountingClass, measurementModel: input.assetAssessment.measurementModel },
+    assessment: { eventType: input.event.eventType, accountingClass: input.assetAssessment.accountingClass, measurementModel: input.assetAssessment.measurementModel },
     measurements: carry.measurements as RuleOutput['measurements'],
     lotMovements: carry.lotMovements as LotMovement[],
-    journalEntries: [je],
+    journalEntries,
     disclosureFacts: carry.disclosureFacts as DisclosureFact[],
     exceptions: [],
     explanation: {
-      ruleIds: RECEIPT_RULE_IDS,
+      ruleIds: getStrategy(input.event.eventType).ruleIds,
       policyVersions: [input.policySet.policySetVersion, input.policySet.ruleVersion],
-      priceRefs: [carry.priceRef as string],
-      fxRefs: [carry.fxRef as string],
+      priceRefs: carry.priceRef ? [carry.priceRef as string] : [],
+      fxRefs: carry.fxRef ? [carry.fxRef as string] : [],
     },
   };
 }
 
-// 沖銷：產反向 JE，lineage 指回 prior（§6.6）。金額皆正，僅借貸對調。
-export function reverse(input: RuleInput, priorJe: JournalEntry): JournalEntry {
+// 沖銷：產反向 JE + negated lot movements，lineage 指回 prior（§6.6）。金額皆正，僅借貸對調。
+export function reverse(
+  input: RuleInput,
+  priorJe: JournalEntry,
+  priorLotMovements: LotMovement[] = [],
+): { je: JournalEntry; lotMovements: LotMovement[] } {
   const key = idempotencyKey(input, priorJe.idempotencyKey);
-  const lines: JeLine[] = priorJe.lines.map((l) => ({
-    ...l, side: l.side === 'DEBIT' ? 'CREDIT' : 'DEBIT', amountMinor: l.amountMinor,
+  const lines: JeLine[] = priorJe.lines.map((l) => ({ ...l, side: l.side === 'DEBIT' ? 'CREDIT' : 'DEBIT' }));
+  // reversal lineage 指回 prior；resolved refs 沿用 prior（同一筆原始 resolution）
+  const lh = lineageHash({ priceRefs: [], fxRefs: [], consumedLots: [], approvalIds: [priorJe.idempotencyKey] });
+  const je: JournalEntry = { idempotencyKey: key, lineageHash: lh, lines, reversalOf: priorJe.idempotencyKey };
+  const lotMovements: LotMovement[] = priorLotMovements.map((m) => ({
+    ...m,
+    deltaQtyMinor: negMinor(m.deltaQtyMinor),
+    deltaCostMinor: negMinor(m.deltaCostMinor),
   }));
-  return { idempotencyKey: key, lines, reversalOf: priorJe.idempotencyKey };
+  return { je, lotMovements };
 }

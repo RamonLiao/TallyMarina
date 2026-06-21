@@ -20,6 +20,7 @@ export function makeReceiptInput(variant: Variant): RuleInput {
       coinType: '0x2::sui::SUI', assetDecimals: 0, quantityMinor: '100',
       eventTime: '2026-06-01T00:00:00Z', economicPurpose: 'RECEIVABLE_SETTLEMENT',
       ownershipChange: true, considerationAsset: null,
+      considerationQtyMinor: null, considerationDecimals: null,
       rawPayloadHash: 'rawhash', txDigest: 'dig1', eventIndex: 0,
     },
     policySet: {
@@ -45,6 +46,6 @@ export function makeReceiptInput(variant: Variant): RuleInput {
       return { ...base, prices: [{ id: 'PX-EUR', coinType: '0x2::sui::SUI', priceCurrency: 'EUR', asOfDate: '2026-06-01', unitPriceMinor: '3' }], fxRates: [] };
     case 'INSUFFICIENT_LOT':
       // 提供一個極小 lot，驗證 receipt 不消耗它、不報 shortage
-      return { ...base, lots: [{ lotId: 'OLD', coinType: '0x2::sui::SUI', wallet: '0xA', remainingQtyMinor: '1', costMinor: '2' }] };
+      return { ...base, lots: [{ lotId: 'OLD', seq: 1, coinType: '0x2::sui::SUI', wallet: '0xA', remainingQtyMinor: '1', costMinor: '2' }] };
   }
 }

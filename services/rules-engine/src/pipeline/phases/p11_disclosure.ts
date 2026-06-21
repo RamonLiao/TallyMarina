@@ -1,12 +1,7 @@
 import type { Phase } from '../context.js';
-import type { DisclosureFact } from '../../domain/types.js';
+import { getStrategy } from '../../rules/registry.js';
 
 export const phaseDisclosure: Phase = (ctx) => {
-  const fv = ctx.carry.fvFunctionalMinor as string;
-  const { event } = ctx.input;
-  const facts: DisclosureFact[] = [
-    { kind: 'acquisition', detail: { units: event.quantityMinor, cost: fv, nonCashSettlement: true } },
-  ];
-  ctx.carry.disclosureFacts = facts;
+  ctx.carry.disclosureFacts = getStrategy(ctx.input.event.eventType).buildDisclosure(ctx);
   return null;
 };
