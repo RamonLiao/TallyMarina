@@ -11,7 +11,7 @@ export interface AuditSnapshotRepo {
 }
 
 function keyOf(entityId: string, periodId: string): string {
-  return `${entityId}|${periodId}`;
+  return JSON.stringify([entityId, periodId]);
 }
 
 export class InMemorySnapshotRepo implements AuditSnapshotRepo {

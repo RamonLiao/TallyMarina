@@ -42,6 +42,20 @@ describe('InMemorySnapshotRepo', () => {
   it('get on unknown key → null', () => {
     expect(new InMemorySnapshotRepo().get('x', 'y')).toBeNull();
   });
+  it('REGRESSION: pipe-char collision — keyOf("a|b","c") must not alias keyOf("a","b|c")', () => {
+    // Old `${entityId}|${periodId}` key: both pairs produce "a|b|c" → same slot.
+    // JSON tuple key: ["a|b","c"] vs ["a","b|c"] → distinct slots.
+    // This test MUST fail against the old "|" implementation.
+    const r = new InMemorySnapshotRepo();
+    const snap1 = { ...base(), entityId: 'a|b', periodId: 'c', manifest: { ...base().manifest, entityId: 'a|b', periodId: 'c' } };
+    const snap2 = { ...base(), entityId: 'a', periodId: 'b|c', manifest: { ...base().manifest, entityId: 'a', periodId: 'b|c' } };
+    const res1 = r.freeze(snap1);
+    const res2 = r.freeze(snap2); // must NOT throw SNAPSHOT_EXISTS
+    expect(res1.snapshot.seq).toBe(0);
+    expect(res2.snapshot.seq).toBe(0);
+    expect(res1.created).toBe(true);
+    expect(res2.created).toBe(true);
+  });
   it('distinct periods isolated', () => {
     const r = new InMemorySnapshotRepo();
     r.freeze(base());
