@@ -32,6 +32,21 @@ describe('GF-GAS golden (§7.8.5)', () => {
     expect(out.lotMovements).toEqual([]);
   });
 
+  it('LOSS: carrying(20) > FV(8) → DISPOSAL_LOSS DEBIT 12; JE balances', () => {
+    // lot carrying=20, FV=2*4=8 → loss=12
+    // Dr NET-FEE 8 / Dr DISPOSAL_LOSS 12 / Cr ASSET-SUI 20
+    const inp = makeGasInput('HAPPY');
+    inp.lots = [{ lotId: 'LOT-GAS1', seq: 1, coinType: '0x2::sui::SUI', wallet: '0xA', remainingQtyMinor: '2', costMinor: '20' }];
+    const out = evaluate(inp);
+    expect(out.decision).toBe('POSTABLE');
+    const je = out.journalEntries[0]!;
+    const lossLine = je.lines.find((l) => l.leg === 'DISPOSAL_LOSS');
+    expect(lossLine).toMatchObject({ side: 'DEBIT', amountMinor: '12' });
+    const drTotal = je.lines.filter((l) => l.side === 'DEBIT').reduce((s, l) => s + BigInt(l.amountMinor), 0n);
+    const crTotal = je.lines.filter((l) => l.side === 'CREDIT').reduce((s, l) => s + BigInt(l.amountMinor), 0n);
+    expect(drTotal).toBe(crTotal);
+  });
+
   it('REPLAY-REVERSAL: replay 回原 JE; reversal Dr ASSET-SUI / Dr GAIN / Cr NET-FEE', () => {
     const happy = evaluate(makeGasInput('HAPPY'));
     const prior = happy.journalEntries[0]!;

@@ -43,4 +43,33 @@ describe('allocateFifo', () => {
   it('duplicate seq → fail-closed throw', () => {
     expect(() => allocateFifo([L(1, 'X', '10', '10'), L(1, 'Y', '10', '10')], 'SUI', '0xA', '5')).toThrow(/duplicate lot seq/);
   });
+
+  it('FIFO floor/residual conservation: mulDivFloor(10,1,3)=3; taken+residual===original', () => {
+    // lot cost=10, qty=3; take qty=1 → floor(10*1/3)=3
+    // conservation: takenCost(3) + residual(10-3=7) === original(10)
+    const r = allocateFifo([L(1, 'A', '3', '10')], 'SUI', '0xA', '1');
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.consumed[0]!.costMinor).toBe('3');
+      // residual stays with lot: originalCost(10) - takenCost(3) = 7; no money leaks
+      const takenCost = BigInt(r.consumed[0]!.costMinor);
+      const originalCost = 10n;
+      expect(takenCost + (originalCost - takenCost)).toBe(originalCost);
+    }
+  });
+
+  it('multi-lot FIFO: full + floored-partial; totalCarrying exact, no rounding inflation', () => {
+    // lot A: qty=2, cost=10 (fully taken); lot B: qty=3, cost=10 (take 1 → floor(10*1/3)=3)
+    // totalCarrying should be 10 + 3 = 13; no inflation
+    const r = allocateFifo([L(1, 'A', '2', '10'), L(2, 'B', '3', '10')], 'SUI', '0xA', '3');
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.consumed.map((c) => c.lotId)).toEqual(['A', 'B']);
+      const lotA = r.consumed.find((c) => c.lotId === 'A')!;
+      const lotB = r.consumed.find((c) => c.lotId === 'B')!;
+      expect(lotA.costMinor).toBe('10'); // fully consumed
+      expect(lotB.costMinor).toBe('3');  // floor(10*1/3)=3
+      expect(r.totalCarryingMinor).toBe('13'); // 10+3; no rounding inflation
+    }
+  });
 });

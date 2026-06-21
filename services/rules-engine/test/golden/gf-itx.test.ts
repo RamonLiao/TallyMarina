@@ -61,13 +61,14 @@ describe('GF-ITX golden (§7.8.3)', () => {
     expect(out.journalEntries).toEqual([]);
   });
 
-  it('GF-ITX-SAME-WALLET-COA: srcAcct === dstAcct → zero-value JE, no lines, lot still moves', () => {
+  it('GF-ITX-SAME-WALLET-COA: srcAcct === dstAcct → zero-value subledger movement; NO JournalEntry (§7.8.3), lot still moves', () => {
     const inp = makeInternalTransferInput('SAME_WALLET_COA');
     const out = evaluate(inp);
     expect(out.decision).toBe('POSTABLE');
     expect(out.exceptions).toEqual([]);
-    const je = out.journalEntries[0]!;
-    expect(je.lines).toEqual([]);
+    // §7.8.3: no JE — only lot location movement is recorded
+    expect(out.journalEntries).toEqual([]);
+    expect(out.lotMovements.length).toBeGreaterThan(0);
     const mvA = out.lotMovements.find((m) => m.wallet === '0xA');
     const mvB = out.lotMovements.find((m) => m.wallet === '0xB');
     expect(mvA).toMatchObject({ deltaQtyMinor: '-40', deltaCostMinor: '-120' });

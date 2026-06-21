@@ -85,19 +85,24 @@ function evaluateInner(input: RuleInput): RuleOutput {
   const { exception, carry } = runPipeline(input, PHASES);
   if (exception) return rejectOutput(exception, input);
 
-  const lh = lineageHash({
-    priceRefs: carry.priceRef ? [carry.priceRef as string] : [],
-    fxRefs: carry.fxRef ? [carry.fxRef as string] : [],
-    consumedLotIds: ((carry.consumedLots as { lotId: string }[]) ?? []).map((c) => c.lotId),
-    approvalIds: [],
-  });
-  const je: JournalEntry = { idempotencyKey: key, lineageHash: lh, lines: carry.journalLines as JeLine[], reversalOf: null };
+  const journalLines = carry.journalLines as JeLine[];
+  // §7.8.3: zero-value subledger movement (e.g. same-wallet ITX) emits NO JournalEntry — only lot location move.
+  // Normal events always produce ≥2 balanced lines, so this branch is unreachable for them.
+  const journalEntries: JournalEntry[] = journalLines.length === 0 ? [] : (() => {
+    const lh = lineageHash({
+      priceRefs: carry.priceRef ? [carry.priceRef as string] : [],
+      fxRefs: carry.fxRef ? [carry.fxRef as string] : [],
+      consumedLotIds: ((carry.consumedLots as { lotId: string }[]) ?? []).map((c) => c.lotId),
+      approvalIds: [],
+    });
+    return [{ idempotencyKey: key, lineageHash: lh, lines: journalLines, reversalOf: null }];
+  })();
   return {
     decision: 'POSTABLE',
     assessment: { eventType: input.event.eventType, accountingClass: input.assetAssessment.accountingClass, measurementModel: input.assetAssessment.measurementModel },
     measurements: carry.measurements as RuleOutput['measurements'],
     lotMovements: carry.lotMovements as LotMovement[],
-    journalEntries: [je],
+    journalEntries,
     disclosureFacts: carry.disclosureFacts as DisclosureFact[],
     exceptions: [],
     explanation: {

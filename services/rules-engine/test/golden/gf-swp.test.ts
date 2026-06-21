@@ -40,6 +40,26 @@ describe('GF-SWP golden (§7.8.4)', () => {
     expect(out.lotMovements).toEqual([]);
   });
 
+  it('GF-SWP-06 LOSS: carrying(200) > FV(150) → DISPOSAL_LOSS DEBIT 50; JE balances', () => {
+    // SUI lot carrying=200, consideration FV=150 → loss=50
+    // Dr USDC 150 / Dr DISPOSAL_LOSS 50 / Cr ASSET-SUI 200
+    const inp = makeSwapInput('HAPPY');
+    inp.lots = [{ lotId: 'LOT1', seq: 1, coinType: '0x2::sui::SUI', wallet: '0xA', remainingQtyMinor: '100', costMinor: '200' }];
+    // consideration FV: 300 USDC * unitPrice 0.5 = 150 (override price)
+    inp.prices = [{ id: 'PX-USDC', coinType: '0x2::usdc::USDC', priceCurrency: 'USD', asOfDate: '2026-06-01', unitPriceMinor: '1' }];
+    // considerationQtyMinor=150 → FV=150
+    (inp.event as { considerationQtyMinor: string }).considerationQtyMinor = '150';
+    const out = evaluate(inp);
+    expect(out.decision).toBe('POSTABLE');
+    const je = out.journalEntries[0]!;
+    const lossLine = je.lines.find((l) => l.leg === 'DISPOSAL_LOSS');
+    expect(lossLine).toMatchObject({ side: 'DEBIT', amountMinor: '50' });
+    // JE balance: DEBIT total === CREDIT total
+    const drTotal = je.lines.filter((l) => l.side === 'DEBIT').reduce((s, l) => s + BigInt(l.amountMinor), 0n);
+    const crTotal = je.lines.filter((l) => l.side === 'CREDIT').reduce((s, l) => s + BigInt(l.amountMinor), 0n);
+    expect(drTotal).toBe(crTotal);
+  });
+
   it('GF-SWP-REPLAY-REVERSAL: replay回原JE; reversal Dr SUI/GAIN / Cr USDC', () => {
     const happy = evaluate(makeSwapInput('HAPPY'));
     const prior = happy.journalEntries[0]!;
