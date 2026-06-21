@@ -12,7 +12,7 @@ import { phaseMapping } from './pipeline/phases/p09_mapping.js';
 import { phaseJe } from './pipeline/phases/p10_je.js';
 import { phaseDisclosure } from './pipeline/phases/p11_disclosure.js';
 import { idempotencyKey, lineageHash } from './core/idempotency.js';
-import { RECEIPT_RULE_IDS } from './rules/receiptRules.js';
+import { getStrategy } from './rules/registry.js';
 
 const PHASES = [
   phaseSchema, phaseOwnership, phaseClassification, phaseAssetScope, phaseRecognition,
@@ -74,7 +74,7 @@ function evaluateInner(input: RuleInput): RuleOutput {
       assessment: { eventType: input.event.eventType, accountingClass: input.assetAssessment.accountingClass, measurementModel: input.assetAssessment.measurementModel },
       measurements: [], lotMovements: [], journalEntries: [input.priorJournalEntries[key]!],
       disclosureFacts: [], exceptions: [{ phase: 0, code: 'IDEMPOTENT_REPLAY', detail: { key } }],
-      explanation: { ...emptyExplanation(), ruleIds: RECEIPT_RULE_IDS },
+      explanation: { ...emptyExplanation(), ruleIds: getStrategy(input.event.eventType).ruleIds },
     };
   }
 
@@ -97,7 +97,7 @@ function evaluateInner(input: RuleInput): RuleOutput {
     disclosureFacts: carry.disclosureFacts as DisclosureFact[],
     exceptions: [],
     explanation: {
-      ruleIds: RECEIPT_RULE_IDS,
+      ruleIds: getStrategy(input.event.eventType).ruleIds,
       policyVersions: [input.policySet.policySetVersion, input.policySet.ruleVersion],
       priceRefs: [carry.priceRef as string],
       fxRefs: [carry.fxRef as string],

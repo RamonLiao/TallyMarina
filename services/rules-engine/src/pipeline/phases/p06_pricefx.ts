@@ -1,7 +1,10 @@
 import type { Phase } from '../context.js';
 import { mulUnitPrice, applyFx } from '../../core/decimal.js';
+import { getStrategy } from '../../rules/registry.js';
 
 export const phasePriceFx: Phase = (ctx) => {
+  if (!getStrategy(ctx.input.event.eventType).requiresValuation) return null;  // valuation-independent（INTERNAL_TRANSFER）
+
   const { event, prices, fxRates, policySet } = ctx.input;
   const eventDate = event.eventTime.slice(0, 10);
   const price = prices.find((p) => p.coinType === event.coinType && p.asOfDate === eventDate);
