@@ -1,6 +1,6 @@
 import type { RuleInput, CoaMapping } from '../../src/domain/types.js';
 
-type Variant = 'HAPPY' | 'SCOPE' | 'MISSING_PXFX' | 'INSUFFICIENT_LOT' | 'REPLAY_REVERSAL';
+type Variant = 'HAPPY' | 'SCOPE' | 'MISSING_PXFX' | 'INSUFFICIENT_LOT' | 'REPLAY_REVERSAL' | 'SAME_WALLET_COA';
 
 const coa: CoaMapping = {
   resolve: ({ leg }) =>
@@ -38,5 +38,12 @@ export function makeInternalTransferInput(variant: Variant): RuleInput {
     case 'MISSING_PXFX': return base; // no price/fx — valuation-independent, still POSTABLE
     case 'INSUFFICIENT_LOT': return { ...base, lots: [{ lotId: 'LOT-ITX-1', seq: 1, coinType: '0x2::sui::SUI', wallet: '0xA', remainingQtyMinor: '10', costMinor: '30' }] };
     case 'REPLAY_REVERSAL': return base;
+    case 'SAME_WALLET_COA': {
+      // CoA that maps all WALLET:* legs to same account → srcAcct === dstAcct → zero-value JE
+      const singleAcctCoa: CoaMapping = {
+        resolve: () => 'SUI-UNIFIED',
+      };
+      return { ...base, coaMapping: singleAcctCoa };
+    }
   }
 }
