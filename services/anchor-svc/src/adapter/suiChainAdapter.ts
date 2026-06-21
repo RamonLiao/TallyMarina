@@ -54,20 +54,22 @@ export class SuiChainAdapter implements SuiChainPort {
         include: { events: true, effects: true },
       });
     } catch (e) {
-      if (String((e as Error).message).includes('ELinkMismatch') || isLinkMismatchAbort(e)) {
-        throw new LinkMismatchError(String((e as Error).message));
-      }
+      // A thrown error here is a transport/network failure, NOT an on-chain abort.
+      // On-chain aborts come back via the FailedTransaction branch below.
       throw e;
     }
 
-    // 2.19 returns a discriminated union: check $kind for failure
+    // 2.19 returns a discriminated union: check $kind for failure.
+    // ELinkMismatch identified via Move 2024 clever-error constantName; requires a gRPC
+    // backend that populates cleverError. If cleverError is absent, the tx fails loud
+    // rather than auto-retrying — confirm the abort shape at the testnet e2e.
     if (result.$kind === 'FailedTransaction') {
-      const tx2 = result.FailedTransaction;
-      const err = tx2.status.success === false
-        ? JSON.stringify(tx2.status.error)
-        : 'unknown';
-      if (err.includes('ELinkMismatch') || isLinkMismatchAbort(err)) throw new LinkMismatchError(err);
-      throw new Error(`anchor tx failed: ${err}`);
+      const ftx = result.FailedTransaction;
+      const err = ftx.status.success === false ? ftx.status.error : undefined;
+      if (err?.$kind === 'MoveAbort' && err.MoveAbort?.cleverError?.constantName === 'ELinkMismatch') {
+        throw new LinkMismatchError(err.message);
+      }
+      throw new Error(`anchor tx failed: ${err?.message ?? 'unknown'}`);
     }
 
     const succeeded = result.Transaction;
@@ -75,6 +77,7 @@ export class SuiChainAdapter implements SuiChainPort {
     const events = succeeded.events as Array<{ eventType: string; json: Record<string, unknown> | null }> | undefined;
     const ev = events?.find((e) => e.eventType.endsWith(`::${MODULE}::SnapshotAnchored`));
     if (!ev) throw new Error('SnapshotAnchored event missing');
+    if (ev.json === null) throw new Error('SnapshotAnchored event has null json payload');
     const pj = ev.json as Record<string, unknown>;
     return {
       digest: succeeded.digest,
@@ -82,12 +85,4 @@ export class SuiChainAdapter implements SuiChainPort {
       link: Uint8Array.from(pj.link as number[]),
     };
   }
-}
-
-// ELinkMismatch is abort code in audit_anchor; match its MoveAbort string form
-// (e.g. "MoveAbort(...audit_anchor..., <code>)"). Confirm the exact abort-code
-// number/string from the failing-tx output during the e2e and tighten this.
-function isLinkMismatchAbort(e: unknown): boolean {
-  const s = typeof e === 'string' ? e : String((e as Error)?.message ?? '');
-  return /MoveAbort/.test(s) && /audit_anchor/.test(s);
 }
