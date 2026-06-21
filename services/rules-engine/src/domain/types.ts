@@ -10,7 +10,7 @@ export type ExceptionCode =
   | 'SCHEMA_INVALID' | 'ENTITY_BOUNDARY' | 'NOT_IMPLEMENTED_IN_SLICE'
   | 'SCOPE_UNKNOWN' | 'PRICE_MISSING' | 'FX_MISSING' | 'INSUFFICIENT_LOT'
   | 'MAPPING_MISSING' | 'JE_OUT_OF_BALANCE' | 'RULE_CONFLICT'
-  | 'IDEMPOTENT_REPLAY' | 'PERIOD_CLOSED';
+  | 'IDEMPOTENT_REPLAY' | 'PERIOD_CLOSED' | 'INPUT_ERROR';
 
 export interface RuleException { phase: number; code: ExceptionCode; detail: unknown; }
 

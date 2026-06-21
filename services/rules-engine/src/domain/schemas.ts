@@ -5,7 +5,8 @@ export const eventTypeSchema = z.enum([
   'INTERNAL_TRANSFER', 'SPOT_TRADE_SWAP', 'GAS_FEE',
 ]);
 
-const minorStr = z.string().regex(/^-?\d+$/, 'minor-unit integer string');
+// 事件數量為非負 minor-unit；方向由 event type / leg 表達，不以負數承載。
+const qtyMinorStr = z.string().regex(/^\d+$/, 'non-negative minor-unit integer string');
 
 export const normalizedEventSchema = z.object({
   schemaVersion: z.string().min(1),
@@ -17,8 +18,8 @@ export const normalizedEventSchema = z.object({
   wallet: z.string().min(1),
   counterparty: z.string().nullable(),
   coinType: z.string().min(1),
-  assetDecimals: z.number().int().min(0),
-  quantityMinor: minorStr,
+  assetDecimals: z.number().int().min(0).max(36),   // bound 指數，防 10^n BigInt DoS
+  quantityMinor: qtyMinorStr,
   eventTime: z.string().min(1),
   economicPurpose: z.string().min(1),
   ownershipChange: z.boolean(),

@@ -32,7 +32,34 @@ function rejectOutput(ex: RuleException, input: RuleInput): RuleOutput {
   };
 }
 
+// 接受 unknown：catch block 內絕不可因 input 本身為 null/畸形而再次 throw。
+function safeAssessment(input: unknown) {
+  const i = (input ?? {}) as Partial<RuleInput>;
+  return {
+    eventType: i.event?.eventType ?? ('DIGITAL_ASSET_RECEIPT' as RuleInput['event']['eventType']),
+    accountingClass: i.assetAssessment?.accountingClass ?? '',
+    measurementModel: i.assetAssessment?.measurementModel ?? '',
+  };
+}
+
 export function evaluate(input: RuleInput): RuleOutput {
+  // INPUT_ERROR 是「系統級 fail-closed guard」，刻意有別於 §6.5 的業務 exception codes：
+  // 任何未受控的 throw（畸形 input、scale 超界、非整除 FV 等）一律收斂為 REJECTED，不得讓服務崩潰。
+  // B 任務強化：把可預期的精度/估值錯誤在其 phase（如 phase 6）明確化為業務碼，僅未知錯誤留給此 guard。
+  try {
+    return evaluateInner(input);
+  } catch (e) {
+    return {
+      decision: 'REJECTED',
+      assessment: safeAssessment(input),
+      measurements: [], lotMovements: [], journalEntries: [], disclosureFacts: [],
+      exceptions: [{ phase: 0, code: 'INPUT_ERROR', detail: { message: e instanceof Error ? e.message : String(e) } }],
+      explanation: emptyExplanation(),
+    };
+  }
+}
+
+function evaluateInner(input: RuleInput): RuleOutput {
   // Period close gate（§6.6）
   if (!input.policySet.periodOpen && input.runContext.mode !== 'REPLAY') {
     return rejectOutput({ phase: 0, code: 'PERIOD_CLOSED', detail: { periodId: input.runContext.periodId } }, input);

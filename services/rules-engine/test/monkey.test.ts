@@ -3,12 +3,14 @@ import { evaluate } from '../src/index.js';
 import { makeReceiptInput } from './fixtures/receipt.js';
 
 describe('monkey: 極端輸入不得 silent 過或 crash', () => {
-  it('negative quantity: receipt 仍輸出可審 JE (fail-loud 交下游 review)', () => {
+  it('negative quantity rejected at schema (phase 1); 方向由 event type 表達，不以負量承載', () => {
+    // why: 負量產負借貸金額、語義壞；fail-closed 在最前面擋下
     const i = makeReceiptInput('HAPPY');
     (i.event as { quantityMinor: string }).quantityMinor = '-100';
     const out = evaluate(i);
-    expect(out.decision).toBe('POSTABLE');
-    expect(out.journalEntries[0]!.lines[0]!.amountMinor).toBe('-300');
+    expect(out.decision).toBe('REJECTED');
+    expect(out.exceptions[0]).toMatchObject({ phase: 1, code: 'SCHEMA_INVALID' });
+    expect(out.journalEntries).toEqual([]);
   });
 
   it('huge decimal does not overflow (bigint)', () => {
@@ -35,14 +37,35 @@ describe('monkey: 極端輸入不得 silent 過或 crash', () => {
     expect(out.journalEntries).toEqual([]);
   });
 
-  it('price/qty scale mismatch (non-integer FV) throws, not silent rounding', () => {
-    // why: FV 必須整除；殘餘小數不可被 silent 截斷成假帳
+  it('price/qty scale mismatch (non-integer FV) → 收斂成 INPUT_ERROR，不 silent rounding、不崩潰', () => {
+    // why: FV 必須整除；殘餘小數不可被 silent 截斷成假帳，且不得讓服務 throw
+    const ok = makeReceiptInput('HAPPY');
+    ok.event.assetDecimals = 2;            // 100 minor = 1.00 unit
+    ok.prices[0]!.unitPriceMinor = '3';    // 1.00 × 3 = 3 → 整除 OK
+    expect(evaluate(ok).decision).toBe('POSTABLE');
+
+    const bad = makeReceiptInput('HAPPY');
+    bad.event.assetDecimals = 2;
+    bad.prices[0]!.unitPriceMinor = '3';
+    bad.event.quantityMinor = '101';       // 1.01 × 3 = 3.03 → 非整除
+    const out = evaluate(bad);
+    expect(out.decision).toBe('REJECTED');
+    expect(out.exceptions[0]!.code).toBe('INPUT_ERROR');
+  });
+
+  it('out-of-range assetDecimals rejected at schema (phase 1), no DoS', () => {
     const i = makeReceiptInput('HAPPY');
-    i.event.assetDecimals = 2;            // 100 minor = 1.00 unit
-    i.prices[0]!.unitPriceMinor = '3';    // 1.00 × 3 = 3 → 整除 OK
-    expect(() => evaluate(i)).not.toThrow();
-    i.event.quantityMinor = '101';        // 1.01 × 3 = 3.03 → 非整除
-    expect(() => evaluate(i)).toThrow(/non-integer FV/);
+    i.event.assetDecimals = 1_000_000;     // 防 10^n BigInt 指數 DoS
+    const out = evaluate(i);
+    expect(out.exceptions[0]).toMatchObject({ phase: 1, code: 'SCHEMA_INVALID' });
+  });
+
+  it('garbage/null input → INPUT_ERROR, 不崩潰 (catch block 自身不可 re-throw)', () => {
+    for (const bad of [null, undefined, {}, { event: null }, 42, 'str']) {
+      const out = evaluate(bad as never);
+      expect(out.decision).toBe('REJECTED');
+      expect(out.exceptions[0]!.code).toBe('INPUT_ERROR');
+    }
   });
 
   it('each non-receipt pilot event → NOT_IMPLEMENTED_IN_SLICE phase 3', () => {
