@@ -113,7 +113,9 @@ interface AuditSnapshotRepo {
 }
 ```
 
-- `InMemorySnapshotRepo`：Map keyed by `entityId|periodId`，每 key 保留版本鏈（restatement）。
+- `InMemorySnapshotRepo`：Map keyed by JSON tuple `[entityId, periodId]`，每 key 保留版本鏈（restatement）。
+- 首 freeze → `seq=1`（0 保留為無前版 sentinel）；restatement → `seq=prev.seq+1`，`supersedesSeq=prev.seq`（恆 ≥1，不與 sentinel 碰撞）。
+- `anchorPayload.supersedesSeq`：首版 `null → 0`（= 無前版）；restatement = 被取代版本的 seq（≥1）。0 永遠只表示「無前版」，消費方可無歧義解析。
 - 鎖住語義：同 period 重 freeze 預設 reject；restate 才產新版並回填 `supersedesSeq`。
 - 真 DB schema / migration 留後續。
 

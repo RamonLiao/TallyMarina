@@ -133,3 +133,8 @@ export function reverse(
   }));
   return { je, lotMovements };
 }
+
+// Public surface for downstream services (snapshot-svc 等)。型別/函式集中由 index 暴露，避免深 import core/。
+export { buildMerkle } from './core/merkle.js';
+export type { MerkleManifest, InclusionProof } from './core/merkle.js';
+export type { RuleInput, RuleOutput, JournalEntry, JeLine, LotMovement, DisclosureFact, RuleException } from './domain/types.js';
