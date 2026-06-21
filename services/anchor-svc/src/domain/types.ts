@@ -1,5 +1,3 @@
-export { deriveEntityRef } from '../core/entityRef.js';
-
 export const HASH_LEN = 32;
 export const MAX_REF_LEN = 64;
 export const U64_MAX = 2n ** 64n - 1n;

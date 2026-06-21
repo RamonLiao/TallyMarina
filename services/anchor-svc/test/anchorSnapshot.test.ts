@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { anchorSnapshot } from '../src/anchorSnapshot.js';
-import { deriveEntityRef, LinkMismatchError, type SuiChainPort, type ChainState, type AnchorResult, type ExecAnchorInput } from '../src/domain/types.js';
+import { LinkMismatchError, type SuiChainPort, type ChainState, type AnchorResult, type ExecAnchorInput } from '../src/domain/types.js';
+import { deriveEntityRef } from '../src/core/entityRef.js';
 
 const h32 = 'ab'.repeat(32);
 const payload = { manifestHash: h32, merkleRoot: h32, periodId: '2026-Q2', supersedesSeq: 0 };
