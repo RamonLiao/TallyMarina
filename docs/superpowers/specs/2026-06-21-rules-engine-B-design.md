@@ -39,7 +39,7 @@ allocateFifo(lots, coinType, wallet, qtyNeededMinor)
   → { consumed: { lotId, qtyMinor, costMinor }[], totalCarryingMinor }
   | { insufficient: true, availableQtyMinor }   // → INSUFFICIENT_LOT
 ```
-- **排序（採納 S4）**：`PositionLot` 新增 `seq: number`（單調遞增，上游 lot store 賦值）。`allocateFifo` 過濾 coinType+wallet 後**斷言已按 seq 排序**，未排序即 **fail-closed throw**（不信隱性契約）。理由：錯序產生的錯誤 JE 會永久上鏈不可改。
+- **排序（採納 S4，實作修正）**：`PositionLot` 新增 `seq: number`（單調遞增，上游 lot store 賦值）。`seq` 是 FIFO 順序的唯一真實來源——`allocateFifo` 過濾 coinType+wallet 後**內部按 seq 升冪排序**，因此輸入 array 順序無關緊要、永遠得到正確 FIFO（陣列亂序不會產生錯誤 JE）。真正的歧義是**重複 seq**（兩 lot 同序則順序未定義）→ **fail-closed throw**。理由：錯序的隱性風險已被 seq 排序消除，唯 dup-seq 需擋。（原 S4 措辭「未排序即 throw」過嚴；有顯式 seq 後 array 序不承載語義，故改為 sort + dup-seq guard。）
 - 部分消耗：`takenCost = costMinor × qtyTaken / remainingQtyMinor`（`decimal.ts` 整除），餘額留原 lot；該 coin 最後一筆消耗吸收 rounding 尾差，避免漏錢。
 - `consumed` refs（含逐筆 `lotId/qtyMinor/costMinor`）供 reverse() 逐字還原。
 
@@ -80,7 +80,7 @@ interface Measurement {
 
 ## 測試（對映附錄 B）
 - 20 golden：`GF-{PAY,ITX,SWP,GAS}-{HAPPY,SCOPE,MISSING-PXFX,INSUFFICIENT-LOT,REPLAY-REVERSAL}`，逐列斷言 JE 平衡 / lot movement / DisclosureFact / lineage；exception fixture 不建正式 lot、不改 JE/state；reversal 不覆寫原 JE。
-- FIFO 單元：部分消耗、尾差、多 lot 跨筆、不足回 INSUFFICIENT_LOT、未排序 fail-closed。
+- FIFO 單元：部分消耗、尾差、多 lot 跨筆、不足回 INSUFFICIENT_LOT、亂序輸入仍正確排序、dup-seq fail-closed throw。
 - monkey：carrying>FV 走 loss、replay 後 lot 不重消耗、reverse idempotent、INTERNAL_TRANSFER 無 price 不報缺價、leaf shape 跨 event 一致。
 - 跑：`cd services/rules-engine && npm test && npm run typecheck`
 
