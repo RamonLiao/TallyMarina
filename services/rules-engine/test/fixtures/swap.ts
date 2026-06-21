@@ -1,6 +1,6 @@
 import type { RuleInput, CoaMapping } from '../../src/domain/types.js';
 
-type Variant = 'HAPPY' | 'SCOPE' | 'NO_PRICE' | 'NO_FX' | 'INSUFFICIENT_LOT';
+type Variant = 'HAPPY' | 'SCOPE' | 'NO_PRICE' | 'NO_FX' | 'INSUFFICIENT_LOT' | 'REPLAY';
 
 const coa: CoaMapping = {
   resolve: ({ leg }) =>
@@ -43,6 +43,7 @@ export function makeSwapInput(variant: Variant): RuleInput {
 
   switch (variant) {
     case 'HAPPY': return base;
+    case 'REPLAY': return base;
     case 'SCOPE': return { ...base, assetAssessment: { ...base.assetAssessment, status: 'SCOPE_UNKNOWN' } };
     case 'NO_PRICE': return { ...base, prices: [] };
     case 'NO_FX': return {

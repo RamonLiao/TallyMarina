@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { evaluate } from '../../src/index.js';
+import { evaluate, reverse } from '../../src/index.js';
 import { makeSwapInput } from '../fixtures/swap.js';
 
 describe('GF-SWP golden (§7.8.4)', () => {
@@ -38,5 +38,23 @@ describe('GF-SWP golden (§7.8.4)', () => {
     expect(out.journalEntries).toEqual([]);
     expect(out.exceptions[0]!.code).toBe('INSUFFICIENT_LOT');
     expect(out.lotMovements).toEqual([]);
+  });
+
+  it('GF-SWP-REPLAY-REVERSAL: replay回原JE; reversal Dr SUI/GAIN / Cr USDC', () => {
+    const happy = evaluate(makeSwapInput('HAPPY'));
+    const prior = happy.journalEntries[0]!;
+    const base = makeSwapInput('HAPPY');
+    const replay = evaluate({
+      ...base,
+      runContext: { ...base.runContext, mode: 'REPLAY' as const },
+      priorJournalEntries: { [prior.idempotencyKey]: prior },
+    });
+    expect(replay.exceptions[0]!.code).toBe('IDEMPOTENT_REPLAY');
+    expect(replay.lotMovements).toEqual([]);
+    const rev = reverse(base, prior);
+    expect(rev.lines.find((l) => l.account === 'ASSET-USDC')!.side).toBe('CREDIT');
+    expect(rev.lines.find((l) => l.account === 'ASSET-SUI')!.side).toBe('DEBIT');
+    expect(rev.lines.find((l) => l.account === 'GAIN')!.side).toBe('DEBIT');
+    expect(rev.reversalOf).toBe(prior.idempotencyKey);
   });
 });
