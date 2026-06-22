@@ -363,6 +363,33 @@ small, brass-underlined, lock icon) is attached to the copilot dock — the agen
 Implementation uses the `frontend-design` skill (avoid generic-AI aesthetics — no
 purple/glass/dark-SaaS, no sparkle icons, no evenly-spread timid palette).
 
+**8.7 Generated brand assets (Gemini image gen, from the logos).** Generate background art
++ a social banner in the logo's style and integrate them into the frontend. The demo must
+look **stunning and polished** — this is a scored hackathon demo.
+
+- **Tool:** `@google/genai` `ai.interactions.create`, model **`gemini-3.1-flash-image`**
+  ("Nano Banana"), reusing `GEMINI_API_KEY`. Pass `docs/logo_1..3.png` as base64 **reference
+  images** + a style prompt so output matches the otter/nautical/navy-brass-cream world.
+  Output base64 PNG → write to `web/src/assets/generated/`.
+- **Asset-gen script:** `services/api/scripts/gen-assets.ts` (standalone, run once;
+  deterministic enough — regenerate + hand-pick best of N). Generated files are committed
+  to the repo (not regenerated at build/demo time → recording-safe).
+- **Assets to generate:**
+  1. **App background** — subtle nautical-chart / parchment texture, low-contrast, must sit
+     UNDER data without reducing table legibility (tint toward `--paper`, ≤8% busy). Used as
+     fixed CSS `background` behind the app shell.
+  2. **Hero / landing splash** — richer otter-captain scene for the demo's opening frame and
+     the empty/onboarding state.
+  3. **Celebration art** — the earned post-anchor success moment (§8.4).
+  4. **Social banner** — 16:9 (and a 1500×500 variant) for hackathon submission / social;
+     otter + "TallyMarina — AI-Assisted On-Chain Subledger" lockup. Stored in `docs/brand/`.
+- **Integration rules:** backgrounds obey §8.4 — they are *chrome*, never behind the
+  journal/ledger tables or the hash-chain view (those stay clean navy/cream). Provide a flat
+  `--paper` fallback if an asset is missing. Backgrounds go through the same contrast check:
+  any text over them stays ≥4.5:1.
+- **Aspect/size:** backgrounds `16:9 @ 2K`; banner `16:9 @ 2K` + cropped 1500×500; hero
+  `5:4 @ 2K`. Hand-curate (generate several, pick the best) — image gen is non-deterministic.
+
 ## 9. Sub-Project Decomposition
 
 This MVP is the first vertical slice. Later, independent sub-projects (each its own
