@@ -6,6 +6,7 @@ import { IngestStep } from './steps/IngestStep';
 import { ClassifyStep } from './steps/ClassifyStep';
 import { ReviewStep } from './steps/ReviewStep';
 import { JournalStep } from './steps/JournalStep';
+import { AnchorStep } from './steps/AnchorStep';
 
 function Shell() {
   const { step } = useEntityCtx();
@@ -22,7 +23,7 @@ function Shell() {
         {step === 'classify' && <ClassifyStep />}
         {step === 'review' && <ReviewStep />}
         {step === 'journal' && <JournalStep />}
-        {step !== 'ingest' && step !== 'classify' && step !== 'review' && step !== 'journal' && <p style={{ fontFamily: 'var(--font-body)' }}>Step: {step}</p>}
+        {step === 'anchor' && <AnchorStep />}
       </section>
     </main>
   );
