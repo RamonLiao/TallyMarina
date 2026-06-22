@@ -9,7 +9,9 @@ export type AnchorErrorCode =
   | 'BAD_HASH_LEN'
   | 'PERIOD_TOO_LONG'
   | 'SEQ_OUT_OF_RANGE'
-  | 'LINK_MISMATCH_AFTER_RETRY';
+  | 'LINK_MISMATCH_AFTER_RETRY'
+  | 'ENTITY_CHAIN_NOT_FOUND'
+  | 'AMBIGUOUS_ENTITY_CHAIN';
 
 export class AnchorError extends Error {
   constructor(public readonly code: AnchorErrorCode, message?: string) {
@@ -66,4 +68,22 @@ export interface SuiChainPort {
   getChainState(chainObjectId: string): Promise<ChainState>;
   getCapEpoch(capObjectId: string): Promise<bigint>;
   execAnchor(input: ExecAnchorInput): Promise<AnchorResult>;
+}
+
+/** One discovered AnchorCap owned by the signer, with the chain it writes to. */
+export interface OwnedCap {
+  capObjectId: string;
+  chainId: string;
+}
+
+/**
+ * Discovery port for buildRegistry. Separate from SuiChainPort so the builder
+ * is unit-testable with a fake and the write path is not widened.
+ * `originalPackageId` is the FIRST-published package id — Sui struct types keep
+ * the identity of their defining package across upgrades, so the AnchorCap
+ * StructType filter must use the original id, not the latest upgraded id.
+ */
+export interface RegistryPort {
+  listOwnedAnchorCaps(owner: string, originalPackageId: string): Promise<OwnedCap[]>;
+  getChainState(chainObjectId: string): Promise<ChainState>;
 }
