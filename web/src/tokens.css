@@ -1,0 +1,51 @@
+/*
+ * TallyMarina Design Tokens
+ *
+ * Mascot governance: mascot lives in chrome/empty/AI/celebration contexts.
+ * Data surfaces (journal tables, hash-chain) are mascot-free.
+ *
+ * Spacing scale: 8px base. Radius: 6/12/20. Shadow: navy-tinted soft.
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+:root {
+  /* ── Colour palette ── */
+  --ink:          #1E2A4A;
+  --ink-soft:     #3E4A6B;
+  --paper:        #F4ECD8;
+  --paper-card:   #FBF6EA;
+  --paper-line:   #E3D7BC;
+  --brass:        #B68A2E;
+  --brass-fill:   #C9A24B;
+  --aqua:         #2E9FBC;
+  --aqua-bright:  #4FC3DC;
+  --credit:       #2F7A5A;
+  --debit:        #B5532E;
+  --warn:         #C28A1E;
+
+  /* ── Typography ── */
+  --font-display: 'Fraunces', Georgia, serif;
+  --font-body:    'Mona Sans', system-ui, sans-serif;
+  --font-mono:    'IBM Plex Mono', 'Cascadia Code', monospace;
+
+  /* ── Spacing scale (8px base) ── */
+  --space-1:  8px;
+  --space-2:  16px;
+  --space-3:  24px;
+  --space-4:  32px;
+  --space-5:  40px;
+  --space-6:  48px;
+  --space-8:  64px;
+  --space-10: 80px;
+
+  /* ── Border radius ── */
+  --radius-sm: 6px;
+  --radius-md: 12px;
+  --radius-lg: 20px;
+
+  /* ── Shadows (navy-tinted soft) ── */
+  --shadow-sm: 0 1px 4px 0 rgba(30, 42, 74, 0.08);
+  --shadow-md: 0 4px 16px 0 rgba(30, 42, 74, 0.12);
+  --shadow-lg: 0 8px 32px 0 rgba(30, 42, 74, 0.16);
+}
