@@ -138,3 +138,8 @@ export function reverse(
 export { buildMerkle } from './core/merkle.js';
 export type { MerkleManifest, InclusionProof } from './core/merkle.js';
 export type { RuleInput, RuleOutput, JournalEntry, JeLine, LotMovement, DisclosureFact, RuleException } from './domain/types.js';
+export { leafHash, inclusionProof, verifyInclusion } from './core/merkle.js';
+export type {
+  NormalizedEvent, RunContext, ResolvedPolicySet, ClassificationAssessment,
+  PositionLot, PricePoint, FxRate, CoaMapping, EventType,
+} from './domain/types.js';
