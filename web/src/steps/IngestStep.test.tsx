@@ -29,7 +29,14 @@ it('shows empty state when no entity exists', async () => {
   await waitFor(() => expect(screen.getByText(/No demo entity seeded\./)).toBeInTheDocument());
 });
 
-it('renders normalized eventTime and falls back gracefully for missing field', async () => {
+// NOTE: IngestStep itself renders NO events table (deferred to the Classify
+// step). The opportunistic `normalized.eventTime`/amount safe-access rendering
+// — and its `'—'` fallback for absent keys — lives with the events Table in a
+// later step, and is asserted there. This test only verifies that ingest
+// succeeds and reports its count when the payload carries event-bearing rows
+// with heterogeneous `normalized` shapes (one with `eventTime`, one empty) —
+// it does NOT claim to cover the safe-accessor rendering.
+it('reports the ingested count for event-bearing payloads with mixed normalized shapes', async () => {
   vi.spyOn(endpoints, 'listEntities').mockResolvedValue([
     { id: 'acme:pilot-001', displayName: 'Acme Pilot', chainObjectId: '0x1', capObjectId: '0x2', originalPackageId: '0x3' },
   ]);
@@ -44,8 +51,7 @@ it('renders normalized eventTime and falls back gracefully for missing field', a
   render(wrap(<IngestStep />));
   await screen.findByText('Acme Pilot');
   await userEvent.click(screen.getByRole('button', { name: /ingest/i }));
-  await waitFor(() => expect(screen.getByText(/2/)).toBeInTheDocument());
-  // No crash = pass (normalized field safe access)
+  await waitFor(() => expect(screen.getByText(/Ingested 2 events/)).toBeInTheDocument());
 });
 
 it('button label changes to Ingesting… while pending', async () => {
