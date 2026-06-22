@@ -1,6 +1,7 @@
 import { useEntityCtx } from '../app/EntityContext';
 import { useEvents, useClassify } from '../api/hooks';
 import { ConfidenceBar } from '../components/data/ConfidenceBar';
+import { CLASSIFY_THRESHOLD } from '../lib/constants';
 
 export function ClassifyStep() {
   const { entity, goNext } = useEntityCtx();
@@ -51,7 +52,7 @@ export function ClassifyStep() {
                 </span>
               )}
             </div>
-            <ConfidenceBar confidence={e.ai?.confidence ?? null} threshold={0.85} />
+            <ConfidenceBar confidence={e.ai?.confidence ?? null} threshold={CLASSIFY_THRESHOLD} />
           </div>
         ))}
       </div>

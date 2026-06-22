@@ -1,11 +1,12 @@
 // DATA ZONE (spec §8.4) — NEVER import Mascot here. §8.6 confidence "money shot".
 import { useEffect, useState } from 'react';
+import { CLASSIFY_THRESHOLD } from '../../lib/constants';
 
 type Routing = 'AUTO' | 'NEEDS_REVIEW' | 'PENDING';
 
 export function ConfidenceBar({
   confidence,
-  threshold = 0.85,
+  threshold = CLASSIFY_THRESHOLD,
 }: {
   confidence: number | null;
   threshold?: number;
@@ -17,13 +18,26 @@ export function ConfidenceBar({
         ? 'AUTO'
         : 'NEEDS_REVIEW';
 
+  // Respect prefers-reduced-motion: skip rAF animation, set final width immediately.
+  const prefersReducedMotion =
+    typeof window !== 'undefined' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
   // Fill animates from 0 → confidence on mount (~600ms ease-out, §8.6).
-  const [w, setW] = useState(0);
+  const finalW =
+    confidence == null || Number.isNaN(confidence) ? 0 : Math.min(1, Math.max(0, confidence));
+  const [w, setW] = useState(prefersReducedMotion ? finalW : 0);
+
   useEffect(() => {
     if (confidence == null || Number.isNaN(confidence)) { setW(0); return; }
-    const id = requestAnimationFrame(() => setW(Math.min(1, Math.max(0, confidence))));
+    const target = Math.min(1, Math.max(0, confidence));
+    if (prefersReducedMotion) {
+      setW(target);
+      return;
+    }
+    const id = requestAnimationFrame(() => setW(target));
     return () => cancelAnimationFrame(id);
-  }, [confidence]);
+  }, [confidence, prefersReducedMotion]);
 
   const fillColor =
     routing === 'AUTO' ? 'var(--credit)' : routing === 'NEEDS_REVIEW' ? 'var(--warn)' : 'var(--paper-line)';
@@ -43,7 +57,7 @@ export function ConfidenceBar({
         <div
           style={{
             height: '100%', width: `${w * 100}%`, background: fillColor,
-            transition: 'width 600ms cubic-bezier(0.16,1,0.3,1), background-color 250ms ease',
+            transition: prefersReducedMotion ? 'none' : 'width 600ms cubic-bezier(0.16,1,0.3,1), background-color 250ms ease',
           }}
         />
         {/* brass threshold tick (§8.6) */}

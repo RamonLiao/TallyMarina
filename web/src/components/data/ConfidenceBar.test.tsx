@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { ConfidenceBar } from './ConfidenceBar';
+import { CLASSIFY_THRESHOLD } from '../../lib/constants';
 
 // § 8.6 threshold boundary — the money shot
 it('routes 0.84 to amber NEEDS_REVIEW (below threshold)', () => {
@@ -35,6 +36,52 @@ it('routes 0.0 to NEEDS_REVIEW', () => {
 it('displays — for null confidence (pre-classify placeholder)', () => {
   render(<ConfidenceBar confidence={null} />);
   expect(screen.getByTestId('confidence-bar').textContent).toContain('—');
+});
+
+// reduced-motion: bar reaches final width instantly, routing still correct
+describe('prefers-reduced-motion', () => {
+  let originalMatchMedia: typeof window.matchMedia;
+
+  beforeEach(() => {
+    originalMatchMedia = window.matchMedia;
+    window.matchMedia = (query: string) => ({
+      matches: query === '(prefers-reduced-motion: reduce)',
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    });
+  });
+
+  afterEach(() => {
+    window.matchMedia = originalMatchMedia;
+  });
+
+  it('sets final width immediately (no rAF) when reduced-motion preferred', () => {
+    render(<ConfidenceBar confidence={0.9} threshold={CLASSIFY_THRESHOLD} />);
+    const bar = screen.getByTestId('confidence-bar');
+    // routing must be AUTO (0.9 >= 0.85)
+    expect(bar).toHaveAttribute('data-routing', 'AUTO');
+    // fill div is the first child of the track div
+    // fill is the first child of the track div (which is the first child of bar)
+    const track = bar.querySelector('div') as HTMLElement;
+    const fill = track.querySelector('div') as HTMLElement;
+    expect(fill.style.width).toBe('90%');
+    expect(fill.style.transition).toBe('none');
+  });
+
+  it('routing is NEEDS_REVIEW for 0.84 with reduced-motion', () => {
+    render(<ConfidenceBar confidence={0.84} threshold={CLASSIFY_THRESHOLD} />);
+    expect(screen.getByTestId('confidence-bar')).toHaveAttribute('data-routing', 'NEEDS_REVIEW');
+  });
+
+  it('null confidence stays PENDING with reduced-motion', () => {
+    render(<ConfidenceBar confidence={null} threshold={CLASSIFY_THRESHOLD} />);
+    expect(screen.getByTestId('confidence-bar')).toHaveAttribute('data-routing', 'PENDING');
+  });
 });
 
 // Carry from Task 7: safe normalized field access
