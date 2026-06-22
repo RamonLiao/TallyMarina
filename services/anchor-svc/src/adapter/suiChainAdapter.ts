@@ -4,10 +4,12 @@ import type { Signer } from '@mysten/sui/cryptography';
 import {
   LinkMismatchError,
   type AnchorResult, type ChainState, type ExecAnchorInput, type SuiChainPort,
+  type OwnedCap, type RegistryPort,
 } from '../domain/types.js';
 
 const MODULE = 'audit_anchor';
 const ANCHOR_FN = 'anchor_snapshot';
+const CAP_TYPE = 'AnchorCap';
 
 function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
   if (a.length !== b.length) return false;
@@ -39,7 +41,7 @@ function anchorAbortMessage(err: MoveAbortLike | undefined, packageId: string): 
   return null;
 }
 
-export class SuiChainAdapter implements SuiChainPort {
+export class SuiChainAdapter implements SuiChainPort, RegistryPort {
   constructor(private readonly client: CoreClient, private readonly signer: Signer) {}
 
   async getChainState(chainObjectId: string): Promise<ChainState> {
@@ -118,6 +120,40 @@ export class SuiChainAdapter implements SuiChainPort {
       seq: BigInt(pj.seq as string),
       link: Uint8Array.from(pj.link as number[]),
     };
+  }
+
+  /**
+   * Discover every AnchorCap owned by `owner`, paging the full cursor loop.
+   * StructType filter uses `originalPackageId` (NOT the latest upgraded id) —
+   * Sui struct types keep their defining package's identity across upgrades.
+   * Throws on any cap whose `chain_id` field is missing/malformed (fail-closed:
+   * a silently dropped cap would surface later as a false ENTITY_CHAIN_NOT_FOUND).
+   */
+  async listOwnedAnchorCaps(owner: string, originalPackageId: string): Promise<OwnedCap[]> {
+    const structType = `${originalPackageId}::${MODULE}::${CAP_TYPE}`;
+    const out: OwnedCap[] = [];
+    let cursor: string | null | undefined;
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const page = await this.client.listOwnedObjects({
+        owner,
+        cursor,
+        type: structType,
+        include: { json: true as const },
+      });
+      for (const item of page.objects) {
+        const capObjectId = item.objectId;
+        const f = item.json as Record<string, unknown> | null | undefined;
+        const chainId = f?.chain_id;
+        if (typeof chainId !== 'string' || chainId.length === 0) {
+          throw new Error(`AnchorCap ${capObjectId} has missing/invalid chain_id field`);
+        }
+        out.push({ capObjectId, chainId });
+      }
+      if (!page.hasNextPage) break;
+      cursor = page.cursor;
+    }
+    return out;
   }
 
   /**
