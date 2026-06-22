@@ -79,6 +79,8 @@ export async function confirmAnchor(
     if (!ent) throw new ApiError(404, 'ENTITY_NOT_FOUND', `no entity ${p.entityId}`);
     const snap = getSnapshot(deps.db, p.snapshotId);
     if (!snap) throw new ApiError(404, 'SNAPSHOT_NOT_FOUND', `no snapshot ${p.snapshotId}`);
+    // Fast-fail: only FROZEN snapshots may be anchored.
+    if (snap.status !== 'FROZEN') throw new ApiError(409, 'ILLEGAL_TRANSITION', `snapshot status is ${snap.status}, expected FROZEN`);
 
     try { await deps.adapter.waitForTransaction(p.digest); }
     catch (e) { throw new ApiError(502, 'CHAIN_UNREACHABLE', e instanceof Error ? e.message : String(e)); }

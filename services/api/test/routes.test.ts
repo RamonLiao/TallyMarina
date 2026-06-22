@@ -9,6 +9,9 @@ const require = createRequire(import.meta.url);
 const fixture = require('../src/fixtures/acme-pilot-001.events.json') as unknown;
 import { loadConfig } from '../src/config.js';
 import type { FixtureBundle } from '../src/deps/ingestion.js';
+import { insertSnapshot } from '../src/store/snapshotStore.js';
+import { insertEntity } from '../src/store/entityStore.js';
+import { deriveEntityRef } from '../src/deps/anchorSvc.js';
 
 const cfg = loadConfig({
   SUI_NETWORK: 'testnet', SUI_GRPC_URL: 'https://grpc', ANCHOR_PACKAGE_ID: '0xpkg',
@@ -198,6 +201,25 @@ describe('REST contract', () => {
     expect(body.inclusionProof).toBeNull();
   });
 
+  // I3: null adapter → 502 CHAIN_UNREACHABLE (fail-closed, no null-deref TypeError)
+  it('I3: anchor/prepare with null adapter → 502 CHAIN_UNREACHABLE envelope', async () => {
+    const r = await app.inject({
+      method: 'POST', url: '/entities/acme:pilot-001/anchor/prepare',
+      payload: { snapshotId: 'snap-x', walletAddress: '0x' + '11'.repeat(32) },
+    });
+    expect(r.statusCode).toBe(502);
+    expect((r.json() as { error: { code: string } }).error.code).toBe('CHAIN_UNREACHABLE');
+  });
+
+  it('I3: anchor/confirm with null adapter → 502 CHAIN_UNREACHABLE envelope', async () => {
+    const r = await app.inject({
+      method: 'POST', url: '/entities/acme:pilot-001/anchor/confirm',
+      payload: { snapshotId: 'snap-x', digest: 'D', expectedSeq: 1 },
+    });
+    expect(r.statusCode).toBe(502);
+    expect((r.json() as { error: { code: string } }).error.code).toBe('CHAIN_UNREACHABLE');
+  });
+
   it('POST /reviews/:eventId/decide approves a NEEDS_REVIEW event', async () => {
     // First classify to NEEDS_REVIEW using low-confidence client
     const lowClient: GeminiClient = {
@@ -220,5 +242,161 @@ describe('REST contract', () => {
     expect(r.statusCode).toBe(200);
     const body = r.json() as { event: { status: string } };
     expect(body.event.status).toBe('APPROVED');
+  });
+});
+
+// ---- Anchor route tests with working fakeAdapter (I1, I2) ----
+const PKG_ID = '0x' + 'af'.repeat(32);
+const CHAIN_OBJ = '0x' + '12'.repeat(32);
+const CAP_OBJ = '0x' + '34'.repeat(32);
+const WALLET_ADDR = '0x' + '56'.repeat(32);
+const VALID_HASH = 'ab'.repeat(32);
+const VALID_ROOT = 'cd'.repeat(32);
+const ANCHOR_ENTITY = 'anchor-test-entity';
+
+const cfgAnchor = loadConfig({
+  SUI_NETWORK: 'testnet', SUI_GRPC_URL: 'g',
+  ANCHOR_PACKAGE_ID: PKG_ID,
+  ANCHOR_ORIGINAL_PACKAGE_ID: '0x' + '78'.repeat(32),
+  ENTITY_ID: ANCHOR_ENTITY, ENTITY_CHAIN_ID: CHAIN_OBJ, ENTITY_CAP_ID: CAP_OBJ,
+  GEMINI_API_KEY: 'k', AI_MODEL_CLASSIFY: 'm', AI_MODEL_COPILOT: 'm',
+  AI_CONFIDENCE_THRESHOLD: '0.85', PORT: '8787', DB_PATH: ':memory:',
+  EXPLORER_BASE: 'https://suiscan.xyz/testnet',
+});
+
+function buildFakeAdapter(over: Partial<{ seq: bigint; seqMismatch: boolean }> = {}) {
+  const seq = over.seq ?? 0n;
+  const headSeq = over.seqMismatch ? seq + 99n : seq + 1n;
+  return {
+    async getChainState() {
+      return { entityRef: deriveEntityRef(ANCHOR_ENTITY), latestLink: new Uint8Array(32), seq, capEpoch: 0n };
+    },
+    async getCapOwner() { return WALLET_ADDR; },
+    async waitForTransaction() { return; },
+    async getAnchorEvent() { return { seq: headSeq, link: new Uint8Array([7]) }; },
+  } as never;
+}
+
+describe('anchor routes (I1, I2) — with working fakeAdapter', () => {
+  let anchorDb: Db;
+  let anchorApp: FastifyInstance;
+
+  beforeEach(async () => {
+    anchorDb = openDb(':memory:');
+    insertEntity(anchorDb, {
+      id: ANCHOR_ENTITY, displayName: 'Anchor Test', chainObjectId: CHAIN_OBJ,
+      capObjectId: CAP_OBJ, originalPackageId: '0x' + '78'.repeat(32),
+    });
+    insertSnapshot(anchorDb, {
+      id: 'snap-anchor-1', entityId: ANCHOR_ENTITY, periodId: '2026-Q2',
+      manifestJson: '{}', manifestHash: VALID_HASH, merkleRoot: VALID_ROOT,
+      leafCount: 1, supersedesSeq: 0,
+    });
+    anchorApp = Fastify();
+    registerRoutes(anchorApp, {
+      db: anchorDb, cfg: cfgAnchor, classifyClient: classifyClient, copilotClient: classifyClient,
+      anchorAdapter: buildFakeAdapter(),
+      mutex: { run: (_k: string, fn: () => Promise<never>) => fn() },
+    });
+    await anchorApp.ready();
+  });
+
+  // I1: CLIENT_HASH_REJECTED — route rejects client-supplied hash fields
+  it('I1: prepare with manifestHash in body → 400 CLIENT_HASH_REJECTED', async () => {
+    const r = await anchorApp.inject({
+      method: 'POST', url: `/entities/${ANCHOR_ENTITY}/anchor/prepare`,
+      payload: { snapshotId: 'snap-anchor-1', walletAddress: WALLET_ADDR, manifestHash: 'deadbeef'.repeat(8) },
+    });
+    expect(r.statusCode).toBe(400);
+    expect((r.json() as { error: { code: string } }).error.code).toBe('CLIENT_HASH_REJECTED');
+  });
+
+  it('I1: prepare with merkleRoot in body → 400 CLIENT_HASH_REJECTED', async () => {
+    const r = await anchorApp.inject({
+      method: 'POST', url: `/entities/${ANCHOR_ENTITY}/anchor/prepare`,
+      payload: { snapshotId: 'snap-anchor-1', walletAddress: WALLET_ADDR, merkleRoot: 'cafebabe'.repeat(8) },
+    });
+    expect(r.statusCode).toBe(400);
+    expect((r.json() as { error: { code: string } }).error.code).toBe('CLIENT_HASH_REJECTED');
+  });
+
+  // I2: prepare returns expected shape
+  it('I2: prepare returns {txKind, expectedSeq, chainId, capId}', async () => {
+    const r = await anchorApp.inject({
+      method: 'POST', url: `/entities/${ANCHOR_ENTITY}/anchor/prepare`,
+      payload: { snapshotId: 'snap-anchor-1', walletAddress: WALLET_ADDR },
+    });
+    expect(r.statusCode).toBe(200);
+    const body = r.json() as { txKind: string; expectedSeq: number; chainId: string; capId: string };
+    expect(typeof body.txKind).toBe('string');
+    expect(body.expectedSeq).toBe(1);
+    expect(body.chainId).toBe(CHAIN_OBJ);
+    expect(body.capId).toBe(CAP_OBJ);
+  });
+
+  // I2: confirm with matching seq returns AnchorDTO — adapter must return seq=1 (matching expectedSeq=1)
+  it('I2: confirm with matching seq returns {anchor: AnchorDTO}', async () => {
+    const confirmApp = Fastify();
+    registerRoutes(confirmApp, {
+      db: anchorDb, cfg: cfgAnchor, classifyClient: classifyClient, copilotClient: classifyClient,
+      anchorAdapter: buildFakeAdapter({ seq: 1n }), // getChainState returns seq=1, expectedSeq=1
+      mutex: { run: (_k: string, fn: () => Promise<never>) => fn() },
+    });
+    await confirmApp.ready();
+    const r = await confirmApp.inject({
+      method: 'POST', url: `/entities/${ANCHOR_ENTITY}/anchor/confirm`,
+      payload: { snapshotId: 'snap-anchor-1', digest: 'DIGEST-OK', expectedSeq: 1 },
+    });
+    expect(r.statusCode).toBe(200);
+    const body = r.json() as { anchor: { digest: string; explorerUrl: string; seq: number } };
+    expect(body.anchor.digest).toBe('DIGEST-OK');
+    expect(body.anchor.explorerUrl).toContain('/tx/DIGEST-OK');
+    expect(typeof body.anchor.seq).toBe('number');
+  });
+
+  // I2: confirm with seq mismatch → 409 SEQ_MISMATCH; snapshot stays FROZEN
+  it('I2: confirm with seq mismatch → 409 SEQ_MISMATCH; snapshot stays FROZEN', async () => {
+    const mismatchApp = Fastify();
+    registerRoutes(mismatchApp, {
+      db: anchorDb, cfg: cfgAnchor, classifyClient: classifyClient, copilotClient: classifyClient,
+      anchorAdapter: buildFakeAdapter({ seqMismatch: true }),
+      mutex: { run: (_k: string, fn: () => Promise<never>) => fn() },
+    });
+    await mismatchApp.ready();
+    const r = await mismatchApp.inject({
+      method: 'POST', url: `/entities/${ANCHOR_ENTITY}/anchor/confirm`,
+      payload: { snapshotId: 'snap-anchor-1', digest: 'DIGEST-MISMATCH', expectedSeq: 1 },
+    });
+    expect(r.statusCode).toBe(409);
+    expect((r.json() as { error: { code: string } }).error.code).toBe('SEQ_MISMATCH');
+    // Snapshot must still be FROZEN
+    const { getSnapshot: getSnap } = await import('../src/store/snapshotStore.js');
+    const snap = getSnap(anchorDb, 'snap-anchor-1');
+    expect(snap?.status).toBe('FROZEN');
+  });
+
+  // M2: 500 handler sends generic message, not err.message
+  it('M2: 500 error envelope has generic "Internal error" message (not raw err.message)', async () => {
+    // Cause an unhandled error by making the mutex throw a plain Error (not ApiError/AnchorError/StateError/SnapshotError)
+    const throwingApp = Fastify();
+    registerRoutes(throwingApp, {
+      db: anchorDb, cfg: cfgAnchor, classifyClient: classifyClient, copilotClient: classifyClient,
+      anchorAdapter: buildFakeAdapter(),
+      mutex: {
+        run: (_k: string, _fn: () => Promise<never>) => {
+          throw new Error('SECRET internal message do not expose');
+        },
+      },
+    });
+    await throwingApp.ready();
+    const r = await throwingApp.inject({
+      method: 'POST', url: `/entities/${ANCHOR_ENTITY}/anchor/prepare`,
+      payload: { snapshotId: 'snap-anchor-1', walletAddress: WALLET_ADDR },
+    });
+    expect(r.statusCode).toBe(500);
+    const body = r.json() as { error: { message: string; code: string } };
+    expect(body.error.code).toBe('INTERNAL');
+    expect(body.error.message).toBe('Internal error');
+    expect(body.error.message).not.toContain('SECRET');
   });
 });

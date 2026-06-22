@@ -79,7 +79,8 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
       return reply.code(map[err.code] ?? 409).send(toEnvelope(err.code, err.message));
     }
     if ((err as { validation?: unknown }).validation) return reply.code(400).send(toEnvelope('VALIDATION', err.message));
-    return reply.code(500).send(toEnvelope('INTERNAL', err.message));
+    reply.log.error({ err }, 'unhandled error');
+    return reply.code(500).send(toEnvelope('INTERNAL', 'Internal error'));
   });
 
   // 1. GET /entities
@@ -223,10 +224,17 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
   });
 
   // 11. POST /entities/:id/anchor/prepare
-  app.post<{ Params: { id: string }; Body: { snapshotId?: string; walletAddress?: string } }>('/entities/:id/anchor/prepare', async (req) => {
+  app.post<{ Params: { id: string }; Body: { snapshotId?: string; walletAddress?: string; manifestHash?: string; merkleRoot?: string } }>('/entities/:id/anchor/prepare', async (req) => {
     const b = req.body ?? {};
     if (!b.snapshotId || !b.walletAddress) {
       throw new ApiError(400, 'VALIDATION', 'snapshotId and walletAddress are required');
+    }
+    // Anti-tamper: hashes are always derived server-side from the snapshot row. Reject any client-supplied hash.
+    if (b.manifestHash || b.merkleRoot) {
+      throw new ApiError(400, 'CLIENT_HASH_REJECTED', 'manifestHash and merkleRoot must not be supplied by the client; they are read from the server snapshot');
+    }
+    if (!deps.anchorAdapter) {
+      throw new ApiError(502, 'CHAIN_UNREACHABLE', 'SUI gRPC client not configured');
     }
     const ad: AnchorServiceDeps = { db, adapter: deps.anchorAdapter, mutex: deps.mutex, cfg };
     return prepareAnchor(ad, { entityId: req.params.id, snapshotId: b.snapshotId, walletAddress: b.walletAddress });
@@ -237,6 +245,9 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     const b = req.body ?? {};
     if (!b.snapshotId || !b.digest || typeof b.expectedSeq !== 'number') {
       throw new ApiError(400, 'VALIDATION', 'snapshotId, digest, expectedSeq are required');
+    }
+    if (!deps.anchorAdapter) {
+      throw new ApiError(502, 'CHAIN_UNREACHABLE', 'SUI gRPC client not configured');
     }
     const ad: AnchorServiceDeps = { db, adapter: deps.anchorAdapter, mutex: deps.mutex, cfg };
     const anchor = await confirmAnchor(ad, {

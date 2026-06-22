@@ -85,18 +85,30 @@ describe('prepareAnchor', () => {
     ).rejects.toMatchObject({ code: 'CAP_NOT_OWNED_BY_WALLET' });
   });
 
-  it('CLIENT_HASH_REJECTED: server reads hash from snapshot, not from client body', async () => {
-    // The route validates that no client hash is accepted — the hash is always read server-side.
-    // This test verifies prepareAnchor uses snap.manifestHash (not any external input) by checking
-    // that the returned txKind is a deterministic string (not undefined).
-    const out = await prepareAnchor(
-      { db, adapter: fakeAdapter(), mutex: passthroughMutex, cfg },
-      { entityId: ENTITY, snapshotId: 's1', walletAddress: WALLET },
-    );
-    // txKind is serialized from server-side snapshot hashes only
-    expect(out.txKind).toBeTruthy();
-    const parsed = JSON.parse(out.txKind) as Record<string, unknown>;
-    expect(parsed).toHaveProperty('inputs'); // Transaction IR shape
+  it('confirmAnchor M1: DRAFT snapshot fails fast before any chain call (ILLEGAL_TRANSITION)', async () => {
+    // Insert a DRAFT snapshot (never FROZEN)
+    insertSnapshot(db, {
+      id: 'sdraft', entityId: ENTITY, periodId: '2026-Q3',
+      manifestJson: '{}', manifestHash: VALID_HASH, merkleRoot: VALID_ROOT,
+      leafCount: 1, supersedesSeq: 0, status: 'DRAFT',
+    });
+    // Force status to DRAFT (default on insert is DRAFT)
+    // fakeAdapter with seq matching expectedSeq — the guard fires before waitForTransaction
+    const chainCallCount = { n: 0 };
+    const trackingAdapter = {
+      async getChainState() { chainCallCount.n++; return { entityRef: deriveEntityRef(ENTITY), latestLink: new Uint8Array(32), seq: 1n, capEpoch: 0n }; },
+      async getCapOwner() { return WALLET; },
+      async waitForTransaction() { chainCallCount.n++; return; },
+      async getAnchorEvent() { chainCallCount.n++; return { seq: 2n, link: new Uint8Array(1) }; },
+    } as never;
+    await expect(
+      confirmAnchor(
+        { db, adapter: trackingAdapter, mutex: passthroughMutex, cfg },
+        { entityId: ENTITY, snapshotId: 'sdraft', digest: 'D', expectedSeq: 2 },
+      ),
+    ).rejects.toMatchObject({ code: 'ILLEGAL_TRANSITION' });
+    // No chain calls should have been made
+    expect(chainCallCount.n).toBe(0);
   });
 
   it('404 on unknown entity', async () => {
@@ -167,7 +179,7 @@ describe('confirmAnchor', () => {
         { db, adapter: fakeAdapter({ seq: 1n }), mutex: passthroughMutex, cfg },
         { entityId: ENTITY, snapshotId: 's1', digest: 'D2', expectedSeq: 1 },
       ),
-    ).rejects.toThrow();
+    ).rejects.toMatchObject({ code: 'ILLEGAL_TRANSITION' });
   });
 
   it('chain unreachable on waitForTransaction → CHAIN_UNREACHABLE', async () => {
