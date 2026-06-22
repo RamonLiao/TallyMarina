@@ -12,12 +12,13 @@ import { AnchorStep } from './steps/AnchorStep';
 function Shell() {
   const { step } = useEntityCtx();
   return (
-    <main
-      aria-label="TallyMarina"
-      style={{ maxWidth: 1200, margin: '0 auto', padding: '0 var(--space-6) var(--space-10)' }}
-    >
+    <>
       <Header />
-      <StepRail current={step} />
+      <main
+        aria-label="TallyMarina"
+        style={{ maxWidth: 1200, margin: '0 auto', padding: '0 clamp(16px, 4vw, 48px) var(--space-10)' }}
+      >
+        <StepRail current={step} />
       <GuardrailBanner />
       <section style={{ marginTop: 'var(--space-6)' }} data-step={step}>
         {step === 'ingest' && <IngestStep />}
@@ -26,7 +27,8 @@ function Shell() {
         {step === 'journal' && <JournalStep />}
         {step === 'anchor' && <AnchorStep />}
       </section>
-    </main>
+      </main>
+    </>
   );
 }
 

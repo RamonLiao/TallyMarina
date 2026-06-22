@@ -4,7 +4,7 @@
  * Mascot governance: mascot lives in chrome/empty/AI/celebration contexts.
  * Data surfaces (journal tables, hash-chain) are mascot-free.
  *
- * Spacing scale: 8px base. Radius: 6/12/20. Shadow: navy-tinted soft.
+ * Spacing scale: 8px base. Radius: 10/16/24 + pill. Shadow: navy-tinted soft.
  */
 
 @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=IBM+Plex+Mono:wght@400;500&display=swap');
@@ -44,10 +44,11 @@
   --space-8:  64px;
   --space-10: 80px;
 
-  /* ── Border radius ── */
-  --radius-sm: 6px;
-  --radius-md: 12px;
-  --radius-lg: 20px;
+  /* ── Border radius ── (rounder, to echo the circular otter logo) */
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 24px;
+  --radius-pill: 999px;
 
   /* ── Shadows (navy-tinted soft) ── */
   --shadow-sm: 0 1px 4px 0 rgba(30, 42, 74, 0.08);
@@ -70,5 +71,24 @@
   --r-sm: var(--radius-sm);
   --r-md: var(--radius-md);
   --r-lg: var(--radius-lg);
+  --r-pill: var(--radius-pill);
   --navy-deep: #141E36;   /* deep navy for austere data surfaces (hash-chain, journal head) */
+
+  /* ── @mysten/dapp-kit theme ── (bare generic names the web components read via
+     var(--x, fallback); none collide with our --radius-* / --paper-* tokens, so
+     scoping to :root safely themes the ConnectButton + its portaled popover/modal
+     to the TallyMarina palette and rounded corners). */
+  --radius:               var(--radius-md);
+  --primary:              var(--brass-fill);
+  --primary-foreground:   var(--ink);
+  --background:           var(--paper-card);
+  --foreground:           var(--ink);
+  --popover:              var(--paper-card);
+  --popover-foreground:   var(--ink);
+  --muted:                var(--paper);
+  --muted-foreground:     var(--ink-soft);
+  --border:               var(--paper-line);
+  --input:                var(--paper-line);
+  --ring:                 var(--brass);
+  --destructive:          var(--debit);
 }

@@ -11,7 +11,7 @@ export function CopilotDock({
   return (
     <aside
       aria-label="AI Copilot dock"
-      className="card"
+      className="card copilot-dock"
       style={{ padding: 'var(--s-4)', position: 'sticky', top: 'var(--s-4)', width: 360, alignSelf: 'flex-start' }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)', marginBottom: 'var(--s-3)' }}>
