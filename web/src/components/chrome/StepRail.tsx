@@ -36,7 +36,7 @@ export function StepRail({ current }: { current: StepId }) {
                 display: 'grid',
                 placeItems: 'center',
                 background: done ? 'var(--credit)' : active ? 'var(--brass-fill)' : 'transparent',
-                color: done ? '#fff' : 'var(--ink)',
+                color: done ? 'var(--paper)' : 'var(--ink)',
                 border: `1px solid ${active || done ? 'transparent' : 'var(--paper-line)'}`,
                 fontSize: 14,
                 fontWeight: 600,
