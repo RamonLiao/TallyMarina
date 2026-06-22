@@ -151,6 +151,9 @@ export class SuiChainAdapter implements SuiChainPort, RegistryPort {
         out.push({ capObjectId, chainId });
       }
       if (!page.hasNextPage) break;
+      if (page.cursor === cursor || page.cursor === null || page.cursor === undefined) {
+        throw new Error(`listOwnedAnchorCaps: pagination cursor did not advance (owner=${owner}) — aborting to avoid infinite loop`);
+      }
       cursor = page.cursor;
     }
     return out;
