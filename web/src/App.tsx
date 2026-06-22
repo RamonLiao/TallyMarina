@@ -3,6 +3,7 @@ import { Header } from './components/chrome/Header';
 import { StepRail } from './components/chrome/StepRail';
 import { GuardrailBanner } from './components/data/GuardrailBanner';
 import { IngestStep } from './steps/IngestStep';
+import { ClassifyStep } from './steps/ClassifyStep';
 
 function Shell() {
   const { step } = useEntityCtx();
@@ -16,7 +17,8 @@ function Shell() {
       <GuardrailBanner />
       <section style={{ marginTop: 'var(--space-6)' }} data-step={step}>
         {step === 'ingest' && <IngestStep />}
-        {step !== 'ingest' && <p style={{ fontFamily: 'var(--font-body)' }}>Step: {step}</p>}
+        {step === 'classify' && <ClassifyStep />}
+        {step !== 'ingest' && step !== 'classify' && <p style={{ fontFamily: 'var(--font-body)' }}>Step: {step}</p>}
       </section>
     </main>
   );
