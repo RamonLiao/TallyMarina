@@ -1,0 +1,38 @@
+{
+  "chainId": "testnet",
+  "epoch": 1,
+  "events": [
+    {
+      "raw": {
+        "digest": "DEMOReceipt001",
+        "checkpoint": "100",
+        "timestampMs": "1717200000000",
+        "status": "success",
+        "rawJson": { "balanceChanges": [{ "coinType": "0x2::sui::SUI", "amount": "5000000000", "owner": { "AddressOwner": "0xcustomerA" } }] }
+      },
+      "normalized": {
+        "schemaVersion": "v1", "eventId": "evt-001", "eventType": "DIGITAL_ASSET_RECEIPT", "eventGroupId": null,
+        "entityId": "acme:pilot-001", "bookId": "main", "wallet": "0xacmeTreasury", "counterparty": "0xcustomerA",
+        "coinType": "0x2::sui::SUI", "assetDecimals": 9, "quantityMinor": "5000000000",
+        "eventTime": "2026-06-01T09:00:00Z", "economicPurpose": "RECEIVABLE_SETTLEMENT",
+        "ownershipChange": true, "considerationAsset": null, "considerationQtyMinor": null, "considerationDecimals": null
+      }
+    },
+    {
+      "raw": {
+        "digest": "DEMOPayment002",
+        "checkpoint": "101",
+        "timestampMs": "1717286400000",
+        "status": "success",
+        "rawJson": { "balanceChanges": [{ "coinType": "0x2::sui::SUI", "amount": "-1200000000", "owner": { "AddressOwner": "0xvendorB" } }] }
+      },
+      "normalized": {
+        "schemaVersion": "v1", "eventId": "evt-002", "eventType": "DIGITAL_ASSET_PAYMENT", "eventGroupId": null,
+        "entityId": "acme:pilot-001", "bookId": "main", "wallet": "0xacmeTreasury", "counterparty": "0xvendorB",
+        "coinType": "0x2::sui::SUI", "assetDecimals": 9, "quantityMinor": "1200000000",
+        "eventTime": "2026-06-02T09:00:00Z", "economicPurpose": "VENDOR_PAYMENT",
+        "ownershipChange": true, "considerationAsset": null, "considerationQtyMinor": null, "considerationDecimals": null
+      }
+    }
+  ]
+}
