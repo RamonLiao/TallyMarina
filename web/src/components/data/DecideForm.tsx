@@ -16,7 +16,7 @@ export function DecideForm({
 
   const input: React.CSSProperties = {
     fontFamily: 'var(--font-mono)', fontSize: 15, padding: 'var(--s-2) var(--s-3)',
-    border: '1px solid var(--paper-line)', borderRadius: 'var(--r-sm)', background: '#fff',
+    border: '1px solid var(--paper-line)', borderRadius: 'var(--r-sm)', background: 'var(--paper-card)',
     width: '100%', boxSizing: 'border-box',
   };
 
