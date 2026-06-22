@@ -55,10 +55,19 @@ describe('buildRegistry', () => {
     expect(reg.entB).toEqual({ chainObjectId: '0xchainB', capObjectId: '0xcapB' });
   });
 
-  it('empty entityIds yields empty registry', async () => {
-    const port = fakePort([{ capObjectId: '0xcapA', chainId: '0xchainA' }], { '0xchainA': 'entA' });
+  it('empty entityIds yields empty registry WITHOUT calling port', async () => {
+    // port.listOwnedAnchorCaps THROWS if called → early return must skip the call
+    const port: RegistryPort = {
+      async listOwnedAnchorCaps() {
+        throw new Error('port.listOwnedAnchorCaps should not be called for empty entityIds');
+      },
+      async getChainState() {
+        throw new Error('port.getChainState should not be called for empty entityIds');
+      },
+    };
     const reg = await buildRegistry([], OWNER, ORIG_PKG, port);
     expect(reg).toEqual({});
+    expect(Object.getPrototypeOf(reg)).toBeNull();
   });
 
   it('throws ENTITY_CHAIN_NOT_FOUND when no owned cap matches (rotated away or unbootstrapped)', async () => {
@@ -103,5 +112,23 @@ describe('buildRegistry', () => {
     await expect(buildRegistry(['entA'], OWNER, ORIG_PKG, port)).rejects.toMatchObject({
       code: 'AMBIGUOUS_ENTITY_CHAIN',
     });
+  });
+
+  it('registry created with Object.create(null) is not vulnerable to prototype pollution', async () => {
+    // If someone passes entityId="__proto__", it should NOT pollute Object.prototype
+    // even though registry[entityId] = value would normally do so.
+    const caps: OwnedCap[] = [
+      { capObjectId: '0xcapA', chainId: '0xchainA' },
+    ];
+    const port = fakePort(caps, { '0xchainA': 'benign' });
+    const reg = await buildRegistry(['benign'], OWNER, ORIG_PKG, port);
+
+    // Verify registry has null prototype (no Object.prototype chain)
+    expect(Object.getPrototypeOf(reg)).toBeNull();
+
+    // Verify a separate plain object is not polluted
+    const testObj = {};
+    expect(Object.getOwnPropertyNames(testObj)).toEqual([]);
+    expect((testObj as any).injected).toBeUndefined();
   });
 });

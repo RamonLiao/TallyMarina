@@ -23,6 +23,11 @@ export async function buildRegistry(
   originalPackageId: string,
   port: RegistryPort,
 ): Promise<EntityRegistry> {
+  // Early return: empty entityIds → no port calls needed
+  if (entityIds.length === 0) {
+    return Object.create(null);
+  }
+
   const caps = await port.listOwnedAnchorCaps(owner, originalPackageId);
 
   const byRef = new Map<string, { chainObjectId: string; capObjectId: string }>();
@@ -36,7 +41,7 @@ export async function buildRegistry(
     byRef.set(refHex, { chainObjectId: cap.chainId, capObjectId: cap.capObjectId });
   }
 
-  const registry: EntityRegistry = {};
+  const registry: EntityRegistry = Object.create(null);
   for (const entityId of entityIds) {
     const refHex = hex(deriveEntityRef(entityId));
     const hit = byRef.get(refHex);
