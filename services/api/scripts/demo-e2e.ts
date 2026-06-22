@@ -145,7 +145,7 @@ async function main(): Promise<void> {
   console.log(`[demo-e2e] snapshot ${snapId} (seq=${auditSnapshot.seq}, leaves=${auditSnapshot.leafCount})`);
 
   // ── 5. Wire gRPC adapter ──
-  const { adapter, walletAddress } = makeGrpcAdapter(cfg);
+  const { adapter, grpc, walletAddress } = makeGrpcAdapter(cfg);
   if (!walletAddress) {
     // Read-only: still call prepareAnchor to confirm the on-chain state reads work
     console.warn('[demo-e2e] No signer — calling prepareAnchor in read-only mode (walletAddress spoofed from cap owner)');
@@ -177,7 +177,6 @@ async function main(): Promise<void> {
 
   // ── 7. sign + execute ──
   const tx = Transaction.from(prep.txKind);
-  const { grpc } = makeGrpcAdapter(cfg);
   const { Ed25519Keypair } = await import('@mysten/sui/keypairs/ed25519');
   const { decodeSuiPrivateKey } = await import('@mysten/sui/cryptography');
   const { secretKey } = decodeSuiPrivateKey(cfg.suiPk!);

@@ -9,6 +9,7 @@ const MODULE = 'audit_anchor';
 // gRPC JSON serializes Move vector<u8> as base64 strings (not number[]).
 // Handle both forms defensively.
 function toBytes(v: unknown): Uint8Array {
+  if (v instanceof Uint8Array) return v;
   if (typeof v === 'string') return Uint8Array.from(Buffer.from(v, 'base64'));
   if (Array.isArray(v)) return Uint8Array.from(v as number[]);
   throw new Error(`cannot convert ${typeof v} to Uint8Array`);
