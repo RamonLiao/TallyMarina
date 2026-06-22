@@ -7,7 +7,7 @@ import { DAppKitProvider } from '@mysten/dapp-kit-react';
 const queryClient = new QueryClient();
 
 const dAppKit = createDAppKit({
-  networks: ['testnet'] as const,
+  networks: ['testnet', 'mainnet'] as const,
   createClient: (network) =>
     new SuiJsonRpcClient({ url: getJsonRpcFullnodeUrl(network), network }),
   defaultNetwork: 'testnet',
