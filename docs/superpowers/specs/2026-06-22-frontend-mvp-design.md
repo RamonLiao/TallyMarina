@@ -1,7 +1,7 @@
 # TallyMarina Frontend MVP — Design Spec
 
 **Date:** 2026-06-22
-**Status:** Approved (brainstorming complete, pending user spec review)
+**Status:** Approved + dual-reviewed (sui-architect READY-WITH-FIXES applied; frontend-design NEEDS-WORK applied), pending final user spec review → writing-plans
 **Track:** Sui Overflow 2026 — Agentic Web
 
 ## 1. Goal & Scope
@@ -107,9 +107,16 @@ All writes are fail-closed and state-machine gated to prevent double-posting.
 ## 4. AI Integration (real Gemini API, zero posting authority)
 
 Location: `services/api/src/ai/`. Only module that can reach the Gemini API; key in
-backend env `GEMINI_API_KEY`. Provider seam `ai/geminiClient.ts` (swap to Claude = one file).
-Model ids verified at implementation time (initial pick: a `gemini-flash` for classify,
-a `gemini-pro` for copilot). Structured output via Gemini **`responseSchema`** (JSON mode).
+backend env `GEMINI_API_KEY`. SDK: **`@google/genai`**. Provider seam `ai/geminiClient.ts`
+(swap to Claude = one file). Structured output via Gemini **`responseSchema`** (JSON mode).
+
+**Models (verified via context7, 2026-06-22 — Gemini 3.x is current, free tier):**
+- classify (role a): **`gemini-3.5-flash-lite`** — cheapest, lowest-latency, ample for classification.
+- copilot (role b): **`gemini-3.5-flash`** — free tier, quality sufficient. (`gemini-3.5-pro`
+  is generally NOT free → avoided to keep the demo zero-cost.)
+- Model ids are config constants (`AI_MODEL_CLASSIFY` / `AI_MODEL_COPILOT` env), not hardcoded,
+  so a tier swap is one env change. Classic `generateContent` is fine; the newer
+  `interactions.create` API is optional and not required for this MVP.
 
 **Role (a) classify** — `classifyEvent(normalizedEvent) → AiSuggestion`
 ```
@@ -135,30 +142,59 @@ guardrails, never touching the ledger.
 
 ## 5. Anchor Signing Flow (wallet-signed; PTB build/sign split)
 
+> **Critical fix from sui-architect review:** do NOT `tx.build()` to final BCS bytes
+> server-side. That freezes the gas payment and the owned `AnchorCap`'s object version,
+> so the wallet can only sign stale bytes → near-certain `-32002` stale-version abort on
+> back-to-back anchors (the HTTP + human-thinking-time gap makes it worse). Instead the
+> backend builds the `Transaction` IR (moveCall + sender + server hashes), `tx.serialize()`s
+> the **kind/JSON IR** (not built bytes), and the **wallet** resolves gas + object versions
+> at sign time. This is the entire point of moving signing to the browser.
+
 ```
-[backend] POST /anchor/prepare
+[backend] POST /anchor/prepare  { snapshotId, walletAddress }   (per-entity mutex: one in-flight)
   1. resolveChain(entityId)   — gRPC reads on-chain entity_ref cross-check (A4 gate, fail-closed)
-  2. read chain head: prev_link = chain.latest_link, expectedSeq = chain.seq + 1
-  3. buildAnchorArgs(manifestHash, merkleRoot, periodId, supersedesSeq)
+  2. cap-owner PRE-FLIGHT: gRPC getObject(capId) → assert owner === walletAddress,
+     else fail-closed `CAP_NOT_OWNED_BY_WALLET` (turns an opaque wallet-time abort into a clean error)
+  3. read chain head: prev_link = chain.latest_link, expectedSeq = chain.seq + 1  (optimistic UX check only)
+  4. buildAnchorArgs(manifestHash, merkleRoot, periodId, supersedesSeq)
      — hashes come from the SERVER snapshot record, NOT from the client (anti-tamper)
-  4. buildAnchorPtb(...) → Transaction (moveCall anchor_snapshot, latest packageId),
-     sender = connected wallet address (passed from frontend), unsigned
-  5. tx.build({ client: grpcClient }) → { txBytes(base64), expectedSeq, chainId, capId }
+  5. buildAnchorPtb(...) → Transaction (moveCall anchor_snapshot, LATEST packageId resolved at runtime),
+     tx.setSender(walletAddress); do NOT set gas payment, do NOT pin object versions, do NOT build
+  6. tx.serialize()  → { txKind (JSON IR), expectedSeq, chainId, capId }
 
-[frontend] dapp-kit
-  6. useSignAndExecuteTransaction({ transaction: txBytes })  — wallet prompt
-  7. → { digest }
+[frontend] @mysten/dapp-kit-react 2.x
+  7. const tx = Transaction.from(txKind)
+     useDAppKit().signAndExecuteTransaction({ transaction: tx })   — wallet resolves gas+versions, prompts
+     (NOTE: NOT the deprecated useSignAndExecuteTransaction hook)
+  8. → { digest }
 
-[backend] POST /anchor/confirm { snapshotId, digest, expectedSeq }
-  8. grpcClient.core.waitForTransaction({ digest })
-  9. re-read chain state → assert seq === expectedSeq && link advanced
-     (fail-closed: mismatch → error, do NOT write ANCHORED)
-  10. write anchors row (seq, link, digest, ANCHORED) + explorer URL
+[backend] POST /anchor/confirm  { snapshotId, digest, expectedSeq }
+  9. grpcClient.core.waitForTransaction({ digest })
+  10. re-read chain state → assert seq === expectedSeq && link advanced
+      (fail-closed: mismatch → error, do NOT write ANCHORED).
+      NB: this off-chain check is a UX nicety; the REAL security boundary is the on-chain
+      anchor_snapshot link/seq monotonicity assert (ELinkMismatch) — contract unchanged.
+  11. write anchors row (seq, link, digest, ANCHORED) + explorer URL
 ```
 
-**One-time setup (runbook, not code):** the testnet `AnchorCap` (owned object
-`0x266e…fba9`) must be transferred to the browser wallet address used in the demo,
-else the moveCall aborts (cap not owned by sender).
+**Concurrency:** serialize anchors per `entityId` (explicit backend mutex; the
+`snapshot FROZEN→ANCHORED` state machine implies it — make it a real lock). The
+`cleverError → ELinkMismatch → re-read & rebuild once` path covers the *shared* chain head;
+the *owned* cap version is handled by NOT pinning it server-side (fix above).
+
+**One-time setup (runbook, not code):**
+1. Transfer the testnet `AnchorCap` (owned object `0x266e…fba9`) to the demo browser
+   wallet address, else the moveCall aborts (cap not owned by sender).
+2. **Fund that wallet with testnet SUI** (faucet) — the wallet pays its own gas when it
+   signs; without a gas coin the moveCall aborts with `Cannot find gas coin for signer
+   address`. (Sponsored/gasless via Enoki is out of scope; just fund the wallet.)
+
+**gRPC parsing gotchas (sui-architect minor findings):** the gRPC `getObject` response
+shape differs from JSON-RPC (protobuf-derived; owner/version nest differently) — the
+`resolveChain` and cap-owner reads must parse the gRPC shape, not the old `data.owner`
+shape. Also `TypeName` now serializes as a plain string (v1.70+), so the A4 gate's
+`entity_ref` decode must expect e.g. `"0x2::sui::SUI"`, not `{name: …}`. Verify both in
+the gRPC adapter test.
 
 **Abort classification (free win from gRPC):** on a prepare-stage dry-run abort, gRPC
 populates `cleverError.constantName` → exact `EStaleCap` / `ELinkMismatch`, replacing
@@ -246,30 +282,136 @@ build/sign + migrates to gRPC; run existing tests + add a gRPC adapter test.
 Brand: **TallyMarina** — a cute, glasses-wearing, sailor-capped **otter accountant**
 mascot (see `docs/logo_1.png`..`logo_3.png`), holding a ledger / calculator, with a Sui
 wave motif and `$ ¥ € ₮` symbols. Tone: **cute, lighthearted anime style** that still
-reads as a trustworthy enterprise finance tool.
+reads as a trustworthy enterprise finance tool. The cuteness earns trust by being the
+friendly face on a visibly rigorous machine — **contrast is the asset.** (Design system
+below incorporates the frontend-design review; verdict was the concept is right but the
+execution needed a real system + one hard governance rule.)
 
-**Palette (extracted from the logos):**
+**8.1 Color tokens** (logo-derived, contrast-tuned; brass/aqua darkened for load-bearing
+use on the light bg, bright originals reserved for the dark navy header/footer):
 
-| Role | Hex | Use |
-|---|---|---|
-| Deep Navy | `#233056` / `#1E2A4A` | primary, header, text |
-| Brass Gold | `#C9A24B` / `#D4AF6A` | accent, CTA, outline strokes |
-| Parchment Cream | `#F4ECD8` / `#EDE3CC` | background, paper-feel cards |
-| Sui Aqua | `#4FC3DC` | wave / on-chain element accents |
-| Otter Slate | `#3E4A6B` | secondary, mascot shadow |
+```
+--ink:        #1E2A4A   /* primary body text — higher contrast than #233056 */
+--ink-soft:   #3E4A6B   /* secondary text (Otter Slate) — ~7:1 on cream */
+--paper:      #F4ECD8   /* app background */
+--paper-card: #FBF6EA   /* cards lift OFF bg (cream-on-cream, +4% L) */
+--paper-line: #E3D7BC   /* hairline borders, table row dividers */
+--brass:      #B68A2E   /* darkened — usable for thin strokes / icons / focus ring (~3.4:1) */
+--brass-fill: #C9A24B   /* original — FILLS ONLY (CTA bg w/ navy text, badges) */
+--aqua:       #2E9FBC   /* darkened Sui Aqua — on-chain/anchor accent on cream (~3.8:1) */
+--aqua-bright:#4FC3DC   /* original — links/glows on DARK navy only */
+--credit:     #2F7A5A   /* desaturated forest — credit / pass / approved */
+--debit:      #B5532E   /* desaturated terracotta — debit / red-flag (reads on cream) */
+--warn:       #C28A1E   /* needs-review amber */
+```
+Hard rules: **brass is decoration/structure, NEVER text-on-light or thin data figures**
+(`#C9A24B` on cream ≈ 1.9:1, invisible + smears on video). Distribution ≈ **70% navy/cream,
+15% brass punctuation, aqua reserved exclusively for on-chain/anchor semantics** so aqua
+always *means* "blockchain." Everything load-bearing ≥ 4.5:1.
 
-**Style direction:** rounded corners, soft shadows, paper-textured cards, the otter mascot
-woven in (step guide, empty-state illustrations, and — narratively important — the
-**AI copilot avatar**, making the Agentic assistant tangible). Lighthearted/anime but
-data-dense and credible; not flashy web3. Logos may be inserted freely into the frontend.
+**8.2 Type** (avoid Inter/Roboto/system): **Fraunces** (optical-size serif — warm
+ledger/nautical-almanac character) for display/headers/mascot speech; **Mona Sans** (or
+Hanken Grotesk) for body/UI; **IBM Plex Mono** with `font-variant-numeric: tabular-nums`
+for ALL numbers/hashes (journal, ledger, confidence, digests). The mono tabular choice does
+most of the "trustworthy finance" work — columns align, the hash chain looks like a hash chain.
 
-**Guardrail banner:** a persistent banner — "AI suggestions only — no posting authority" —
-pins the guardrail narrative throughout.
+**8.3 Spacing / radius / shadow:** 8px base scale `4·8·12·16·24·32·48·64`; radius `--r-sm 6px`
+inputs/badges, `--r-md 12px` cards, `--r-lg 20px` modals/mascot bubbles (tables: square cells,
+`--r-md` clip on container only); navy-tinted soft shadow `0 1px 2px rgba(30,42,74,.06),
+0 4px 16px rgba(30,42,74,.08)` (never gray — looks dirty on cream); 1px `--paper-line`
+borders (never a 2px gold card border — reads as toy). Faint SVG paper-grain (~3% opacity)
+on `--paper` + subtle chart-grid behind the hero for the nautical-chart world.
 
-Implementation uses the `frontend-design` skill (avoid generic-AI aesthetics).
+**8.4 Mascot governance — the one hard rule.** A cute mascot next to a financial figure
+makes the figure look fake. So:
+- **Mascot APPEARS (chrome/warmth zones):** app logo/wordmark (~32px, the sailor-cap
+  logo_2/logo_3), empty states, the 5-step progress rail (a small otter "sailing" as the
+  you-are-here marker), the AI copilot dock (§8.5), and a one-time earned celebration
+  AFTER anchor confirms.
+- **Mascot NEVER APPEARS (trust/data zones):** journal/ledger tables, confidence scores,
+  red-flag lists, the guardrail banner, the wallet-signing modal, and — **the single most
+  important boundary** — the **anchor confirmation / hash-chain view**, which must look like
+  an austere block explorer (mono digests, aqua links, navy), not a sticker.
+
+**8.5 Mascot-as-AI-copilot — execute as "agent," not Clippy.** Docked (fixed right-hand
+panel), never floating/interruptive, no idle "it looks like you're…" state. Avatar is the
+*speaker label*; the substance below is structured (`Explanation · Red Flags · Suggested
+Entry (draft) · Confidence`). Make autonomy visible via **three state-tied avatar poses**:
+*thinking* (subtle aqua pulse ring while the Gemini call is in flight), *confident* (check,
+high-confidence AUTO), *raising-hand* (the literal "human, please" pose → NEEDS_REVIEW;
+reuse logo_2's waving paw). Never use a stock sparkle/robot AI icon — **the otter IS the AI
+signifier.** The persistent guardrail banner ("AI suggestions only — no posting authority",
+small, brass-underlined, lock icon) is attached to the copilot dock — the agent's visible leash.
+
+**8.6 Demo-video polish** (recording compresses + downscales):
+- **Confidence bar (classify) = the money shot:** horizontal bar fills ~600ms ease-out
+  (staggered per row), with the 0.85 threshold drawn as a vertical brass tick; crossing it
+  snaps the row green AUTO, landing short snaps amber + copilot raises hand. Tells the whole
+  agentic story in 2s.
+- **Hash-chain (anchor) = credibility climax:** seq blocks L→R joined by `prev_link→link`
+  arrows (truncated mono digests); on confirm the new block flies in and the aqua link line
+  draws (~800ms stroke-dasharray). Austere per §8.4.
+- **Wallet sign:** frame it — "Awaiting signature…" navy state with otter *thinking*, then a
+  satisfying state change on `{digest}`. Polish the transition, not the wallet popup.
+- **Explorer link:** digest becomes a live aqua external link; show hover briefly. Real
+  testnet link = real credibility.
+- **Legibility:** body ≥16px, table data ≥15px mono (never <14px); slow motion ~20% vs feels-right
+  (600–800ms, generous ease — fast micro-anims strobe on video); table rows 44–48px tall;
+  hold each beat 1.5–2s for clean editor cut points. No bright `#4FC3DC` text on cream — use
+  `#2E9FBC`.
+
+Implementation uses the `frontend-design` skill (avoid generic-AI aesthetics — no
+purple/glass/dark-SaaS, no sparkle icons, no evenly-spread timid palette).
 
 ## 9. Sub-Project Decomposition
 
 This MVP is the first vertical slice. Later, independent sub-projects (each its own
 spec→plan→build): (1) auth/RBAC + multi-user; (2) multi-entity management; (3) ERP export +
 reconciliation; (4) rule-set editor; (5) NL ledger query. Not in this spec.
+
+## 10. Environment Variables & Runbook
+
+Two env files (created during implementation; both `.gitignore`d — never commit keys).
+
+**Backend — `services/api/.env`:**
+```bash
+# --- Sui (gRPC, testnet) ---
+SUI_NETWORK=testnet
+SUI_GRPC_URL=                        # testnet gRPC fullnode URL (resolve at impl time)
+ANCHOR_PACKAGE_ID=0xafc87017beab87bd4b0bad129d3aa5c5ed4a7a20fef888f458916b8477ea9c0d
+ANCHOR_ORIGINAL_PACKAGE_ID=0xafc87017beab87bd4b0bad129d3aa5c5ed4a7a20fef888f458916b8477ea9c0d
+ENTITY_ID=acme:pilot-001
+ENTITY_CHAIN_ID=0x451114f9db3b6226bc8c3dd79a21796408a75eb983a6701d345e449f25b4162f
+ENTITY_CAP_ID=0x266e7c8ea0b27ad52080074c9f6c1f73ec8a6ea9dd9a68d310b7cf56262dfba9
+# Test-key fallback for scripts/demo-e2e.ts only (NOT the wallet-sign path). Optional.
+SUI_PK=                              # suiprivkey1...  (leave blank for prod/demo wallet flow)
+
+# --- Gemini AI ---
+GEMINI_API_KEY=                      # ← paste your Google AI Studio key here
+AI_MODEL_CLASSIFY=gemini-3.5-flash-lite
+AI_MODEL_COPILOT=gemini-3.5-flash
+AI_CONFIDENCE_THRESHOLD=0.85
+
+# --- Server ---
+PORT=8787
+DB_PATH=./data/tallymarina.db
+```
+
+**Frontend — `web/.env` (Vite, only `VITE_`-prefixed vars reach the browser; NEVER put
+keys here):**
+```bash
+VITE_API_BASE_URL=http://localhost:8787
+VITE_SUI_NETWORK=testnet
+VITE_EXPLORER_BASE=https://suiscan.xyz/testnet
+```
+
+**You provide (the rest is auto / from anchor-notes):**
+1. **A new demo browser wallet** — install Sui Wallet, create an address.
+2. **Transfer `ENTITY_CAP_ID` to that wallet** (one-time; cap must be owned by signer).
+3. **Faucet testnet SUI** into that wallet (gas).
+4. **`GEMINI_API_KEY`** from Google AI Studio → paste into `services/api/.env`.
+5. `SUI_GRPC_URL` — confirmed at implementation time (sui-docs-query).
+
+> The `ANCHOR_CAP/CHAIN/PACKAGE` ids above are the live testnet deployment from
+> `anchor-notes.md`. The new wallet only needs to *own* the cap + hold gas; its private key
+> never leaves the wallet (browser-sign flow), so it is NOT placed in any `.env`.
