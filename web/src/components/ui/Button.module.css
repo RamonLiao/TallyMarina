@@ -1,0 +1,83 @@
+/*
+ * Button primitives — tokens only, no hex.
+ * §8.1: --brass-fill is FILLS ONLY (CTA bg w/ navy text). NEVER text-on-light brass.
+ * §8.1: --aqua reserved EXCLUSIVELY for on-chain/anchor semantics.
+ */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  font-family: var(--font-body);
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background 140ms ease, box-shadow 140ms ease, opacity 140ms ease;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+.btn:focus-visible {
+  outline: 2px solid var(--brass);
+  outline-offset: 2px;
+}
+
+/* ── Sizes ── */
+.btn--sm  { padding: 5px 12px;  font-size: 13px; }
+.btn--md  { padding: 8px 20px;  font-size: 15px; }
+.btn--lg  { padding: 11px 28px; font-size: 16px; }
+
+/* ── Variants ── */
+
+/* primary: brass-fill bg, navy text (§8.1 — fills only) */
+.btn--primary {
+  background: var(--brass-fill);
+  color: var(--ink);
+  border-color: var(--brass);
+}
+.btn--primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--brass-fill) 88%, var(--ink));
+  box-shadow: var(--shadow-sm);
+}
+.btn--primary:active:not(:disabled) {
+  background: color-mix(in srgb, var(--brass-fill) 78%, var(--ink));
+  box-shadow: none;
+}
+
+/* ghost: transparent bg, paper-line border */
+.btn--ghost {
+  background: transparent;
+  color: var(--ink);
+  border-color: var(--paper-line);
+}
+.btn--ghost:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--paper-line) 30%, transparent);
+  border-color: var(--brass);
+}
+
+/* danger: debit-tinted */
+.btn--danger {
+  background: color-mix(in srgb, var(--debit) 12%, var(--paper-card));
+  color: var(--debit);
+  border-color: color-mix(in srgb, var(--debit) 40%, transparent);
+}
+.btn--danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--debit) 18%, var(--paper-card));
+  border-color: var(--debit);
+}
+
+/* anchor: aqua bg — RESERVED for on-chain/anchor actions only (§8.1) */
+.btn--anchor {
+  background: var(--aqua);
+  color: #ffffff;
+  border-color: color-mix(in srgb, var(--aqua) 70%, var(--ink));
+}
+.btn--anchor:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--aqua) 88%, var(--ink));
+  box-shadow: var(--shadow-sm);
+}

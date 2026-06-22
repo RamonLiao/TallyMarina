@@ -2,6 +2,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import '@fontsource/mona-sans';
 import './tokens.css';
+import './styles/base.css';
 import { Providers } from './Providers';
 import App from './App';
 

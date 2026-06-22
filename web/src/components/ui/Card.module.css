@@ -1,0 +1,20 @@
+/*
+ * Card — tokens only, no hex. 1px paper-line border (never 2px gold).
+ * Lifts off --paper bg via --paper-card + navy-tinted soft shadow.
+ */
+
+.card {
+  background: var(--paper-card);
+  border: 1px solid var(--paper-line); /* 1px only, §8.3 */
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  padding: var(--space-3);
+}
+
+/* austere — hash-chain / wallet-signing frame (§8.4 NO mascot) */
+.card--austere {
+  background: var(--ink);
+  border-color: color-mix(in srgb, var(--ink-soft) 60%, transparent);
+  color: #D8E2EF;
+  box-shadow: var(--shadow-lg);
+}

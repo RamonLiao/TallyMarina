@@ -1,0 +1,60 @@
+/*
+ * Badge — semantic color contracts. Tokens only, no hex.
+ *
+ * Visual contract (asserted in tests):
+ *   AUTO         → --credit  (green)
+ *   NEEDS_REVIEW → --warn    (amber)
+ *   ANCHORED     → --aqua    (on-chain; §8.1 aqua EXCLUSIVELY blockchain semantics)
+ *   REJECTED     → --debit   (red)
+ *   DRAFT        → --ink-soft
+ */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+/* AUTO → credit green */
+.badge--auto {
+  color: var(--credit);
+  background: color-mix(in srgb, var(--credit) 12%, var(--paper-card));
+  border-color: color-mix(in srgb, var(--credit) 30%, transparent);
+}
+
+/* NEEDS_REVIEW → warn amber */
+.badge--needs-review {
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 12%, var(--paper-card));
+  border-color: color-mix(in srgb, var(--warn) 30%, transparent);
+}
+
+/* ANCHORED → aqua (on-chain semantic, §8.1) */
+.badge--anchored {
+  color: var(--aqua);
+  background: color-mix(in srgb, var(--aqua) 10%, var(--paper-card));
+  border-color: color-mix(in srgb, var(--aqua) 30%, transparent);
+}
+
+/* REJECTED → debit red */
+.badge--rejected {
+  color: var(--debit);
+  background: color-mix(in srgb, var(--debit) 10%, var(--paper-card));
+  border-color: color-mix(in srgb, var(--debit) 28%, transparent);
+}
+
+/* DRAFT → ink-soft neutral */
+.badge--draft {
+  color: var(--ink-soft);
+  background: color-mix(in srgb, var(--ink-soft) 8%, var(--paper-card));
+  border-color: var(--paper-line);
+}
