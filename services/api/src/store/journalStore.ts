@@ -6,11 +6,14 @@ export interface JournalRow {
 }
 
 export function insertJournalEntry(db: Db, r: JournalRow): 'inserted' | 'duplicate' {
-  const exists = db.prepare('SELECT 1 FROM journal_entries WHERE idempotency_key = ?').get(r.idempotencyKey);
-  if (exists) return 'duplicate';
-  db.prepare('INSERT INTO journal_entries (id, entity_id, event_id, je_json, idempotency_key, leaf_hash) VALUES (?, ?, ?, ?, ?, ?)')
+  // INSERT OR IGNORE avoids TOCTOU: under concurrent callers the SELECT-then-INSERT
+  // pattern can let two writers both pass the SELECT, then the second throws a UNIQUE
+  // violation. Using INSERT OR IGNORE means the DB engine serializes at the row level —
+  // if the key already exists it silently skips; we detect by checking rows-changed.
+  const result = db
+    .prepare('INSERT OR IGNORE INTO journal_entries (id, entity_id, event_id, je_json, idempotency_key, leaf_hash) VALUES (?, ?, ?, ?, ?, ?)')
     .run(r.id, r.entityId, r.eventId, r.jeJson, r.idempotencyKey, r.leafHash);
-  return 'inserted';
+  return result.changes > 0 ? 'inserted' : 'duplicate';
 }
 
 export function listJournal(db: Db, entityId: string): JournalRow[] {
