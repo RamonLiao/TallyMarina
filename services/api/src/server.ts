@@ -8,6 +8,7 @@ import { seed } from './store/seed.js';
 import { registerRoutes } from './http/routes.js';
 import { makeGeminiClient } from './ai/geminiClient.js';
 import { makeEntityMutex } from '@subledger/anchor-svc';
+import { makeGrpcAdapter } from './grpcClient.js';
 import type { FixtureBundle } from './deps/ingestion.js';
 
 const cfg = loadConfig();
@@ -21,12 +22,7 @@ seed(db, {
   originalPackageId: cfg.anchorOriginalPackageId,
 }, fixture);
 
-// SuiGrpcClient construction — real gRPC wiring is Task 8.
-// The null-core stub means any anchor route call would crash with a null-deref TypeError.
-// To fail-closed with a clear CHAIN_UNREACHABLE 502 instead, we pass null as the adapter
-// and the route layer guards against it before invoking the service.
-console.warn('[WARN] SUI gRPC client not configured — anchor routes will return 502 CHAIN_UNREACHABLE until Task 8 wires the real client');
-const adapter = null as never;
+const { adapter } = makeGrpcAdapter(cfg);
 const ai = makeGeminiClient(cfg.geminiApiKey);
 const mutex = makeEntityMutex();
 

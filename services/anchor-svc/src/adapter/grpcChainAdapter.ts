@@ -6,6 +6,14 @@ import {
 
 const MODULE = 'audit_anchor';
 
+// gRPC JSON serializes Move vector<u8> as base64 strings (not number[]).
+// Handle both forms defensively.
+function toBytes(v: unknown): Uint8Array {
+  if (typeof v === 'string') return Uint8Array.from(Buffer.from(v, 'base64'));
+  if (Array.isArray(v)) return Uint8Array.from(v as number[]);
+  throw new Error(`cannot convert ${typeof v} to Uint8Array`);
+}
+
 /**
  * gRPC getObject returns a protobuf-derived shape that differs from JSON-RPC:
  * owner/version nest differently and TypeName serializes as a plain string (v1.70+).
@@ -26,8 +34,8 @@ export class SuiGrpcChainAdapter implements SuiChainPort {
   async getChainState(chainObjectId: string): Promise<ChainState> {
     const f = await this.fields(chainObjectId);
     return {
-      entityRef: Uint8Array.from(f.entity_ref as number[]),
-      latestLink: Uint8Array.from(f.latest_link as number[]),
+      entityRef: toBytes(f.entity_ref),
+      latestLink: toBytes(f.latest_link),
       seq: BigInt(f.seq as string),
       capEpoch: BigInt(f.cap_epoch as string),
     };
@@ -55,7 +63,7 @@ export class SuiGrpcChainAdapter implements SuiChainPort {
     const events = (res?.['events'] ?? (res?.['transaction'] as Record<string, unknown> | undefined)?.['events']) as Array<{ eventType?: string; type?: string; json?: Record<string, unknown> | null }> | undefined;
     const ev = events?.find((e) => (e.eventType ?? e.type ?? '').endsWith(`::${MODULE}::SnapshotAnchored`));
     if (!ev || !ev.json) throw new Error('SnapshotAnchored event missing in tx ' + digest);
-    return { seq: BigInt(ev.json.seq as string), link: Uint8Array.from(ev.json.link as number[]) };
+    return { seq: BigInt(ev.json.seq as string), link: toBytes(ev.json.link) };
   }
 
   /** Test-key sign path (demo-e2e only). Browser flow does NOT call this. */
