@@ -1,12 +1,12 @@
 import { render, screen } from '@testing-library/react';
-import { Providers } from './Providers';
+import { AppProviders } from './providers/AppProviders';
 import App from './App';
 
 it('renders the app shell inside the provider tree without throwing', () => {
   render(
-    <Providers>
+    <AppProviders>
       <App />
-    </Providers>
+    </AppProviders>
   );
   expect(screen.getByLabelText('TallyMarina')).toBeInTheDocument();
 });

@@ -6,8 +6,8 @@ import { appQueryClient } from '../api/queryClient';
 
 export function AppProviders({ children }: { children: ReactNode }) {
   return (
-    <DAppKitProvider dAppKit={dAppKit}>
-      <QueryClientProvider client={appQueryClient}>{children}</QueryClientProvider>
-    </DAppKitProvider>
+    <QueryClientProvider client={appQueryClient}>
+      <DAppKitProvider dAppKit={dAppKit}>{children}</DAppKitProvider>
+    </QueryClientProvider>
   );
 }
