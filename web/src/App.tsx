@@ -5,6 +5,7 @@ import { GuardrailBanner } from './components/data/GuardrailBanner';
 import { IngestStep } from './steps/IngestStep';
 import { ClassifyStep } from './steps/ClassifyStep';
 import { ReviewStep } from './steps/ReviewStep';
+import { JournalStep } from './steps/JournalStep';
 
 function Shell() {
   const { step } = useEntityCtx();
@@ -20,7 +21,8 @@ function Shell() {
         {step === 'ingest' && <IngestStep />}
         {step === 'classify' && <ClassifyStep />}
         {step === 'review' && <ReviewStep />}
-        {step !== 'ingest' && step !== 'classify' && step !== 'review' && <p style={{ fontFamily: 'var(--font-body)' }}>Step: {step}</p>}
+        {step === 'journal' && <JournalStep />}
+        {step !== 'ingest' && step !== 'classify' && step !== 'review' && step !== 'journal' && <p style={{ fontFamily: 'var(--font-body)' }}>Step: {step}</p>}
       </section>
     </main>
   );
