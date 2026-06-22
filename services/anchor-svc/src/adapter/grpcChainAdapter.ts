@@ -60,7 +60,7 @@ export class SuiGrpcChainAdapter implements SuiChainPort {
   }
 
   async getAnchorEvent(digest: string): Promise<{ seq: bigint; link: Uint8Array }> {
-    const res = await this.client.core.getTransaction({ digest }) as Record<string, unknown>;
+    const res = await this.client.core.getTransaction({ digest, include: { events: true } }) as Record<string, unknown>;
     const events = (res?.['events'] ?? (res?.['transaction'] as Record<string, unknown> | undefined)?.['events']) as Array<{ eventType?: string; type?: string; json?: Record<string, unknown> | null }> | undefined;
     const ev = events?.find((e) => (e.eventType ?? e.type ?? '').endsWith(`::${MODULE}::SnapshotAnchored`));
     if (!ev || !ev.json) throw new Error('SnapshotAnchored event missing in tx ' + digest);
@@ -96,7 +96,7 @@ export class SuiGrpcChainAdapter implements SuiChainPort {
 // Minimal structural type of the SuiGrpcClient.core surface we use.
 interface GrpcCore {
   getObject(args: { objectId: string; include?: { json?: boolean } }): Promise<{ object?: { json?: Record<string, unknown> | null; owner?: unknown } }>;
-  getTransaction(args: { digest: string }): Promise<unknown>;
+  getTransaction(args: { digest: string; include?: { events?: boolean } }): Promise<unknown>;
   waitForTransaction(args: { digest: string }): Promise<unknown>;
   signAndExecuteTransaction(args: { transaction: Transaction; signer: Signer }): Promise<unknown>;
 }

@@ -55,14 +55,16 @@ describe('SuiGrpcChainAdapter parsing', () => {
   });
 
   // C1: getAnchorEvent link field also comes as base64 in real gRPC.
-  it('parses getAnchorEvent link from base64 string', async () => {
+  it('parses getAnchorEvent link from base64 string AND passes include:events mask', async () => {
     const digest = '0xdigest';
     const linkB64 = Buffer.from([0xab, 0xcd]).toString('base64');
+    let capturedArgs: unknown;
     const grpcWithTx = {
       core: {
         async getObject() { throw new Error('unused'); },
         async waitForTransaction() { return; },
-        async getTransaction() {
+        async getTransaction(args: unknown) {
+          capturedArgs = args;
           return {
             events: [{ eventType: '::audit_anchor::SnapshotAnchored', json: { seq: '3', link: linkB64 } }],
           };
@@ -73,6 +75,8 @@ describe('SuiGrpcChainAdapter parsing', () => {
     const ev = await a.getAnchorEvent(digest);
     expect(ev.seq).toBe(3n);
     expect(Array.from(ev.link)).toEqual([0xab, 0xcd]);
+    // Guard: mask must be present so live gRPC nodes return events
+    expect(capturedArgs).toMatchObject({ digest, include: { events: true } });
   });
 
   // I2: toBytes() must pass through a raw Uint8Array without mutation.
