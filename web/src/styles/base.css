@@ -1,0 +1,124 @@
+/*
+ * TallyMarina base styles — imports tokens, sets paper grain, typography reset.
+ * §8.3 / §8.4 mascot-governance: see tokens.css header.
+ *
+ * MASCOT GOVERNANCE (§8.4) — HARD RULE:
+ *   The otter mascot NEVER appears on DATA surfaces: journal/ledger tables,
+ *   confidence scores, red-flag lists, the guardrail banner, the wallet-signing
+ *   modal, and the anchor confirmation / hash-chain view.
+ *   It belongs ONLY in chrome/warmth: logo, empty states, progress rail,
+ *   copilot dock avatar, and the one-time post-anchor celebration.
+ *   Data primitive components in this file (Button, Card, Badge, Table)
+ *   are mascot-FREE. See src/components/data/ — NO mascot imports permitted there.
+ */
+
+@import '../tokens.css';
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-body);
+  color: var(--ink);
+  font-size: 16px;
+  line-height: 1.5;
+  background-color: var(--paper);
+  /*
+   * Faint SVG paper-grain ~3% opacity over the flat paper bg (§8.3).
+   * Pure chrome texture; data surfaces (.austere) override to clean bg.
+   */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+  background-attachment: fixed;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Headings ── */
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display);
+  color: var(--ink);
+  font-weight: 560;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+  margin: 0 0 var(--space-2);
+}
+
+p {
+  margin: 0 0 var(--space-2);
+}
+
+/* ── Utility classes ── */
+.font-display { font-family: var(--font-display); }
+.font-body    { font-family: var(--font-body); }
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+/* hairline divider */
+.hairline {
+  border: 0;
+  border-top: 1px solid var(--paper-line);
+  margin: 0;
+}
+
+/* aqua-link: reserved for on-chain/anchor-semantics only (§8.1) */
+.aqua-link {
+  color: var(--aqua);
+  text-decoration: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--aqua) 40%, transparent);
+  transition: border-color 150ms ease;
+}
+.aqua-link:hover {
+  border-bottom-color: var(--aqua);
+}
+
+/* ── Card ── */
+.card {
+  background: var(--paper-card);
+  border: 1px solid var(--paper-line); /* 1px only — never 2px gold */
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  padding: var(--space-3);
+}
+
+/* ── Austere panel — hash-chain view + wallet-signing frame (§8.4 NO mascot) ── */
+.austere {
+  background: var(--ink); /* navy-deep equivalent */
+  color: var(--austere-ink);
+  border-radius: var(--radius-md);
+}
+.austere .mono { color: var(--austere-mono); }
+.austere .aqua-link {
+  color: var(--aqua-bright);
+  border-bottom-color: color-mix(in srgb, var(--aqua-bright) 40%, transparent);
+}
+.austere .aqua-link:hover {
+  border-bottom-color: var(--aqua-bright);
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb {
+  background: var(--paper-line);
+  border-radius: var(--radius-sm);
+}
+
+/* ── Reduced motion ── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}

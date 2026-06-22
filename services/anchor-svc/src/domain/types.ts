@@ -11,7 +11,8 @@ export type AnchorErrorCode =
   | 'SEQ_OUT_OF_RANGE'
   | 'LINK_MISMATCH_AFTER_RETRY'
   | 'ENTITY_CHAIN_NOT_FOUND'
-  | 'AMBIGUOUS_ENTITY_CHAIN';
+  | 'AMBIGUOUS_ENTITY_CHAIN'
+  | 'CAP_NOT_OWNED_BY_WALLET';
 
 export class AnchorError extends Error {
   constructor(public readonly code: AnchorErrorCode, message?: string) {
@@ -68,6 +69,8 @@ export interface SuiChainPort {
   getChainState(chainObjectId: string): Promise<ChainState>;
   getCapEpoch(capObjectId: string): Promise<bigint>;
   execAnchor(input: ExecAnchorInput): Promise<AnchorResult>;
+  /** Optional cap-owner preflight. Adapters that support it provide this method. */
+  getCapOwner?(capObjectId: string): Promise<string>;
 }
 
 /** One discovered AnchorCap owned by the signer, with the chain it writes to. */

@@ -19,8 +19,20 @@ export async function resolveChain(
   entityId: string,
   registry: EntityRegistry,
   port: SuiChainPort,
+  walletAddress?: string,
 ): Promise<ResolvedChain> {
   const entry = lookupEntity(registry, entityId); // ENTITY_NOT_REGISTERED
+
+  // Cap-owner preflight: if the port supports it and a walletAddress is given,
+  // verify ownership before any on-chain read (fail-closed, avoids wasted gas).
+  if (walletAddress != null && port.getCapOwner != null) {
+    const capOwner = await port.getCapOwner(entry.capObjectId).catch(() => undefined);
+    if (capOwner !== walletAddress) {
+      throw new AnchorError('CAP_NOT_OWNED_BY_WALLET',
+        `cap ${entry.capObjectId} owner=${capOwner ?? 'unknown'} !== wallet=${walletAddress}`);
+    }
+  }
+
   const state = await port.getChainState(entry.chainObjectId);
 
   // A4: cross-verify on-chain entity_ref against the derived ref.

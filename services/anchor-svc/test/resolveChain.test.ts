@@ -3,11 +3,12 @@ import { resolveChain } from '../src/core/resolveChain.js';
 import { AnchorError, type SuiChainPort, type ChainState } from '../src/domain/types.js';
 import { deriveEntityRef } from '../src/core/entityRef.js';
 
-function fakePort(state: Partial<ChainState>, capEpoch = 0n): SuiChainPort {
+function fakePort(state: Partial<ChainState>, capEpoch = 0n, capOwner?: string): SuiChainPort {
   return {
     getChainState: async () => ({ entityRef: deriveEntityRef('e1'), latestLink: new Uint8Array(32), seq: 0n, capEpoch: 0n, ...state }),
     getCapEpoch: async () => capEpoch,
     execAnchor: async () => { throw new Error('not used'); },
+    ...(capOwner !== undefined ? { getCapOwner: async () => capOwner } : {}),
   };
 }
 const reg = { 'e1': { chainObjectId: '0xchain', capObjectId: '0xcap' } };
@@ -28,5 +29,26 @@ describe('resolveChain (A4 gate)', () => {
   });
   it('fails closed for unregistered entity before any chain read', async () => {
     await expect(resolveChain('nope', reg, fakePort({}))).rejects.toMatchObject({ code: 'ENTITY_NOT_REGISTERED' });
+  });
+
+  // C-2 cap-owner preflight tests
+  it('throws CAP_NOT_OWNED_BY_WALLET when cap owner does not match walletAddress', async () => {
+    const port = fakePort({}, 0n, '0xother');
+    await expect(resolveChain('e1', reg, port, '0xwallet'))
+      .rejects.toMatchObject({ code: 'CAP_NOT_OWNED_BY_WALLET' });
+  });
+
+  it('proceeds when cap owner matches walletAddress', async () => {
+    const port = fakePort({ seq: 1n, capEpoch: 0n }, 0n, '0xwallet');
+    const r = await resolveChain('e1', reg, port, '0xwallet');
+    expect(r.chainObjectId).toBe('0xchain');
+    expect(r.seq).toBe(1n);
+  });
+
+  it('skips preflight when walletAddress is not provided', async () => {
+    // port without getCapOwner — no walletAddress → should not throw
+    const port = fakePort({ seq: 2n, capEpoch: 0n }, 0n);
+    const r = await resolveChain('e1', reg, port);
+    expect(r.seq).toBe(2n);
   });
 });

@@ -1,0 +1,74 @@
+/*
+ * TallyMarina Design Tokens
+ *
+ * Mascot governance: mascot lives in chrome/empty/AI/celebration contexts.
+ * Data surfaces (journal tables, hash-chain) are mascot-free.
+ *
+ * Spacing scale: 8px base. Radius: 6/12/20. Shadow: navy-tinted soft.
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+:root {
+  /* ── Colour palette ── */
+  --ink:          #1E2A4A;
+  --ink-soft:     #3E4A6B;
+  --paper:        #F4ECD8;
+  --paper-card:   #FBF6EA;
+  --paper-line:   #E3D7BC;
+  --brass:        #B68A2E;
+  --brass-fill:   #C9A24B;
+  --aqua:         #2E9FBC;
+  --aqua-bright:  #4FC3DC;
+  --credit:       #2F7A5A;
+  --debit:        #B5532E;
+  --warn:         #C28A1E;
+  --on-aqua:      #0E1A2E;   /* navy text on aqua — ≥4.5:1 on --aqua/--aqua-bright */
+  --austere-ink:  #D8E2EF;   /* body text on --ink (navy) austere surfaces */
+  --austere-mono: #E6EDF6;   /* mono/code text on --ink austere surfaces */
+  --austere-dim:  #8FA3C0;   /* dimmed mono text on austere surfaces */
+  --austere-border: #2D3B5E; /* border on austere surfaces */
+
+  /* ── Typography ── */
+  --font-display: 'Fraunces', Georgia, serif;
+  --font-body:    'Mona Sans', system-ui, sans-serif;
+  --font-mono:    'IBM Plex Mono', 'Cascadia Code', monospace;
+
+  /* ── Spacing scale (8px base) ── */
+  --space-1:  8px;
+  --space-2:  16px;
+  --space-3:  24px;
+  --space-4:  32px;
+  --space-5:  40px;
+  --space-6:  48px;
+  --space-8:  64px;
+  --space-10: 80px;
+
+  /* ── Border radius ── */
+  --radius-sm: 6px;
+  --radius-md: 12px;
+  --radius-lg: 20px;
+
+  /* ── Shadows (navy-tinted soft) ── */
+  --shadow-sm: 0 1px 4px 0 rgba(30, 42, 74, 0.08);
+  --shadow-md: 0 4px 16px 0 rgba(30, 42, 74, 0.12);
+  --shadow-lg: 0 8px 32px 0 rgba(30, 42, 74, 0.16);
+
+  /* ── Aliases for spec §8.3 short names used across components ──
+     Components were authored against the short --s-N / --r-* / --navy-deep
+     names; alias them here so spacing/radius actually resolve (otherwise
+     padding/gap silently collapse to 0). Single source of truth. */
+  --s-1:  var(--space-1);
+  --s-2:  var(--space-2);
+  --s-3:  var(--space-3);
+  --s-4:  var(--space-4);
+  --s-5:  var(--space-5);
+  --s-6:  var(--space-6);
+  --s-8:  var(--space-8);
+  --s-10: var(--space-10);
+  --s-12: 96px;
+  --r-sm: var(--radius-sm);
+  --r-md: var(--radius-md);
+  --r-lg: var(--radius-lg);
+  --navy-deep: #141E36;   /* deep navy for austere data surfaces (hash-chain, journal head) */
+}
