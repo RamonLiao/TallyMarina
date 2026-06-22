@@ -110,10 +110,12 @@ Location: `services/api/src/ai/`. Only module that can reach the Gemini API; key
 backend env `GEMINI_API_KEY`. SDK: **`@google/genai`**. Provider seam `ai/geminiClient.ts`
 (swap to Claude = one file). Structured output via Gemini **`responseSchema`** (JSON mode).
 
-**Models (verified via context7, 2026-06-22 — Gemini 3.x is current, free tier):**
-- classify (role a): **`gemini-3.5-flash-lite`** — cheapest, lowest-latency, ample for classification.
-- copilot (role b): **`gemini-3.5-flash`** — free tier, quality sufficient. (`gemini-3.5-pro`
-  is generally NOT free → avoided to keep the demo zero-cost.)
+**Models (live-verified with the user's key via curl, 2026-06-22):**
+- classify (role a): **`gemini-flash-lite-latest`** — cheapest, lowest-latency alias.
+- copilot (role b): **`gemini-flash-latest`** — resolves to `gemini-3.5-flash` (confirmed
+  `modelVersion: gemini-3.5-flash` in the live response).
+- Auth: `X-goog-api-key: <GEMINI_API_KEY>` header (the `@google/genai` SDK sets this; the
+  user's key authenticates and bills under `serviceTier: standard`).
 - Model ids are config constants (`AI_MODEL_CLASSIFY` / `AI_MODEL_COPILOT` env), not hardcoded,
   so a tier swap is one env change. Classic `generateContent` is fine; the newer
   `interactions.create` API is optional and not required for this MVP.
@@ -414,9 +416,9 @@ ENTITY_CAP_ID=0x266e7c8ea0b27ad52080074c9f6c1f73ec8a6ea9dd9a68d310b7cf56262dfba9
 SUI_PK=                              # suiprivkey1...  (leave blank for prod/demo wallet flow)
 
 # --- Gemini AI ---
-GEMINI_API_KEY=                      # ← paste your Google AI Studio key here
-AI_MODEL_CLASSIFY=gemini-3.5-flash-lite
-AI_MODEL_COPILOT=gemini-3.5-flash
+GEMINI_API_KEY=                      # ← user's key (AQ.… format works via X-goog-api-key; live-verified)
+AI_MODEL_CLASSIFY=gemini-flash-lite-latest
+AI_MODEL_COPILOT=gemini-flash-latest
 AI_CONFIDENCE_THRESHOLD=0.85
 
 # --- Server ---
