@@ -1,4 +1,5 @@
 import { EntityProvider, useEntityCtx } from './app/EntityContext';
+import { AppBackground } from './components/chrome/AppBackground';
 import { Header } from './components/chrome/Header';
 import { StepRail } from './components/chrome/StepRail';
 import { GuardrailBanner } from './components/data/GuardrailBanner';
@@ -32,6 +33,7 @@ function Shell() {
 export default function App() {
   return (
     <EntityProvider>
+      <AppBackground />
       <Shell />
     </EntityProvider>
   );
