@@ -1,6 +1,11 @@
+/// <reference types="vitest/config" />
+/// <reference types="node" />
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-import { resolve } from 'path';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   plugins: [react()],
@@ -12,7 +17,7 @@ export default defineConfig({
     alias: [
       {
         find: /^.*\.(png|jpg|jpeg|gif|svg|webp)$/,
-        replacement: resolve(__dirname, 'src/test/fileStub.ts'),
+        replacement: path.resolve(__dirname, 'src/test/fileStub.ts'),
       },
     ],
   },
