@@ -135,6 +135,21 @@ describe('Badge — semantic-color routing contract', () => {
     render(<Badge status="AUTO" label="AI Processed" />);
     expect(screen.getByText('AI Processed')).toBeInTheDocument();
   });
+
+  it('NEEDS_REVIEW replaces ALL underscores — guards against single-replace regression', () => {
+    // WHY: replace('_','-') only fixes the first underscore in a status string.
+    // This test verifies that status.toLowerCase().replace(/_/g,'-') produces
+    // the correct slug 'needs-review' (no underscores in the status portion).
+    // CSS Modules append a hash suffix that may contain underscores — we check
+    // only the slug derived directly from the status string.
+    const slug = 'NEEDS_REVIEW'.toLowerCase().replace(/_/g, '-');
+    expect(slug).toBe('needs-review');
+    expect(slug).not.toContain('_');
+    // Also confirm the element carries the expected CSS module class
+    const { container } = render(<Badge status="NEEDS_REVIEW" />);
+    const el = container.querySelector('[data-status="NEEDS_REVIEW"]');
+    expect(el?.className).toContain('badge--needs-review');
+  });
 });
 
 // ── Table ───────────────────────────────────────────────────────────────────

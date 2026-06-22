@@ -74,7 +74,7 @@
 /* anchor: aqua bg — RESERVED for on-chain/anchor actions only (§8.1) */
 .btn--anchor {
   background: var(--aqua);
-  color: #ffffff;
+  color: var(--on-aqua);
   border-color: color-mix(in srgb, var(--aqua) 70%, var(--ink));
 }
 .btn--anchor:hover:not(:disabled) {

@@ -15,6 +15,6 @@
 .card--austere {
   background: var(--ink);
   border-color: color-mix(in srgb, var(--ink-soft) 60%, transparent);
-  color: #D8E2EF;
+  color: var(--austere-ink);
   box-shadow: var(--shadow-lg);
 }

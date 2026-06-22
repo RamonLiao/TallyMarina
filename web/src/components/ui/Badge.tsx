@@ -32,7 +32,7 @@ const STATUS_LABEL: Record<BadgeStatus, string> = {
 export function Badge({ status, label, className = '' }: BadgeProps) {
   const cls = [
     styles.badge,
-    styles[`badge--${status.toLowerCase().replace('_', '-')}`],
+    styles[`badge--${status.toLowerCase().replace(/_/g, '-')}`],
     className,
   ]
     .filter(Boolean)

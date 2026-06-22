@@ -23,6 +23,9 @@
   --credit:       #2F7A5A;
   --debit:        #B5532E;
   --warn:         #C28A1E;
+  --on-aqua:      #0E1A2E;   /* navy text on aqua — ≥4.5:1 on --aqua/--aqua-bright */
+  --austere-ink:  #D8E2EF;   /* body text on --ink (navy) austere surfaces */
+  --austere-mono: #E6EDF6;   /* mono/code text on --ink austere surfaces */
 
   /* ── Typography ── */
   --font-display: 'Fraunces', Georgia, serif;

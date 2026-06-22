@@ -96,10 +96,10 @@ p {
 /* ── Austere panel — hash-chain view + wallet-signing frame (§8.4 NO mascot) ── */
 .austere {
   background: var(--ink); /* navy-deep equivalent */
-  color: #D8E2EF;
+  color: var(--austere-ink);
   border-radius: var(--radius-md);
 }
-.austere .mono { color: #E6EDF6; }
+.austere .mono { color: var(--austere-mono); }
 .austere .aqua-link {
   color: var(--aqua-bright);
   border-bottom-color: color-mix(in srgb, var(--aqua-bright) 40%, transparent);
