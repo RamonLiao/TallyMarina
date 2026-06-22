@@ -2,6 +2,7 @@ import { EntityProvider, useEntityCtx } from './app/EntityContext';
 import { Header } from './components/chrome/Header';
 import { StepRail } from './components/chrome/StepRail';
 import { GuardrailBanner } from './components/data/GuardrailBanner';
+import { IngestStep } from './steps/IngestStep';
 
 function Shell() {
   const { step } = useEntityCtx();
@@ -14,8 +15,8 @@ function Shell() {
       <StepRail current={step} />
       <GuardrailBanner />
       <section style={{ marginTop: 'var(--space-6)' }} data-step={step}>
-        {/* Step bodies wired in Tasks 7–11 */}
-        <p style={{ fontFamily: 'var(--font-body)' }}>Step: {step}</p>
+        {step === 'ingest' && <IngestStep />}
+        {step !== 'ingest' && <p style={{ fontFamily: 'var(--font-body)' }}>Step: {step}</p>}
       </section>
     </main>
   );
