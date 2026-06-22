@@ -17,7 +17,7 @@ export class SuiGrpcChainAdapter implements SuiChainPort {
   constructor(private readonly client: { core: GrpcCore }, private readonly signer?: Signer) {}
 
   private async fields(objectId: string): Promise<Record<string, unknown>> {
-    const res = await this.client.core.getObject({ objectId });
+    const res = await this.client.core.getObject({ objectId, include: { json: true } });
     const f = res?.object?.json as Record<string, unknown> | undefined | null;
     if (!f) throw new Error(`object ${objectId} not found or json unavailable (gRPC)`);
     return f;
@@ -39,9 +39,9 @@ export class SuiGrpcChainAdapter implements SuiChainPort {
   }
 
   async getCapOwner(capObjectId: string): Promise<string> {
-    const res = await this.client.core.getObject({ objectId: capObjectId });
-    const owner = res?.object?.owner as { address?: string; AddressOwner?: string } | undefined;
-    const addr = owner?.address ?? owner?.AddressOwner;
+    const res = await this.client.core.getObject({ objectId: capObjectId, include: { json: true } });
+    const owner = res?.object?.owner as { $kind?: string; AddressOwner?: string } | undefined;
+    const addr = owner?.$kind === 'AddressOwner' ? owner.AddressOwner : undefined;
     if (!addr) throw new Error(`cap ${capObjectId} owner address unavailable (gRPC shape)`);
     return addr;
   }
@@ -86,7 +86,7 @@ export class SuiGrpcChainAdapter implements SuiChainPort {
 
 // Minimal structural type of the SuiGrpcClient.core surface we use.
 interface GrpcCore {
-  getObject(args: { objectId: string }): Promise<{ object?: { json?: Record<string, unknown> | null; owner?: unknown } }>;
+  getObject(args: { objectId: string; include?: { json?: boolean } }): Promise<{ object?: { json?: Record<string, unknown> | null; owner?: unknown } }>;
   getTransaction(args: { digest: string }): Promise<unknown>;
   waitForTransaction(args: { digest: string }): Promise<unknown>;
   signAndExecuteTransaction(args: { transaction: Transaction; signer: Signer }): Promise<unknown>;

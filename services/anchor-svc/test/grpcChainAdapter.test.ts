@@ -5,7 +5,7 @@ import { SuiGrpcChainAdapter } from '../src/adapter/grpcChainAdapter.js';
 function fakeGrpc(objects: Record<string, unknown>) {
   return {
     core: {
-      async getObject({ objectId }: { objectId: string }) {
+      async getObject({ objectId }: { objectId: string; include?: { json?: boolean } }) {
         const o = objects[objectId];
         if (!o) throw new Error('not found');
         return o;
@@ -29,11 +29,18 @@ describe('SuiGrpcChainAdapter parsing', () => {
     expect(s.capEpoch).toBe(7n);
   });
 
-  it('reads cap owner address for preflight', async () => {
+  it('reads cap owner address for preflight (correct $kind/AddressOwner shape)', async () => {
     const capId = '0xcap';
-    const client = fakeGrpc({ [capId]: { object: { owner: { address: '0xowner' }, json: { epoch: '7' } } } });
+    const client = fakeGrpc({ [capId]: { object: { owner: { $kind: 'AddressOwner', AddressOwner: '0xowner' }, json: { epoch: '7' } } } });
     const a = new SuiGrpcChainAdapter(client as never);
     expect(await a.getCapOwner(capId)).toBe('0xowner');
     expect(await a.getCapEpoch(capId)).toBe(7n);
+  });
+
+  it('throws when owner $kind is not AddressOwner', async () => {
+    const capId = '0xcap';
+    const client = fakeGrpc({ [capId]: { object: { owner: { $kind: 'Shared', Shared: { initialSharedVersion: '1' } }, json: { epoch: '7' } } } });
+    const a = new SuiGrpcChainAdapter(client as never);
+    await expect(a.getCapOwner(capId)).rejects.toThrow('owner address unavailable');
   });
 });
