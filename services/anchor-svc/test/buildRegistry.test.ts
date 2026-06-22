@@ -131,4 +131,29 @@ describe('buildRegistry', () => {
     expect(Object.getOwnPropertyNames(testObj)).toEqual([]);
     expect((testObj as any).injected).toBeUndefined();
   });
+
+  it('__proto__ entityId is stored as own property without polluting global Object.prototype', async () => {
+    // Directly attack with entityId='__proto__' to verify it becomes an own property
+    // in a null-prototype registry, NOT a global pollution vector.
+    const caps: OwnedCap[] = [
+      { capObjectId: '0xcapP', chainId: '0xchainP' },
+    ];
+    const port = fakePort(caps, { '0xchainP': '__proto__' });
+    const reg = await buildRegistry(['__proto__'], OWNER, ORIG_PKG, port);
+
+    // (a) Registry must have null prototype
+    expect(Object.getPrototypeOf(reg)).toBeNull();
+
+    // (b) '__proto__' is an OWN property with correct data
+    expect(Object.prototype.hasOwnProperty.call(reg, '__proto__')).toBe(true);
+    expect(reg['__proto__']).toEqual({
+      chainObjectId: '0xchainP',
+      capObjectId: '0xcapP',
+    });
+
+    // (c) Global Object.prototype is NOT polluted
+    const freshObj = {};
+    expect((freshObj as any).chainObjectId).toBeUndefined();
+    expect((freshObj as any).capObjectId).toBeUndefined();
+  });
 });
