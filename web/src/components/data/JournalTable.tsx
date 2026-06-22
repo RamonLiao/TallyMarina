@@ -33,7 +33,7 @@ export function JournalTable({ journal }: { journal: JournalDTO[] }) {
         style={{ width: '100%', borderCollapse: 'collapse', fontSize: 15, fontVariantNumeric: 'tabular-nums' }}
       >
         <thead>
-          <tr style={{ background: 'var(--navy-deep)', color: '#D8E2EF' }}>
+          <tr style={{ background: 'var(--navy-deep)', color: 'var(--austere-ink)' }}>
             <th style={{ textAlign: 'left', padding: 'var(--s-3)', fontWeight: 600 }}>JE</th>
             <th style={{ textAlign: 'left', padding: 'var(--s-3)', fontWeight: 600 }}>Account</th>
             <th style={{ textAlign: 'left', padding: 'var(--s-3)', fontWeight: 600 }}>Side</th>
