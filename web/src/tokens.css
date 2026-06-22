@@ -26,6 +26,8 @@
   --on-aqua:      #0E1A2E;   /* navy text on aqua — ≥4.5:1 on --aqua/--aqua-bright */
   --austere-ink:  #D8E2EF;   /* body text on --ink (navy) austere surfaces */
   --austere-mono: #E6EDF6;   /* mono/code text on --ink austere surfaces */
+  --austere-dim:  #8FA3C0;   /* dimmed mono text on austere surfaces */
+  --austere-border: #2D3B5E; /* border on austere surfaces */
 
   /* ── Typography ── */
   --font-display: 'Fraunces', Georgia, serif;

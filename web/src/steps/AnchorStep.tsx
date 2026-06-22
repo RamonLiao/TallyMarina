@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useEntities, useSnapshot, usePrepareAnchor, useConfirmAnchor, useAnchors } from '../api/hooks';
+import { useEntities, useSnapshot, usePrepareAnchor, useConfirmAnchor, useAnchors, useJournal } from '../api/hooks';
 import { useEntityCtx } from '../app/EntityContext';
 import { useWallet } from '../wallet/useWallet';
 import { HashChain } from '../components/data/HashChain';
@@ -16,7 +16,9 @@ export function AnchorStep() {
   const snap = useSnapshot(entity?.id ?? '');
   const prepare = usePrepareAnchor(entity?.id ?? '');
   const confirm = useConfirmAnchor(entity?.id ?? '');
-  const { data: anchorData } = useAnchors(entity?.id);
+  const { data: journal } = useJournal(entity?.id);
+  const firstIdempotencyKey = journal?.[0]?.idempotencyKey;
+  const { data: anchorData } = useAnchors(entity?.id, firstIdempotencyKey);
 
   const [snapshotId, setSnapshotId] = useState<string | null>(null);
   const [signing, setSigning] = useState(false);
@@ -74,7 +76,7 @@ export function AnchorStep() {
             {signing && (
               <div className="austere" style={{ padding: 'var(--s-4)', display: 'flex', alignItems: 'center', gap: 'var(--s-3)' }}>
                 <Mascot pose="thinking" size={32} />
-                <span className="mono" style={{ color: '#E6EDF6' }}>Awaiting wallet signature…</span>
+                <span className="mono" style={{ color: 'var(--austere-mono)' }}>Awaiting wallet signature…</span>
               </div>
             )}
             {err && <p className="mono" style={{ color: 'var(--debit)', fontSize: 14 }}>{err}</p>}
