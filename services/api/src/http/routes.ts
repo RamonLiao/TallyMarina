@@ -225,7 +225,7 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     return { blocking: blockers.length, blockers };
   });
 
-  app.post<{ Params: { exceptionId: string }; Body: { state?: string; reasonCode?: string; reasonNote?: string; decidedBy?: string } }>('/exceptions/:exceptionId/disposition', async (req) => {
+  app.post<{ Params: { exceptionId: string }; Body: { state?: string; reasonCode?: string; reasonNote?: string; decidedBy?: string; periodId?: string } }>('/exceptions/:exceptionId/disposition', async (req) => {
     const decoded = decodeURIComponent(req.params.exceptionId);
     const sep = decoded.indexOf(':');
     if (sep < 0) throw new ApiError(400, 'VALIDATION', 'exceptionId must be category:eventId');
@@ -239,7 +239,7 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     // Re-validate against live exceptions — reject forged / stale ids.
     const ev = getEvent(db, eventId);
     if (!ev) throw new ApiError(404, 'EXCEPTION_NOT_FOUND', `no event ${eventId}`);
-    const live = collectExceptions(db, ev.entityId, DEFAULT_PERIOD, cfg.exceptionLowConfidence)
+    const live = collectExceptions(db, ev.entityId, b.periodId ?? DEFAULT_PERIOD, cfg.exceptionLowConfidence)
       .find((e) => e.category === category && e.eventId === eventId);
     if (!live) throw new ApiError(404, 'EXCEPTION_NOT_FOUND', `no current exception ${decoded}`);
 

@@ -107,7 +107,6 @@ describe('exceptions routes + close gate', () => {
       method: 'POST', url: `/entities/${EID}/snapshot`,
       payload: { periodId: '2026-Q2' },
     });
-    if (snap2.statusCode !== 200) console.error('snap2 body:', snap2.body);
     expect(snap2.statusCode).toBe(200);
     expect((snap2.json() as { snapshot: { status: string } }).snapshot.status).toBe('FROZEN');
   });
