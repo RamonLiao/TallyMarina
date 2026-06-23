@@ -13,9 +13,12 @@ function assertMinor(v: unknown, field: string, key: string): string {
   return v;
 }
 
-export function loadReconFixture(entityId: string): ReconFixtureRow[] {
-  const all = JSON.parse(readFileSync(FILE, 'utf8')) as Record<string, unknown>;
-  const raw = all[entityId];
+/**
+ * Validate and parse raw JSON rows for a recon fixture.
+ * Exported so tests can exercise the same guards against adversarial inputs
+ * without drift — one implementation, shared by production and tests.
+ */
+export function validateReconRows(raw: unknown, entityId: string): ReconFixtureRow[] {
   if (!Array.isArray(raw)) throw new Error(`no recon fixture for entity ${entityId}`);
   const seen = new Set<string>();
   return raw.map((r0) => {
@@ -33,4 +36,9 @@ export function loadReconFixture(entityId: string): ReconFixtureRow[] {
       thresholdMinor: assertMinor(r.thresholdMinor, 'thresholdMinor', key),
     };
   });
+}
+
+export function loadReconFixture(entityId: string): ReconFixtureRow[] {
+  const all = JSON.parse(readFileSync(FILE, 'utf8')) as Record<string, unknown>;
+  return validateReconRows(all[entityId], entityId);
 }

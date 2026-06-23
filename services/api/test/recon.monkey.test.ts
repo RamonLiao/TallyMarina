@@ -4,6 +4,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { openDb, type Db } from '../src/store/db.js';
 import { registerRoutes } from '../src/http/routes.js';
 import { applyReconDisposition } from '../src/reconciliation/disposition.js';
+import { validateReconRows } from '../src/reconciliation/fixture.js';
 
 // ---------------------------------------------------------------------------
 // App factory — matches shape from recon.routes.test.ts
@@ -46,16 +47,16 @@ describe('recon monkey — routes', () => {
   });
 
   it('coinType containing :: round-trips through single-pipe parse', async () => {
+    // acme:pilot-001 fixture has 0xusdc::usdc::USDC with a material break
+    // (openingMinor=5000000000, statementMinor=5000500000, threshold=100000 → break=500000 ≥ threshold).
+    // Entity is seeded in beforeEach so collectBreaks finds the fixture row → 200.
     const res = await app.inject({
       method: 'POST',
       url: `/recon-breaks/${encodeURIComponent('0xacmeTreasury|0xusdc::usdc::USDC')}/disposition`,
       payload: { state: 'dismissed', reasonCode: 'unidentified' },
     });
-    // 200 if material break present (fixture-driven), 404 if not seeded in :memory:
-    expect([200, 404]).toContain(res.statusCode);
-    if (res.statusCode === 200) {
-      expect(res.json().disposition.coinType).toBe('0xusdc::usdc::USDC');
-    }
+    expect(res.statusCode).toBe(200);
+    expect(res.json().disposition.coinType).toBe('0xusdc::usdc::USDC');
   });
 
   it('unknown reasonCode → 400', async () => {
@@ -79,7 +80,7 @@ describe('recon monkey — disposition service', () => {
     db.prepare(ENT).run();
   });
 
-  it('concurrent double disposition: last write wins, log has 2 entries, no corruption', () => {
+  it('serial re-disposition: last write wins, log keeps both, no corruption', () => {
     const args = {
       entityId: 'acme:pilot-001',
       periodId: '2026-Q2',
@@ -116,55 +117,26 @@ describe('recon monkey — disposition service', () => {
 // ---------------------------------------------------------------------------
 // Fixture validation negative-path tests
 //
-// loadReconFixture reads a committed JSON file (hardcoded path) so we cannot
-// inject malformed rows through the public API.  The internal guards
-// (assertMinor, duplicate-key check) are private functions.
-//
-// Strategy: replicate the exact guard logic verbatim (15 lines extracted from
-// fixture.ts) in a local helper and drive it with adversarial inputs. This is
-// NOT testing "mock behaviour" — it tests the guard invariants themselves.
-// The unknown-entity path IS reachable from the public API and is tested
-// against the real module.
+// Uses the REAL exported validateReconRows from fixture.ts so that a
+// regression in the production guards will fail these tests (no drift).
 // ---------------------------------------------------------------------------
-
-/** Mirrors assertMinor from src/reconciliation/fixture.ts — kept in sync. */
-function assertMinor(v: unknown, field: string, key: string): string {
-  if (typeof v !== 'string') throw new Error(`recon fixture ${key}: ${field} must be a string, got ${typeof v}`);
-  let n: bigint;
-  try { n = BigInt(v); } catch { throw new Error(`recon fixture ${key}: ${field} is not a valid integer minor: ${v}`); }
-  if (n < 0n) throw new Error(`recon fixture ${key}: ${field} must be >= 0 (asset-positive convention): ${v}`);
-  return v;
-}
-
-/** Mirrors the duplicate-row guard from src/reconciliation/fixture.ts. */
-function validateRows(rows: Array<{ wallet: string; coinType: string; openingMinor: unknown; statementMinor: unknown; thresholdMinor: unknown; decimals: number }>) {
-  const seen = new Set<string>();
-  for (const r of rows) {
-    const key = `${r.wallet}|${r.coinType}`;
-    if (seen.has(key)) throw new Error(`recon fixture: duplicate row ${key}`);
-    seen.add(key);
-    assertMinor(r.openingMinor, 'openingMinor', key);
-    assertMinor(r.statementMinor, 'statementMinor', key);
-    assertMinor(r.thresholdMinor, 'thresholdMinor', key);
-  }
-}
 
 describe('recon monkey — fixture validation guards', () => {
   it('throws on negative openingMinor (asset-positive convention)', () => {
-    expect(() => validateRows([
+    expect(() => validateReconRows([
       { wallet: '0xw', coinType: '0x2::sui::SUI', decimals: 9, openingMinor: '-1', statementMinor: '0', thresholdMinor: '0' },
-    ])).toThrow(/must be >= 0/i);
+    ], 'test-entity')).toThrow(/must be >= 0/i);
   });
 
   it('throws on non-numeric string minor', () => {
-    expect(() => validateRows([
+    expect(() => validateReconRows([
       { wallet: '0xw', coinType: '0x2::sui::SUI', decimals: 9, openingMinor: 'abc', statementMinor: '0', thresholdMinor: '0' },
-    ])).toThrow(/not a valid integer minor/i);
+    ], 'test-entity')).toThrow(/not a valid integer minor/i);
   });
 
   it('throws on duplicate (wallet, coinType) row', () => {
     const row = { wallet: '0xw', coinType: '0x2::sui::SUI', decimals: 9, openingMinor: '0', statementMinor: '0', thresholdMinor: '0' };
-    expect(() => validateRows([row, row])).toThrow(/duplicate row/i);
+    expect(() => validateReconRows([row, row], 'test-entity')).toThrow(/duplicate row/i);
   });
 
   it('throws on unknown entity — real loadReconFixture (fail-loud, no silent empty)', async () => {
