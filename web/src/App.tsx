@@ -14,6 +14,7 @@ import { JournalStep } from './steps/JournalStep';
 import { AnchorStep } from './steps/AnchorStep';
 import { ExceptionsWorkspace } from './workspaces/ExceptionsWorkspace';
 import { AuditWorkspace } from './workspaces/AuditWorkspace';
+import { ReconciliationWorkspace } from './workspaces/ReconciliationWorkspace';
 
 function CloseWorkspace() {
   const { step } = useEntityCtx();
@@ -33,9 +34,11 @@ function CloseWorkspace() {
 
 function WorkspaceContent() {
   const { activeWorkspace } = useWorkspace();
+  const { entity } = useEntityCtx();
   if (activeWorkspace === 'close') return <CloseWorkspace />;
   if (activeWorkspace === 'exceptions') return <ExceptionsWorkspace />;
   if (activeWorkspace === 'audit') return <AuditWorkspace />;
+  if (activeWorkspace === 'reconciliation') return <ReconciliationWorkspace entityId={entity?.id ?? ''} />;
   const meta = WORKSPACES.find((w) => w.id === activeWorkspace);
   return (
     <EmptyState

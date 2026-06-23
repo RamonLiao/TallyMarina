@@ -1,0 +1,8 @@
+{
+  "acme:pilot-001": [
+    { "wallet": "0xacmeTreasury", "coinType": "0x2::sui::SUI", "decimals": 9, "openingMinor": "1200000000", "statementMinor": "3798000000", "thresholdMinor": "1000000000" },
+    { "wallet": "0xacmeTreasury", "coinType": "0xusdc::usdc::USDC", "decimals": 6, "openingMinor": "5000000000", "statementMinor": "5000500000", "thresholdMinor": "100000" },
+    { "wallet": "0xacmeTreasury", "coinType": "0xweth::weth::WETH", "decimals": 8, "openingMinor": "200000000", "statementMinor": "150000000", "thresholdMinor": "1000000" },
+    { "wallet": "0xacmeTreasury", "coinType": "0xusdt::usdt::USDT", "decimals": 6, "openingMinor": "0", "statementMinor": "750000000", "thresholdMinor": "100000" }
+  ]
+}

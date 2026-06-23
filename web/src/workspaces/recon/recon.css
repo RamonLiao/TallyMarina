@@ -1,0 +1,43 @@
+/* web/src/workspaces/recon/recon.css */
+.recon-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.recon-table th, .recon-table td { padding: 8px 10px; text-align: right; white-space: nowrap; }
+.recon-table th:first-child, .recon-table td:first-child { text-align: left; }
+.td--mono { font-family: var(--font-mono, monospace); }
+.recon-row { cursor: pointer; }
+.recon-row.is-selected { background: var(--paper-2, #f3efe6); }
+.recon-row--material { box-shadow: inset 3px 0 var(--debit, #b5532e); }
+.brk sup, .recon-table sup { color: var(--ink-soft, #8a8175); font-size: 0.7em; }
+.brk--material { background: var(--debit, #b5532e); color: #fff; font-weight: 700; padding: 1px 6px; border-radius: var(--radius-pill, 999px); }
+.brk--immaterial { border: 1px solid var(--warn, #c28a1e); padding: 1px 6px; border-radius: var(--radius-pill, 999px); }
+.brk--ok { color: var(--credit, #2f7a5a); }
+.brk em { color: var(--ink-soft, #8a8175); font-style: normal; font-size: 0.85em; }
+.prov--live, .prov--live sup { color: var(--aqua, #2e9fbc); }  /* aqua = on-chain ONLY */
+.prov--na { color: var(--ink-soft, #8a8175); }
+.prov--unavailable { color: var(--warn, #c28a1e); }
+
+/* TABLET: hide the two derivation columns (Opening, +Movements). */
+@media (max-width: 1024px) {
+  .recon-table th:nth-child(2), .recon-table td:nth-child(2),
+  .recon-table th:nth-child(3), .recon-table td:nth-child(3) { display: none; }
+}
+/* PHONE: card-ify — never horizontal-scroll an 8-col financial grid. */
+@media (max-width: 640px) {
+  .recon-table thead { display: none; }
+  .recon-table, .recon-table tbody, .recon-table tr, .recon-table td { display: block; width: 100%; }
+  .recon-table tr { border: 1px solid var(--line, #e0d9cc); border-radius: var(--radius, 12px); margin-bottom: 10px; padding: 6px 10px; }
+  .recon-table td { text-align: right; border: none; padding: 4px 0; }
+  .recon-table td::before { content: attr(data-label); float: left; color: var(--ink-soft, #8a8175); font-size: 0.8em; }
+  .recon-table td:nth-child(2), .recon-table td:nth-child(3) { display: block; } /* show all in card */
+}
+
+/* ReconDetail */
+.recon-anchored-ribbon { background: color-mix(in srgb, var(--aqua, #2aa9c4) 14%, transparent); color: var(--aqua, #2aa9c4); padding: 6px 10px; border-radius: var(--radius, 12px); margin-bottom: 10px; }
+.recon-eq { width: 100%; border-collapse: collapse; }
+.recon-eq td { padding: 4px 8px; }
+.recon-eq td:last-child { text-align: right; }
+.recon-eq-rule td { border-top: 1px solid var(--brass, #b08d57); font-weight: 600; }
+.recon-eq-note td { color: var(--ink-soft, #8a8175); font-size: 0.85em; }
+.prov--unavail { color: var(--warn, #c79a3a); }
+.recon-disp { margin-top: 14px; display: flex; flex-direction: column; gap: 8px; }
+.recon-disp-actions { display: flex; gap: 8px; }
+.recon-err { color: var(--debit, #b5532e); }

@@ -65,3 +65,28 @@ CREATE TABLE IF NOT EXISTS exception_disposition_log (
   decided_by  TEXT NOT NULL,
   decided_at  INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS recon_break_disposition (
+  entity_id   TEXT NOT NULL REFERENCES entities(id),
+  period_id   TEXT NOT NULL,
+  wallet      TEXT NOT NULL,
+  coin_type   TEXT NOT NULL,
+  state       TEXT NOT NULL,
+  reason_code TEXT NOT NULL,
+  reason_note TEXT,
+  decided_by  TEXT NOT NULL,
+  decided_at  INTEGER NOT NULL,
+  PRIMARY KEY (entity_id, period_id, wallet, coin_type)
+);
+CREATE TABLE IF NOT EXISTS recon_break_disposition_log (
+  seq         INTEGER PRIMARY KEY AUTOINCREMENT,
+  entity_id   TEXT NOT NULL,
+  period_id   TEXT NOT NULL,
+  wallet      TEXT NOT NULL,
+  coin_type   TEXT NOT NULL,
+  prev_state  TEXT,
+  state       TEXT NOT NULL,
+  reason_code TEXT NOT NULL,
+  reason_note TEXT,
+  decided_by  TEXT NOT NULL,
+  decided_at  INTEGER NOT NULL
+);

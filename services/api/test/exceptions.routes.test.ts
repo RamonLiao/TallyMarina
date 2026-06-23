@@ -3,6 +3,20 @@ import { buildTestApp, TEST_ENTITY_ID } from './helpers/app.js';
 import type { FastifyInstance } from 'fastify';
 import type { Db } from '../src/store/db.js';
 import { insertEvent, setAiSuggestion } from '../src/store/eventStore.js';
+import { upsertReconDisposition } from '../src/store/reconBreakStore.js';
+
+const RECON_BREAKS = [
+  '0xacmeTreasury|0x2::sui::SUI',
+  '0xacmeTreasury|0xusdc::usdc::USDC',
+  '0xacmeTreasury|0xweth::weth::WETH',
+  '0xacmeTreasury|0xusdt::usdt::USDT',
+];
+function dismissReconBreaks(db: Db, entityId: string, periodId: string) {
+  for (const key of RECON_BREAKS) {
+    const [wallet, coinType] = key.split('|') as [string, string];
+    upsertReconDisposition(db, { entityId, periodId, wallet, coinType, state: 'dismissed', reasonCode: 'unidentified', reasonNote: null, decidedBy: 'test', decidedAt: Date.now() });
+  }
+}
 
 const EID = TEST_ENTITY_ID; // 'acme:pilot-001' — matches fixture rawJson entityId
 
@@ -102,7 +116,10 @@ describe('exceptions routes + close gate', () => {
     });
     expect(disp.statusCode).toBe(200);
 
-    // Now snapshot should proceed (gate passes, journal entries exist from run-rules)
+    // Dismiss recon breaks so the recon gate also passes
+    dismissReconBreaks(app._db, EID, '2026-Q2');
+
+    // Now snapshot should proceed (both gates pass, journal entries exist from run-rules)
     const snap2 = await app.inject({
       method: 'POST', url: `/entities/${EID}/snapshot`,
       payload: { periodId: '2026-Q2' },
@@ -124,10 +141,10 @@ describe('exceptions routes + close gate', () => {
       method: 'GET', url: `/entities/${EID}/close-readiness?periodId=2026-Q2`,
     });
     expect(cr.statusCode).toBe(200);
-    const crBody = cr.json() as { blocking: number; blockers: Array<{ category: string }> };
+    const crBody = cr.json() as { exceptions: { blocking: number; blockers: Array<{ category: string }> }; recon: { blocking: number; blockers: string[] }; closeable: boolean };
     // RULES_FAILED may appear (ev-lo1 is AUTO with unmappable payload), but LOW_CONFIDENCE_AUTO
-    // must never appear in blockers. This asserts the advisory-only constraint.
-    expect(crBody.blockers.every((b) => b.category !== 'LOW_CONFIDENCE_AUTO')).toBe(true);
+    // must never appear in exceptions.blockers. This asserts the advisory-only constraint.
+    expect(crBody.exceptions.blockers.every((b) => b.category !== 'LOW_CONFIDENCE_AUTO')).toBe(true);
 
     // Verify LOW_CONFIDENCE_AUTO is surfaced in the exceptions list (it IS an exception, just advisory)
     const ex = await app.inject({
