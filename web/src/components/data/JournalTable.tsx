@@ -25,7 +25,7 @@ export function JournalTable({ journal }: { journal: JournalDTO[] }) {
       style={{
         border: '1px solid var(--paper-line)',
         borderRadius: 'var(--r-md)',
-        overflow: 'hidden',
+        overflowX: 'auto',
       }}
     >
       <table
@@ -51,7 +51,7 @@ export function JournalTable({ journal }: { journal: JournalDTO[] }) {
                 key={`${j.id}-${li}`}
                 style={{ borderTop: '1px solid var(--paper-line)', height: 46, background: 'var(--paper-card)' }}
               >
-                <td style={{ padding: 'var(--s-3)', color: 'var(--ink-soft)' }}>{li === 0 ? j.id : ''}</td>
+                <td style={{ padding: 'var(--s-3)', color: 'var(--ink-soft)', whiteSpace: 'nowrap' }} title={j.id}>{li === 0 ? short(j.id) : ''}</td>
                 <td style={{ padding: 'var(--s-3)', color: 'var(--ink)' }}>{l.account}</td>
                 <td
                   style={{

@@ -149,6 +149,62 @@ describe('REST contract', () => {
     expect(snapBody.snapshot.merkleRoot).toMatch(/^[0-9a-f]{64}$/);
   });
 
+  it('re-freezing the same period is idempotent (no PK-collision 500)', async () => {
+    // WHY: snapshot id is content-deterministic, and the UI re-POSTs on page
+    // refresh / repeated clicks. A naive INSERT throws SQLITE UNIQUE → 500 and
+    // blocks the whole anchor flow. Re-freeze must return the existing FROZEN row.
+    await app.inject({ method: 'POST', url: '/events/evt-001/classify', payload: {} });
+    await app.inject({ method: 'POST', url: '/events/evt-002/classify', payload: {} });
+    await app.inject({
+      method: 'POST', url: '/entities/acme:pilot-001/run-rules', payload: { periodId: '2026-Q2' },
+    });
+    const first = await app.inject({
+      method: 'POST', url: '/entities/acme:pilot-001/snapshot', payload: { periodId: '2026-Q2' },
+    });
+    const second = await app.inject({
+      method: 'POST', url: '/entities/acme:pilot-001/snapshot', payload: { periodId: '2026-Q2' },
+    });
+    expect(first.statusCode).toBe(200);
+    expect(second.statusCode).toBe(200);
+    const a = first.json() as { snapshot: { id: string; merkleRoot: string; status: string } };
+    const b = second.json() as { snapshot: { id: string; merkleRoot: string; status: string } };
+    expect(b.snapshot.id).toBe(a.snapshot.id);
+    expect(b.snapshot.merkleRoot).toBe(a.snapshot.merkleRoot); // content-identical
+    expect(b.snapshot.status).toBe('FROZEN');
+  });
+
+  it('re-freeze fails closed (409) if the resolved id belongs to a different period', async () => {
+    // WHY: the snapshot id joins entityId + periodId with `-`, which is ambiguous
+    // (acme:pilot + 001-2026-Q2 collides with acme:pilot-001 + 2026-Q2). The idempotent
+    // path must verify entityId + periodId on the resolved row before returning, or it
+    // leaks another entity/period's snapshot metadata. Simulate the collision by
+    // repointing the row's period_id (period_id has no FK, unlike entity_id).
+    await app.inject({ method: 'POST', url: '/events/evt-001/classify', payload: {} });
+    await app.inject({ method: 'POST', url: '/events/evt-002/classify', payload: {} });
+    await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/run-rules', payload: { periodId: '2026-Q2' } });
+    const first = await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/snapshot', payload: { periodId: '2026-Q2' } });
+    const { snapshot } = first.json() as { snapshot: { id: string } };
+    // period_id has no FK; repointing it simulates an id that resolves to a different period.
+    db.prepare('UPDATE snapshots SET period_id=? WHERE id=?').run('1999-Q1', snapshot.id);
+    const second = await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/snapshot', payload: { periodId: '2026-Q2' } });
+    expect(second.statusCode).toBe(409);
+    expect((second.json() as { error: { code: string } }).error.code).toBe('SNAPSHOT_CONFLICT');
+  });
+
+  it('re-freeze of an already-ANCHORED period fails loud (409 ALREADY_ANCHORED)', async () => {
+    // WHY: once anchored the snapshot is immutable. Returning it as a freezable FROZEN
+    // row would let the UI offer Anchor again, and prepare would then 409 cryptically.
+    await app.inject({ method: 'POST', url: '/events/evt-001/classify', payload: {} });
+    await app.inject({ method: 'POST', url: '/events/evt-002/classify', payload: {} });
+    await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/run-rules', payload: { periodId: '2026-Q2' } });
+    const first = await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/snapshot', payload: { periodId: '2026-Q2' } });
+    const { snapshot } = first.json() as { snapshot: { id: string } };
+    db.prepare("UPDATE snapshots SET status='ANCHORED' WHERE id=?").run(snapshot.id);
+    const second = await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/snapshot', payload: { periodId: '2026-Q2' } });
+    expect(second.statusCode).toBe(409);
+    expect((second.json() as { error: { code: string } }).error.code).toBe('ALREADY_ANCHORED');
+  });
+
   it('GET /entities/:id/journal returns JournalDTO shape', async () => {
     // Run through classify → run-rules first
     await app.inject({ method: 'POST', url: '/events/evt-001/classify', payload: {} });

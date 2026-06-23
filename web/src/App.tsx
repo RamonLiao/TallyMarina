@@ -1,7 +1,11 @@
 import { EntityProvider, useEntityCtx } from './app/EntityContext';
+import { WorkspaceProvider, useWorkspace } from './app/WorkspaceContext';
+import { WORKSPACES } from './app/workspaces';
 import { AppBackground } from './components/chrome/AppBackground';
-import { Header } from './components/chrome/Header';
+import { TopBar } from './components/chrome/TopBar';
+import { SideNav } from './components/chrome/SideNav';
 import { StepRail } from './components/chrome/StepRail';
+import { EmptyState } from './components/chrome/EmptyState';
 import { GuardrailBanner } from './components/data/GuardrailBanner';
 import { IngestStep } from './steps/IngestStep';
 import { ClassifyStep } from './steps/ClassifyStep';
@@ -9,16 +13,11 @@ import { ReviewStep } from './steps/ReviewStep';
 import { JournalStep } from './steps/JournalStep';
 import { AnchorStep } from './steps/AnchorStep';
 
-function Shell() {
+function CloseWorkspace() {
   const { step } = useEntityCtx();
   return (
-    <main
-      aria-label="TallyMarina"
-      style={{ maxWidth: 1200, margin: '0 auto', padding: '0 var(--space-6) var(--space-10)' }}
-    >
-      <Header />
+    <>
       <StepRail current={step} />
-      <GuardrailBanner />
       <section style={{ marginTop: 'var(--space-6)' }} data-step={step}>
         {step === 'ingest' && <IngestStep />}
         {step === 'classify' && <ClassifyStep />}
@@ -26,15 +25,59 @@ function Shell() {
         {step === 'journal' && <JournalStep />}
         {step === 'anchor' && <AnchorStep />}
       </section>
-    </main>
+    </>
+  );
+}
+
+function WorkspaceContent() {
+  const { activeWorkspace } = useWorkspace();
+  if (activeWorkspace === 'close') return <CloseWorkspace />;
+  const meta = WORKSPACES.find((w) => w.id === activeWorkspace);
+  return (
+    <EmptyState
+      title={`${meta?.label ?? 'Workspace'} — coming soon`}
+      body="此工作面尚未啟用。目前 demo 的可操作流程在 Close workspace。"
+    />
+  );
+}
+
+function Shell() {
+  return (
+    <>
+      <TopBar />
+      {/* Full-width governance strip — directly under TopBar so the AI "leash" is never
+          buried below the sidebar on mobile and stays prominent on desktop (spec §8.5). */}
+      <div
+        style={{
+          maxWidth: 1200,
+          margin: '0 auto',
+          padding: 'var(--space-3) clamp(16px, 4vw, 48px) 0',
+        }}
+      >
+        <GuardrailBanner />
+      </div>
+      <div className="shell-body" style={{ display: 'flex', maxWidth: 1200, margin: '0 auto', alignItems: 'flex-start' }}>
+        <aside className="shell-sidenav" style={{ position: 'sticky', top: 0, alignSelf: 'flex-start' }}>
+          <SideNav />
+        </aside>
+        <main
+          aria-label="TallyMarina"
+          style={{ flex: 1, minWidth: 0, padding: 'var(--space-4) clamp(16px, 4vw, 48px) var(--space-10)' }}
+        >
+          <WorkspaceContent />
+        </main>
+      </div>
+    </>
   );
 }
 
 export default function App() {
   return (
     <EntityProvider>
-      <AppBackground />
-      <Shell />
+      <WorkspaceProvider>
+        <AppBackground />
+        <Shell />
+      </WorkspaceProvider>
     </EntityProvider>
   );
 }

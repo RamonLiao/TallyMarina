@@ -79,6 +79,41 @@ describe('SuiGrpcChainAdapter parsing', () => {
     expect(capturedArgs).toMatchObject({ digest, include: { events: true } });
   });
 
+  // REGRESSION: real testnet gRPC wraps getTransaction in a oneof —
+  // { $kind: 'Transaction', Transaction: { events: [...] } } — NOT flat `events`.
+  // The original fixture used flat events, so the wrong-path bug shipped: confirm
+  // always threw "SnapshotAnchored event missing" on the real browser-sign path.
+  it('parses getAnchorEvent from the real gRPC oneof shape (events under capital-T Transaction)', async () => {
+    const digest = '0xrealshape';
+    const linkB64 = Buffer.from([0x11, 0x22, 0x33]).toString('base64');
+    const grpcWithTx = {
+      core: {
+        async getObject() { throw new Error('unused'); },
+        async waitForTransaction() { return; },
+        async getTransaction() {
+          return {
+            $kind: 'Transaction',
+            Transaction: {
+              digest,
+              events: [
+                {
+                  packageId: '0xafc8',
+                  module: 'audit_anchor',
+                  eventType: '0xafc8::audit_anchor::SnapshotAnchored',
+                  json: { seq: '6', link: linkB64 },
+                },
+              ],
+            },
+          };
+        },
+      },
+    };
+    const a = new SuiGrpcChainAdapter(grpcWithTx as never);
+    const ev = await a.getAnchorEvent(digest);
+    expect(ev.seq).toBe(6n);
+    expect(Array.from(ev.link)).toEqual([0x11, 0x22, 0x33]);
+  });
+
   // I2: toBytes() must pass through a raw Uint8Array without mutation.
   it('getChainState passes through Uint8Array entity_ref directly (I2)', async () => {
     const chainId = '0xchain-u8a';

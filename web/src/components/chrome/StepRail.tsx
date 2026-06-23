@@ -1,7 +1,9 @@
 import { STEPS, type StepId } from '../../app/steps';
 import { Mascot } from './Mascot';
+import { useEntityCtx } from '../../app/EntityContext';
 
 export function StepRail({ current }: { current: StepId }) {
+  const { setStep } = useEntityCtx();
   const currentN = STEPS.find((s) => s.id === current)?.n ?? 1;
   return (
     <nav
@@ -17,15 +19,32 @@ export function StepRail({ current }: { current: StepId }) {
       {STEPS.map((s, i) => {
         const active = s.id === current;
         const done = s.n < currentN;
+        // Only current or already-completed steps are reachable; jumping forward would
+        // bypass the goNext() gating that each step relies on.
+        const navigable = s.n <= currentN && !active;
         return (
           <div
             key={s.id}
             data-active={active}
+            role={navigable ? 'button' : undefined}
+            tabIndex={navigable ? 0 : undefined}
+            onClick={navigable ? () => setStep(s.id) : undefined}
+            onKeyDown={
+              navigable
+                ? (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      setStep(s.id);
+                    }
+                  }
+                : undefined
+            }
             style={{
               display: 'flex',
               alignItems: 'center',
               gap: 'var(--space-1)',
               opacity: active || done ? 1 : 0.45,
+              cursor: navigable ? 'pointer' : 'default',
             }}
           >
             <span

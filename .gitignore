@@ -29,3 +29,10 @@ reviews/claude-review-*.md
 # Project plan and notes (kept local)
 plan.md
 *-notes.md
+
+# build/test artifacts (not source)
+web/vite.config.js
+web/vite.config.d.ts
+.playwright-mcp/
+desktop-1280.png
+move/audit_anchor/Published.toml

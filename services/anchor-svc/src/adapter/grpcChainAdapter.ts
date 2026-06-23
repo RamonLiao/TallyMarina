@@ -61,7 +61,10 @@ export class SuiGrpcChainAdapter implements SuiChainPort {
 
   async getAnchorEvent(digest: string): Promise<{ seq: bigint; link: Uint8Array }> {
     const res = await this.client.core.getTransaction({ digest, include: { events: true } }) as Record<string, unknown>;
-    const events = (res?.['events'] ?? (res?.['transaction'] as Record<string, unknown> | undefined)?.['events']) as Array<{ eventType?: string; type?: string; json?: Record<string, unknown> | null }> | undefined;
+    // gRPC wraps the payload in a oneof: { $kind: 'Transaction', Transaction: { ...events } }.
+    // Events live under the capital-T key; fall back to legacy shapes for safety.
+    const tx = (res?.['Transaction'] ?? res?.['transaction']) as Record<string, unknown> | undefined;
+    const events = (tx?.['events'] ?? res?.['events']) as Array<{ eventType?: string; type?: string; json?: Record<string, unknown> | null }> | undefined;
     const ev = events?.find((e) => (e.eventType ?? e.type ?? '').endsWith(`::${MODULE}::SnapshotAnchored`));
     if (!ev || !ev.json) throw new Error('SnapshotAnchored event missing in tx ' + digest);
     return { seq: BigInt(ev.json.seq as string), link: toBytes(ev.json.link) };

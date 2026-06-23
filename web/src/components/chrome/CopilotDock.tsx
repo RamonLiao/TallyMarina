@@ -3,7 +3,6 @@
 // structured DATA (red flags / suggested entry carry NO mascot).
 import type { CopilotAdvice } from '../../api/types';
 import { Mascot, type MascotPose } from './Mascot';
-import { GuardrailBanner } from '../data/GuardrailBanner';
 
 export function CopilotDock({
   advice, loading, pose,
@@ -11,14 +10,13 @@ export function CopilotDock({
   return (
     <aside
       aria-label="AI Copilot dock"
-      className="card"
+      className="card copilot-dock"
       style={{ padding: 'var(--s-4)', position: 'sticky', top: 'var(--s-4)', width: 360, alignSelf: 'flex-start' }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)', marginBottom: 'var(--s-3)' }}>
         <Mascot pose={loading ? 'thinking' : pose} size={40} />
         <strong className="font-display" style={{ fontSize: 18 }}>Copilot</strong>
       </div>
-      <GuardrailBanner />
 
       {loading && <p className="font-body" style={{ color: 'var(--ink-soft)', marginTop: 'var(--s-3)' }}>Reading the transaction…</p>}
 

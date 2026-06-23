@@ -203,14 +203,53 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
       repo,
     );
     const id = `snap-${req.params.id}-${periodId}-${auditSnapshot.seq}`;
-    insertSnapshot(db, {
-      id, entityId: req.params.id, periodId,
-      manifestJson: JSON.stringify(auditSnapshot.manifest),
-      manifestHash: auditSnapshot.manifestHash,
-      merkleRoot: auditSnapshot.merkleRoot,
-      leafCount: auditSnapshot.leafCount,
-      supersedesSeq: auditSnapshot.supersedesSeq,
-    });
+    // Idempotent freeze: snapshot id is content-deterministic, so re-freezing the
+    // same period collides on the PRIMARY KEY. Resolve an existing row to a fail-closed
+    // DTO: the `-`-joined id is ambiguous, so verify entityId + periodId match this
+    // request (no cross-entity leak), then verify content via merkleRoot (the journal
+    // fingerprint — manifestHash folds in createdAtLogical and is NOT a content invariant).
+    const resolveExisting = () => {
+      const ex = getSnapshot(db, id);
+      if (!ex) return null;
+      if (ex.entityId !== req.params.id || ex.periodId !== periodId) {
+        throw new ApiError(409, 'SNAPSHOT_CONFLICT', `snapshot id ${id} resolves to a different entity/period`);
+      }
+      if (ex.merkleRoot !== auditSnapshot.merkleRoot) {
+        throw new ApiError(409, 'SNAPSHOT_CONFLICT', `snapshot ${id} exists with a different merkle root`);
+      }
+      // Fail loud: a non-FROZEN existing row (already ANCHORED) must NOT be returned as a
+      // freshly-freezable snapshot — the UI would offer Anchor and prepare would then 409.
+      if (ex.status !== 'FROZEN') {
+        throw new ApiError(409, 'ALREADY_ANCHORED', `snapshot ${id} is ${ex.status}; the period is already anchored`);
+      }
+      return {
+        snapshot: {
+          id, periodId,
+          manifestHash: ex.manifestHash, merkleRoot: ex.merkleRoot,
+          leafCount: ex.leafCount, supersedesSeq: ex.supersedesSeq, status: ex.status,
+        },
+      };
+    };
+    const pre = resolveExisting();
+    if (pre) return pre;
+    try {
+      insertSnapshot(db, {
+        id, entityId: req.params.id, periodId,
+        manifestJson: JSON.stringify(auditSnapshot.manifest),
+        manifestHash: auditSnapshot.manifestHash,
+        merkleRoot: auditSnapshot.merkleRoot,
+        leafCount: auditSnapshot.leafCount,
+        supersedesSeq: auditSnapshot.supersedesSeq,
+      });
+    } catch (e) {
+      // Race: a concurrent freeze inserted between our read and write. Re-resolve and
+      // return idempotently; re-throw anything that is not the PK collision.
+      if (e instanceof Error && /UNIQUE constraint failed/.test(e.message)) {
+        const post = resolveExisting();
+        if (post) return post;
+      }
+      throw e;
+    }
     return {
       snapshot: {
         id, periodId,

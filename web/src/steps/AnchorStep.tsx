@@ -41,10 +41,17 @@ export function AnchorStep() {
   }
 
   if (confirmed) {
+    // Render `confirmed` immediately; once useAnchors refetches it also appears in
+    // anchorData.anchors (same id) — merge by id (confirmed wins) to avoid a duplicate
+    // React key while never showing a staler copy than what we just confirmed.
+    const fetched = anchorData?.anchors ?? [];
+    const anchors = fetched.some((a) => a.id === confirmed.id)
+      ? fetched.map((a) => (a.id === confirmed.id ? confirmed : a))
+      : [...fetched, confirmed];
     return (
       <div style={{ display: 'grid', gap: 'var(--s-6)' }}>
         <Celebration digest={confirmed.digest} explorerUrl={confirmed.explorerUrl} />
-        <HashChain anchors={[...(anchorData?.anchors ?? []), confirmed]} inclusionProof={anchorData?.inclusionProof ?? null} />
+        <HashChain anchors={anchors} inclusionProof={anchorData?.inclusionProof ?? null} />
       </div>
     );
   }

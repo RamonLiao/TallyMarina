@@ -84,6 +84,62 @@ p {
   border-bottom-color: var(--aqua);
 }
 
+/*
+ * ── Global .btn-primary ──
+ * The 5 step views render <button className="btn-primary"> (IngestStep,
+ * ClassifyStep, ReviewStep, JournalStep, AnchorStep, DecideForm). This class
+ * was never defined anywhere, so those center-of-screen workflow CTAs fell back
+ * to the square native button. Define it here (mirrors the design-system
+ * Button primary variant) with a pill radius to echo the circular logo.
+ * Single source of truth — fixes all 7 call sites at once.
+ */
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 15px;
+  padding: 10px 22px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--brass);
+  background: var(--brass-fill);
+  color: var(--ink);
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: none;
+  transition: background 140ms ease, box-shadow 140ms ease, opacity 140ms ease;
+}
+.btn-primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--brass-fill) 88%, var(--ink));
+  box-shadow: var(--shadow-sm);
+}
+.btn-primary:active:not(:disabled) {
+  background: color-mix(in srgb, var(--brass-fill) 78%, var(--ink));
+  box-shadow: none;
+}
+.btn-primary:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+.btn-primary:focus-visible {
+  outline: 2px solid var(--brass);
+  outline-offset: 2px;
+}
+
+/*
+ * ── Wallet connect slot (dapp-kit) ──
+ * The connected-accounts popover is position:absolute with NO z-index, so the
+ * later-in-DOM StepRail painted over it. Header wraps <ConnectButton> in
+ * .wallet-slot which establishes a high stacking context so the whole subtree
+ * (incl. the popover) floats above the rail. Theme vars live on :root (tokens.css).
+ */
+.wallet-slot {
+  position: relative;
+  z-index: 100;
+}
+
 /* ── Card ── */
 .card {
   background: var(--paper-card);
@@ -115,10 +171,56 @@ p {
   border-radius: var(--radius-sm);
 }
 
+/*
+ * ── Responsive ──
+ * Layout is a centered max-width:1200 column with clamp() horizontal padding
+ * (set inline in App/Header) so it fluidly shrinks down to phones. These rules
+ * handle the spots that need explicit reflow on small screens.
+ */
+@media (max-width: 768px) {
+  /* ReviewStep is a flex row (review card + copilot dock); let the dock wrap
+     under the card and span full width. .review-layout/.copilot-dock set in JSX. */
+  .review-layout { flex-wrap: wrap; }
+  .copilot-dock { width: 100% !important; }
+  .card { padding: var(--space-3); }
+}
+
+@media (max-width: 480px) {
+  body { font-size: 15px; }
+}
+
 /* ── Reduced motion ── */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.001ms !important;
     transition-duration: 0.001ms !important;
+  }
+}
+
+/* Workspace shell: give the sidebar a visible edge against the cream content well. */
+.shell-sidenav {
+  border-right: 1px solid rgba(20, 30, 54, 0.08);
+}
+
+/* Stack sidenav above content on narrow viewports, as a single horizontal
+   scroll strip (not a tall 7-row list that buries the content below).
+   !important is required to override SideNav's inline flex-direction/min-width
+   (inline styles otherwise beat stylesheet rules). */
+@media (max-width: 768px) {
+  .shell-body { flex-direction: column; }
+  .shell-sidenav {
+    position: static !important;
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid rgba(20, 30, 54, 0.08);
+  }
+  .shell-sidenav nav {
+    flex-direction: row !important;
+    flex-wrap: nowrap !important;
+    overflow-x: auto;
+    min-width: 0 !important;
+  }
+  .shell-sidenav nav > button {
+    flex: 0 0 auto;
   }
 }
