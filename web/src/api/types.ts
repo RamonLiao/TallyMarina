@@ -71,6 +71,7 @@ export interface AnchorDTO {
   digest: string;
   explorerUrl: string;
   anchoredAt: string;
+  merkleRoot: string | null; // joined from the anchored snapshot (Task 1)
 }
 
 export interface CopilotDraftLine {

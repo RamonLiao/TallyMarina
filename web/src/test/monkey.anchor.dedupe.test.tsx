@@ -23,6 +23,7 @@ it('renders a confirmed anchor exactly once even after the refetch returns the s
     id: 'anchor-acme:pilot-001-6', snapshotId: 's1', seq: 6,
     link: 'bba6b582146c1afc', digest: '0xDIGEST',
     explorerUrl: 'https://suiscan.xyz/testnet/tx/0xDIGEST', anchoredAt: '2026-06-22T00:00:00Z',
+    merkleRoot: null,
   };
   vi.spyOn(endpoints, 'listEntities').mockResolvedValue([{ id: 'acme:pilot-001', displayName: 'Acme', chainObjectId: '0x1', capObjectId: '0x2', originalPackageId: '0x3' }]);
   vi.spyOn(endpoints, 'snapshot').mockResolvedValue({ id: 's1', periodId: '2026-Q2', manifestHash: '0xMH', merkleRoot: '0xMR', leafCount: 1, supersedesSeq: null, status: 'FROZEN' });

@@ -41,7 +41,7 @@ beforeEach(() => {
   ]);
   vi.spyOn(endpoints, 'snapshot').mockResolvedValue({ id: 's1', periodId: '2026-Q2', manifestHash: '0xMH', merkleRoot: '0xMR', leafCount: 1, supersedesSeq: null, status: 'FROZEN' });
   vi.spyOn(endpoints, 'prepareAnchor').mockResolvedValue({ txKind: 'IR', expectedSeq: 1, chainId: '0xC', capId: '0x266e' });
-  vi.spyOn(endpoints, 'confirmAnchor').mockResolvedValue({ id: 'a1', snapshotId: 's1', seq: 1, link: '0xLINK', digest: '0xDIGEST', explorerUrl: 'https://suiscan.xyz/testnet/tx/0xDIGEST', anchoredAt: 't' });
+  vi.spyOn(endpoints, 'confirmAnchor').mockResolvedValue({ id: 'a1', snapshotId: 's1', seq: 1, link: '0xLINK', digest: '0xDIGEST', explorerUrl: 'https://suiscan.xyz/testnet/tx/0xDIGEST', anchoredAt: 't', merkleRoot: null });
   vi.spyOn(endpoints, 'getAnchors').mockResolvedValue({ anchors: [], inclusionProof: null });
   // Reset mock fn state (restoreAllMocks only restores spies)
   signAndExecute.mockClear();

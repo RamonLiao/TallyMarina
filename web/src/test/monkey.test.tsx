@@ -62,8 +62,8 @@ it('journal table renders a HUGE journal (500 JEs) without throwing', () => {
 // If sorting breaks, older anchors appear after newer ones — misleading audit trail.
 it('hash-chain renders with a null inclusion proof and unsorted seqs', () => {
   const anchors: AnchorDTO[] = [
-    { id: 'a2', snapshotId: 's', seq: 2, link: '0xL2', digest: '0xD2', explorerUrl: 'https://x', anchoredAt: 't' },
-    { id: 'a1', snapshotId: 's', seq: 1, link: '0xL1', digest: '0xD1', explorerUrl: 'https://x', anchoredAt: 't' },
+    { id: 'a2', snapshotId: 's', seq: 2, link: '0xL2', digest: '0xD2', explorerUrl: 'https://x', anchoredAt: 't', merkleRoot: null },
+    { id: 'a1', snapshotId: 's', seq: 1, link: '0xL1', digest: '0xD1', explorerUrl: 'https://x', anchoredAt: 't', merkleRoot: null },
   ];
   render(<HashChain anchors={anchors} inclusionProof={null} />);
   // sorted ascending: seq #1 appears before seq #2 in the document
