@@ -1,0 +1,48 @@
+import { useEffect, useState } from 'react';
+import { useReconciliation } from '../data/useReconciliation';
+import { ReconTable } from './recon/ReconTable';
+import { ReconDetail } from './recon/ReconDetail';
+import { EmptyState } from '../components/chrome/EmptyState';
+import './recon/recon.css';
+
+export function ReconciliationWorkspace({ entityId }: { entityId: string }) {
+  const { data, loading, error, refetch } = useReconciliation(entityId);
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  // Reset selection on entity switch (selection-leak guard).
+  useEffect(() => { setSelectedKey(null); }, [entityId]);
+
+  if (loading) return <div className="recon-loading">Loading reconciliation…</div>;
+  if (error) return <div className="recon-err" role="alert">Failed to load reconciliation: {error}</div>;
+  if (!data) return null;
+
+  const allBalanced = data.rows.length === 0 || data.rows.every((r) => BigInt(r.breakMinor) === 0n);
+  if (allBalanced) {
+    return (
+      <EmptyState
+        variant="clear-seas"
+        title="Books balanced ⚖"
+        body="All accounts reconciled — books tie to statements ⚖"
+      />
+    );
+  }
+
+  const selected = selectedKey ? data.rows.find((r) => `${r.wallet}|${r.coinType}` === selectedKey) ?? null : null;
+  const anchored = false; // single-period demo: wire to useAnchors(entityId).length>0 if/when available.
+
+  return (
+    <div className={`recon-workspace${selected ? ' has-selection' : ''}`}>
+      <header className="recon-summary">
+        {data.summary.openMaterial > 0
+          ? <span className="brk--material">material breaks: {data.summary.openMaterial}</span>
+          : <span>all reconciled</span>}
+      </header>
+      <ReconTable rows={data.rows} selectedKey={selectedKey} onSelect={setSelectedKey} />
+      {selected && (
+        <>
+          <button className="exceptions-back-btn" onClick={() => setSelectedKey(null)}>‹ Accounts · {data.rows.length}</button>
+          <ReconDetail row={selected} realWallet={data.realWallet} anchored={anchored} onDisposed={refetch} />
+        </>
+      )}
+    </div>
+  );
+}

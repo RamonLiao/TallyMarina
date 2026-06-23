@@ -24,13 +24,14 @@ it('marks the active workspace with aria-current', () => {
 
 it('clicking a soon workspace switches the active workspace', async () => {
   const get = probeWrap(<SideNav />);
-  await userEvent.click(screen.getByRole('button', { name: /Reconciliation/ }));
-  expect(get().activeWorkspace).toBe('reconciliation');
+  await userEvent.click(screen.getByRole('button', { name: /Policy/ }));
+  expect(get().activeWorkspace).toBe('policy');
 });
 
 it('soon workspaces carry a non-color status marker (text), not color alone', () => {
   probeWrap(<SideNav />);
-  const recon = screen.getByRole('button', { name: /Reconciliation/ });
-  expect(recon).toHaveAttribute('data-status', 'soon');
-  expect(recon.textContent).toMatch(/soon/i);
+  // Policy is still 'soon'; Reconciliation graduated to 'ready' in Phase 1 A-3.
+  const policy = screen.getByRole('button', { name: /Policy/ });
+  expect(policy).toHaveAttribute('data-status', 'soon');
+  expect(policy.textContent).toMatch(/soon/i);
 });
