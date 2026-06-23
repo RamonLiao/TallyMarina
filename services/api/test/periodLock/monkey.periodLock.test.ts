@@ -129,10 +129,18 @@ describe('Monkey tests — Period Close Cockpit', () => {
     expect(statuses).toContain(409);
 
     // Final state must be consistent (not corrupted).
+    // The CAS must ensure exactly one of two valid pairs: either the reopen won
+    // and the period is OPEN with reopenCount=1, or the lock won and the period
+    // is LOCKED with reopenCount=0. Any other (status, reopenCount) pair is corruption.
     const finalLock = getPeriodLock(db, 'acme:pilot-001', '2026-Q2');
-    expect(['OPEN', 'LOCKED']).toContain(finalLock.status);
-    // reopenCount must be a non-negative integer — no corruption.
-    expect(finalLock.reopenCount).toBeGreaterThanOrEqual(0);
+    const validPairs = [
+      { status: 'LOCKED', reopenCount: 0 },  // Second lock won, reopen was rejected.
+      { status: 'OPEN', reopenCount: 1 },    // Reopen won, second lock was rejected.
+    ];
+    const matches = validPairs.some(
+      pair => finalLock.status === pair.status && finalLock.reopenCount === pair.reopenCount
+    );
+    expect(matches).toBe(true);
   });
 
   // M4
