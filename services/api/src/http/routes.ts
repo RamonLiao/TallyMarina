@@ -96,9 +96,10 @@ function requireEntityForWallet(db: Db, wallet: string): string {
     let breaks;
     try {
       breaks = collectBreaks(db, e.id, DEFAULT_PERIOD);
-    } catch {
-      // Entity has no recon fixture — skip, don't 500.
-      continue;
+    } catch (err) {
+      // Skip ONLY the known missing-fixture case; re-throw everything else (Rule 12: fail loud).
+      if (err instanceof Error && err.message.startsWith(`no recon fixture for entity`)) continue;
+      throw err;
     }
     if (breaks.some((b) => b.wallet === wallet)) return e.id;
   }
