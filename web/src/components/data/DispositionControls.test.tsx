@@ -31,4 +31,46 @@ describe('DispositionControls', () => {
     expect(screen.getByText(/anchored/i)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /resolve/i })).toBeNull();
   });
+
+  it('deferred exception renders Resolve and Dismiss but NOT Defer', () => {
+    render(wrap(<DispositionControls
+      exception={ex({ disposition: { state: 'deferred', reasonCode: 'PENDING_DOC', decidedBy: 'test', decidedAt: 0 } })}
+      entityId="e1"
+    />));
+    expect(screen.getByRole('button', { name: /resolve/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /dismiss/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /defer/i })).toBeNull();
+  });
+
+  it('resolved exception renders NO action buttons (terminal text)', () => {
+    render(wrap(<DispositionControls
+      exception={ex({ disposition: { state: 'resolved', reasonCode: 'RECLASSIFIED', decidedBy: 'test', decidedAt: 0 } })}
+      entityId="e1"
+    />));
+    expect(screen.queryByRole('button')).toBeNull();
+    expect(screen.getByText(/terminal/i)).toBeInTheDocument();
+  });
+
+  it('dismissed exception renders NO action buttons (terminal text)', () => {
+    render(wrap(<DispositionControls
+      exception={ex({ disposition: { state: 'dismissed', reasonCode: 'DUPLICATE_CONFIRMED', decidedBy: 'test', decidedAt: 0 } })}
+      entityId="e1"
+    />));
+    expect(screen.queryByRole('button')).toBeNull();
+    expect(screen.getByText(/terminal/i)).toBeInTheDocument();
+  });
+
+  it('resolve panel confirm disabled until reasonCode chosen', () => {
+    render(wrap(<DispositionControls exception={ex()} entityId="e1" />));
+    fireEvent.click(screen.getByRole('button', { name: /resolve/i }));
+    const confirm = screen.getByRole('button', { name: /confirm resolve/i });
+    expect(confirm).toBeDisabled();
+  });
+
+  it('defer panel confirm disabled until reasonCode chosen', () => {
+    render(wrap(<DispositionControls exception={ex()} entityId="e1" />));
+    fireEvent.click(screen.getByRole('button', { name: /defer/i }));
+    const confirm = screen.getByRole('button', { name: /confirm defer/i });
+    expect(confirm).toBeDisabled();
+  });
 });

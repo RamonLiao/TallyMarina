@@ -20,7 +20,7 @@ export function ExceptionDetail({
   const isClassifyReview = exception.category === 'CLASSIFY_REVIEW';
 
   // Minimal EventDTO-compatible object for DecideForm (DATA ZONE — no mascot).
-  const eventForForm = {
+  const eventForForm: import('../../api/types').EventDTO = {
     id: exception.eventId,
     entityId,
     status: 'NEEDS_REVIEW' as const,
@@ -94,7 +94,7 @@ export function ExceptionDetail({
       >
         {isClassifyReview && (
           <DecideForm
-            event={eventForForm as never}
+            event={eventForForm}
             draft={null}
             pending={decide.isPending}
             onDecide={(finalEventType, finalPurpose) =>

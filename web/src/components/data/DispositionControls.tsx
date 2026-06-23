@@ -24,6 +24,51 @@ const ghostStyle: React.CSSProperties = {
   fontSize: 14,
 };
 
+const panelStyle: React.CSSProperties = {
+  border: '1px solid var(--paper-line)',
+  borderRadius: 'var(--r-sm)',
+  padding: 'var(--s-3)',
+  display: 'grid',
+  gap: 'var(--s-2)',
+  background: 'var(--paper-card)',
+};
+
+const selectStyle: React.CSSProperties = {
+  width: '100%',
+  fontFamily: 'var(--font-mono)',
+  fontSize: 14,
+  padding: 'var(--s-1) var(--s-2)',
+  border: '1px solid var(--paper-line)',
+  borderRadius: 'var(--r-sm)',
+  background: 'var(--paper-card)',
+};
+
+type ActivePanel = 'resolve' | 'defer' | 'dismiss' | null;
+
+function ReasonSelect({
+  value,
+  onChange,
+}: {
+  value: ReasonCode | '';
+  onChange: (v: ReasonCode | '') => void;
+}) {
+  return (
+    <label style={{ fontSize: 13, color: 'var(--ink-soft)', display: 'grid', gap: 'var(--s-1)' }}>
+      Reason (required)
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value as ReasonCode | '')}
+        style={selectStyle}
+      >
+        <option value="">— choose —</option>
+        {REASON_CODES.map((c) => (
+          <option key={c} value={c}>{c}</option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
 export function DispositionControls({
   exception,
   entityId,
@@ -32,7 +77,7 @@ export function DispositionControls({
   entityId: string;
 }) {
   const dispose = useDisposition(entityId);
-  const [dismissing, setDismissing] = useState(false);
+  const [activePanel, setActivePanel] = useState<ActivePanel>(null);
   const [reasonCode, setReasonCode] = useState<ReasonCode | ''>('');
   const [note, setNote] = useState('');
 
@@ -55,18 +100,46 @@ export function DispositionControls({
     );
   }
 
-  const submitDirect = (state: DispositionState, code: ReasonCode) =>
-    dispose.mutate({ exceptionId: exception.exceptionId, state, reasonCode: code });
+  function togglePanel(panel: ActivePanel) {
+    if (activePanel === panel) {
+      setActivePanel(null);
+    } else {
+      setActivePanel(panel);
+      setReasonCode('');
+      setNote('');
+    }
+  }
 
-  const submitDismiss = () => {
+  function submitAction(state: DispositionState) {
     if (!reasonCode) return;
     dispose.mutate({
       exceptionId: exception.exceptionId,
-      state: 'dismissed',
+      state,
       reasonCode,
       reasonNote: note || undefined,
     });
-  };
+  }
+
+  const noteInput = reasonCode === 'OTHER' ? (
+    <input
+      className="mono"
+      placeholder="Describe reason…"
+      value={note}
+      onChange={(e) => setNote(e.target.value)}
+      style={{
+        fontFamily: 'var(--font-mono)',
+        fontSize: 13,
+        padding: 'var(--s-1) var(--s-2)',
+        border: '1px solid var(--paper-line)',
+        borderRadius: 'var(--r-sm)',
+        background: 'var(--paper-card)',
+        width: '100%',
+        boxSizing: 'border-box',
+      }}
+    />
+  ) : null;
+
+  const canConfirm = !!reasonCode && (reasonCode !== 'OTHER' || !!note);
 
   return (
     <div style={{ display: 'grid', gap: 'var(--s-3)' }}>
@@ -75,7 +148,8 @@ export function DispositionControls({
           <button
             className="btn-primary"
             disabled={dispose.isPending}
-            onClick={() => submitDirect('resolved', 'RECLASSIFIED')}
+            aria-expanded={activePanel === 'resolve'}
+            onClick={() => togglePanel('resolve')}
           >
             Resolve
           </button>
@@ -84,7 +158,8 @@ export function DispositionControls({
           <button
             style={ghostStyle}
             disabled={dispose.isPending}
-            onClick={() => submitDirect('deferred', 'CARRIED_FORWARD')}
+            aria-expanded={activePanel === 'defer'}
+            onClick={() => togglePanel('defer')}
           >
             Defer
           </button>
@@ -92,76 +167,57 @@ export function DispositionControls({
         {valid.includes('dismissed') && (
           <button
             style={ghostStyle}
-            onClick={() => { setDismissing((v) => !v); setReasonCode(''); setNote(''); }}
+            disabled={dispose.isPending}
+            aria-expanded={activePanel === 'dismiss'}
+            onClick={() => togglePanel('dismiss')}
           >
             Dismiss…
           </button>
         )}
       </div>
 
-      {dismissing && (
-        <div
-          style={{
-            border: '1px solid var(--paper-line)',
-            borderRadius: 'var(--r-sm)',
-            padding: 'var(--s-3)',
-            display: 'grid',
-            gap: 'var(--s-2)',
-            background: 'var(--paper-card)',
-          }}
-        >
-          <label style={{ fontSize: 13, color: 'var(--ink-soft)', display: 'grid', gap: 'var(--s-1)' }}>
-            Reason (required)
-            <select
-              value={reasonCode}
-              onChange={(e) => setReasonCode(e.target.value as ReasonCode)}
-              style={{
-                width: '100%',
-                fontFamily: 'var(--font-mono)',
-                fontSize: 14,
-                padding: 'var(--s-1) var(--s-2)',
-                border: '1px solid var(--paper-line)',
-                borderRadius: 'var(--r-sm)',
-                background: 'var(--paper-card)',
-              }}
-            >
-              <option value="">— choose —</option>
-              {REASON_CODES.map((c) => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
-          </label>
+      {activePanel === 'resolve' && (
+        <div style={panelStyle}>
+          <ReasonSelect value={reasonCode} onChange={setReasonCode} />
+          {noteInput}
+          <button
+            className="btn-primary"
+            disabled={!canConfirm || dispose.isPending}
+            onClick={() => submitAction('resolved')}
+          >
+            Confirm Resolve
+          </button>
+        </div>
+      )}
 
-          {reasonCode === 'OTHER' && (
-            <input
-              className="mono"
-              placeholder="Describe reason…"
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              style={{
-                fontFamily: 'var(--font-mono)',
-                fontSize: 13,
-                padding: 'var(--s-1) var(--s-2)',
-                border: '1px solid var(--paper-line)',
-                borderRadius: 'var(--r-sm)',
-                background: 'var(--paper-card)',
-                width: '100%',
-                boxSizing: 'border-box',
-              }}
-            />
-          )}
+      {activePanel === 'defer' && (
+        <div style={panelStyle}>
+          <ReasonSelect value={reasonCode} onChange={setReasonCode} />
+          {noteInput}
+          <button
+            style={ghostStyle}
+            disabled={!canConfirm || dispose.isPending}
+            onClick={() => submitAction('deferred')}
+          >
+            Confirm Defer
+          </button>
+        </div>
+      )}
 
+      {activePanel === 'dismiss' && (
+        <div style={panelStyle}>
+          <ReasonSelect value={reasonCode} onChange={setReasonCode} />
+          {noteInput}
           <p
             className="mono"
             style={{ fontSize: 11, color: 'var(--ink-soft)', margin: 0 }}
           >
             will record: demo-controller · {new Date().toISOString().slice(0, 10)}
           </p>
-
           <button
             className="btn-primary"
-            disabled={!reasonCode || (reasonCode === 'OTHER' && !note) || dispose.isPending}
-            onClick={submitDismiss}
+            disabled={!canConfirm || dispose.isPending}
+            onClick={() => submitAction('dismissed')}
           >
             Dismiss this exception
           </button>
