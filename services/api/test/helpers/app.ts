@@ -40,15 +40,17 @@ export const needsReviewClient: GeminiClient = {
   },
 };
 
-export async function buildTestApp(): Promise<FastifyInstance & { _db: Db }> {
+export async function buildTestApp(seedFixture = true): Promise<FastifyInstance & { _db: Db }> {
   const db = openDb(':memory:');
   // Seed entity "e1" with fixture events (same pattern as routes.test.ts).
-  seed(db, {
-    entityId: TEST_ENTITY_ID,
-    entityChainId: '0xchain',
-    entityCapId: '0xcap',
-    originalPackageId: '0xpkg',
-  }, fixture as FixtureBundle);
+  if (seedFixture) {
+    seed(db, {
+      entityId: TEST_ENTITY_ID,
+      entityChainId: '0xchain',
+      entityCapId: '0xcap',
+      originalPackageId: '0xpkg',
+    }, fixture as FixtureBundle);
+  }
   const app = Fastify() as unknown as FastifyInstance & { _db: Db };
   app._db = db;
   registerRoutes(app, {

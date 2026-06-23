@@ -386,6 +386,7 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     const anchors = listAnchors(db, req.params.id).map((r) => ({
       id: r.id, snapshotId: r.snapshotId, seq: r.seq, link: r.link,
       digest: r.digest, explorerUrl: r.explorerUrl, anchoredAt: r.anchoredAt,
+      merkleRoot: getSnapshot(db, r.snapshotId)?.merkleRoot ?? null,
     }));
     let proof = null;
     const key = req.query.idempotencyKey;
