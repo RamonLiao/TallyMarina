@@ -19,8 +19,11 @@ export function ReconciliationWorkspace({ entityId }: { entityId: string }) {
     if (!journal.length || !events.length) return {};
     try {
       return recomputeMovements(journal, events);
-    } catch {
-      // Integrity gap — return empty so drift check fires on every row
+    } catch (err) {
+      // Integrity gap — log visibly so the error isn't fully swallowed;
+      // returning {} with the 0n fallback in ReconTable/ReconDetail means every
+      // non-zero-movement row will now drift loudly (fail-loud behavior).
+      console.error('recon recompute integrity gap:', err);
       return {};
     }
   }, [journal, events]);

@@ -48,4 +48,21 @@ describe('ReconDetail', () => {
     expect(banner).toBeTruthy();
     expect(banner!.textContent).toMatch(/evidence drift.*browser recomputed.*≠.*backend/i);
   });
+
+  it('shows drift banner when key is ABSENT from clientMovements and movementMinor is non-zero (recompute error path)', () => {
+    // WHY: §5.1 — absent key with 0n fallback means 0 ≠ 3800000000 → drift fires loudly.
+    // Previously BigInt(row.movementMinor) fallback would mask this as "verified".
+    render(<ReconDetail row={row} realWallet="0xreal" anchored={false} onDisposed={() => {}} clientMovements={{}} />);
+    const driftEls = screen.getAllByLabelText(/evidence drift/i);
+    expect(driftEls.length).toBeGreaterThan(0);
+    const banner = driftEls.find((el) => el.classList.contains('drift-warn--banner'));
+    expect(banner).toBeTruthy();
+  });
+
+  it('shows NO drift banner when key is ABSENT and movementMinor is zero', () => {
+    // WHY: zero-movement row with 0n fallback = 0 === 0 → no drift, correct behavior
+    const zeroRow = { ...row, movementMinor: '0', computedMinor: row.openingMinor };
+    render(<ReconDetail row={zeroRow} realWallet="0xreal" anchored={false} onDisposed={() => {}} clientMovements={{}} />);
+    expect(screen.queryByLabelText(/evidence drift/i)).not.toBeInTheDocument();
+  });
 });

@@ -20,7 +20,7 @@ export function ReconDetail({
   clientMovements?: Record<string, bigint>;
 }) {
   const key = `${row.wallet}|${row.coinType}`;
-  const clientMovement = clientMovements[key] ?? BigInt(row.movementMinor);
+  const clientMovement = clientMovements[key] ?? 0n;
   const clientComputed = BigInt(row.openingMinor) + clientMovement;
   const dtoMovement = BigInt(row.movementMinor);
   const hasDrift = clientMovement !== dtoMovement;

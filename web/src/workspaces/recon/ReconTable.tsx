@@ -47,7 +47,7 @@ export function ReconTable({
       <tbody>
         {rows.map((r) => {
           const key = `${r.wallet}|${r.coinType}`;
-          const clientMovement = clientMovements[key] ?? BigInt(r.movementMinor);
+          const clientMovement = clientMovements[key] ?? 0n;
           const clientComputed = BigInt(r.openingMinor) + clientMovement;
           const dtoMovement = BigInt(r.movementMinor);
           const hasDrift = clientMovement !== dtoMovement;

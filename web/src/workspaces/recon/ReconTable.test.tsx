@@ -86,4 +86,22 @@ describe('ReconTable', () => {
     expect(screen.getByLabelText(/evidence drift/i)).toBeInTheDocument();
     expect(screen.getByText(/evidence drift.*browser recomputed.*≠.*backend/i)).toBeInTheDocument();
   });
+
+  it('shows drift warning when key is ABSENT from clientMovements and movementMinor is non-zero (e.g. recompute error)', () => {
+    // WHY: §5.1 — if recomputeMovements threw and returned {}, the absent key must NOT
+    // silently fall back to the DTO value. 0n fallback means backend's non-zero movement
+    // disagrees with client's 0, correctly surfacing the integrity gap as drift.
+    const r = row({ movementMinor: '3800000000' });
+    // Pass empty clientMovements — simulates recompute failure returning {}
+    render(<ReconTable rows={[r]} selectedKey={null} onSelect={() => {}} clientMovements={{}} />);
+    expect(screen.getByLabelText(/evidence drift/i)).toBeInTheDocument();
+    expect(screen.getByText(/evidence drift.*browser recomputed.*≠.*backend/i)).toBeInTheDocument();
+  });
+
+  it('shows NO drift when key is ABSENT from clientMovements and movementMinor is zero', () => {
+    // WHY: a legitimately zero-movement row (no JEs) with 0n fallback = 0 === 0 → no drift
+    const r = row({ movementMinor: '0', computedMinor: '1200000000', breakMinor: '-2598000000' });
+    render(<ReconTable rows={[r]} selectedKey={null} onSelect={() => {}} clientMovements={{}} />);
+    expect(screen.queryByLabelText(/evidence drift/i)).not.toBeInTheDocument();
+  });
 });
