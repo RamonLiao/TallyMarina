@@ -39,7 +39,7 @@ export function SideNav() {
             {w.status === 'soon' && (
               <span
                 style={{
-                  fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em',
+                  fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em',
                   color: 'var(--ink-soft)', fontFamily: 'var(--font-mono)',
                 }}
               >

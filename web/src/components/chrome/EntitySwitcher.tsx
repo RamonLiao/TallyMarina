@@ -25,6 +25,10 @@ export function EntitySwitcher() {
         padding: 'var(--space-1) var(--space-3)',
         fontFamily: 'var(--font-display)',
         fontSize: 14,
+        // Shrink before wrapping so the 768–1050px range doesn't force a doubled-height TopBar.
+        minWidth: 0,
+        maxWidth: 180,
+        flexShrink: 1,
       }}
     >
       {entity === null && <option value="">Select entity…</option>}

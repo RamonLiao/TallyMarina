@@ -45,18 +45,26 @@ function Shell() {
   return (
     <>
       <TopBar />
+      {/* Full-width governance strip — directly under TopBar so the AI "leash" is never
+          buried below the sidebar on mobile and stays prominent on desktop (spec §8.5). */}
+      <div
+        style={{
+          maxWidth: 1200,
+          margin: '0 auto',
+          padding: 'var(--space-3) clamp(16px, 4vw, 48px) 0',
+        }}
+      >
+        <GuardrailBanner />
+      </div>
       <div className="shell-body" style={{ display: 'flex', maxWidth: 1200, margin: '0 auto', alignItems: 'flex-start' }}>
         <aside className="shell-sidenav" style={{ position: 'sticky', top: 0, alignSelf: 'flex-start' }}>
           <SideNav />
         </aside>
         <main
           aria-label="TallyMarina"
-          style={{ flex: 1, minWidth: 0, padding: '0 clamp(16px, 4vw, 48px) var(--space-10)' }}
+          style={{ flex: 1, minWidth: 0, padding: 'var(--space-4) clamp(16px, 4vw, 48px) var(--space-10)' }}
         >
-          <GuardrailBanner />
-          <div style={{ marginTop: 'var(--space-4)' }}>
-            <WorkspaceContent />
-          </div>
+          <WorkspaceContent />
         </main>
       </div>
     </>

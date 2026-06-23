@@ -197,15 +197,30 @@ p {
   }
 }
 
-/* Workspace shell: stack sidenav above content on narrow viewports.
+/* Workspace shell: give the sidebar a visible edge against the cream content well. */
+.shell-sidenav {
+  border-right: 1px solid rgba(20, 30, 54, 0.08);
+}
+
+/* Stack sidenav above content on narrow viewports, as a single horizontal
+   scroll strip (not a tall 7-row list that buries the content below).
    !important is required to override SideNav's inline flex-direction/min-width
    (inline styles otherwise beat stylesheet rules). */
 @media (max-width: 768px) {
   .shell-body { flex-direction: column; }
-  .shell-sidenav { position: static !important; width: 100%; }
+  .shell-sidenav {
+    position: static !important;
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid rgba(20, 30, 54, 0.08);
+  }
   .shell-sidenav nav {
     flex-direction: row !important;
-    flex-wrap: wrap !important;
+    flex-wrap: nowrap !important;
+    overflow-x: auto;
     min-width: 0 !important;
+  }
+  .shell-sidenav nav > button {
+    flex: 0 0 auto;
   }
 }
