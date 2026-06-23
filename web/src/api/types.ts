@@ -135,3 +135,26 @@ export interface ExceptionsResponse {
   exceptions: ExceptionDTO[];
   summary: { open: number; blocking: number; byCategory: Record<string, number> };
 }
+
+// ---- Reconciliation types ----
+
+export interface ReconRowDTO {
+  wallet: string; coinType: string; decimals: number;
+  openingMinor: string; movementMinor: string; computedMinor: string;
+  statementMinor: string; breakMinor: string; thresholdMinor: string;
+  material: boolean;
+  control: { debitMinor: string; creditMinor: string; legs: number };
+  provenance: { computed: 'book'; statement: 'mock'; chain: 'live' | 'n/a' };
+  disposition: { state: string; reasonCode: string; reasonNote: string | null } | null;
+}
+export interface ReconciliationResponse {
+  rows: ReconRowDTO[];
+  realWallet: string | null;
+  summary: { material: number; openMaterial: number; balanced: number };
+}
+export interface ReconBreakDispositionDTO { state: string; reasonCode: string; reasonNote: string | null; }
+export interface CloseReadiness {
+  exceptions: { blocking: number; blockers: unknown[] };
+  recon: { blocking: number; blockers: string[] };
+  closeable: boolean;
+}
