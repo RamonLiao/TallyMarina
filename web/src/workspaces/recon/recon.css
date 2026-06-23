@@ -13,6 +13,7 @@
 .brk em { color: var(--ink-soft, #8a8175); font-style: normal; font-size: 0.85em; }
 .prov--live, .prov--live sup { color: var(--aqua, #2e9fbc); }  /* aqua = on-chain ONLY */
 .prov--na { color: var(--ink-soft, #8a8175); }
+.prov--unavailable { color: var(--warn, #c28a1e); }
 
 /* TABLET: hide the two derivation columns (Opening, +Movements). */
 @media (max-width: 1024px) {

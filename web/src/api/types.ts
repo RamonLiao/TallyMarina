@@ -144,7 +144,7 @@ export interface ReconRowDTO {
   statementMinor: string; breakMinor: string; thresholdMinor: string;
   material: boolean;
   control: { debitMinor: string; creditMinor: string; legs: number };
-  provenance: { computed: 'book'; statement: 'mock'; chain: 'live' | 'n/a' };
+  provenance: { computed: 'book'; statement: 'mock'; chain: 'live' | 'n/a' | 'unavailable' };
   disposition: { state: string; reasonCode: string; reasonNote: string | null } | null;
 }
 export interface ReconciliationResponse {

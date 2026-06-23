@@ -16,6 +16,13 @@ export function fmtMinor(minor: string, decimals: number): string {
   const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   return `${neg ? '−' : ''}${grouped}${frac}`;
 }
+
+export function fmtBreak(minor: string, decimals: number): string {
+  const zero = minor === '0' || minor === '-0' || /^-?0+$/.test(minor);
+  const formatted = fmtMinor(minor, decimals);
+  if (zero) return formatted;
+  return minor.startsWith('-') ? formatted : `+${formatted}`;
+}
 const DIR_LABEL = { 'book-over': 'book over statement', 'statement-over': 'statement over book', balanced: 'balanced' } as const;
 
 export function ReconTable({ rows, selectedKey, onSelect }: { rows: ReconRowDTO[]; selectedKey: string | null; onSelect: (key: string) => void }) {
@@ -24,7 +31,7 @@ export function ReconTable({ rows, selectedKey, onSelect }: { rows: ReconRowDTO[
       <thead>
         <tr>
           <th>Wallet · Asset</th><th>Opening</th><th>+ Movements</th><th>= Computed</th>
-          <th>Stmt</th><th>Δ</th><th>Chain</th><th>Status</th>
+          <th>Statement</th><th>Break</th><th>Chain</th><th>Status</th>
         </tr>
       </thead>
       <tbody>
@@ -41,13 +48,17 @@ export function ReconTable({ rows, selectedKey, onSelect }: { rows: ReconRowDTO[
               <td data-label="Statement" className="td--mono">{fmtMinor(r.statementMinor, r.decimals)}<sup>M</sup></td>
               <td data-label="Break" className="td--mono">
                 {b.direction === 'balanced'
-                  ? <span className="brk brk--ok" aria-label="balanced">{fmtMinor(r.breakMinor, r.decimals)} ✓</span>
+                  ? <span className="brk brk--ok" aria-label="balanced">{fmtBreak(r.breakMinor, r.decimals)} ✓</span>
                   : <><span className={`brk ${b.material ? 'brk--material' : 'brk--immaterial'}`} aria-label={b.material ? 'material break' : 'immaterial break'}>
-                      {fmtMinor(r.breakMinor, r.decimals)} {b.material ? '⛔' : '⚠'}
+                      {fmtBreak(r.breakMinor, r.decimals)} {b.material ? '⛔' : '⚠'}
                     </span>{' '}<em className="brk-dir">({DIR_LABEL[b.direction]})</em></>}
               </td>
               <td data-label="Chain" className="td--mono recon-chain">
-                {r.provenance.chain === 'n/a' ? <span className="prov--na">n/a</span> : <span className="prov--live">live<sup>L</sup></span>}
+                {r.provenance.chain === 'live'
+                  ? <span className="prov--live">live<sup>↗</sup></span>
+                  : r.provenance.chain === 'n/a'
+                  ? <span className="prov--na">—</span>
+                  : <span className="prov--unavailable">↻ unavailable</span>}
               </td>
               <td data-label="Status">{r.disposition ? r.disposition.state : (b.material ? 'open' : '—')}</td>
             </tr>
