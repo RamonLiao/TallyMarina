@@ -109,3 +109,28 @@ export interface InclusionProof {
   siblings: Array<{ hash: string; position: 'L' | 'R' }>;
   merkleRoot: string;
 }
+
+// ---- Exception Queue types ----
+
+export type ExceptionCategory = 'RULES_FAILED' | 'CLASSIFY_REVIEW' | 'LOW_CONFIDENCE_AUTO';
+export type DispositionState = 'open' | 'resolved' | 'dismissed' | 'deferred';
+export type ReasonCode =
+  | 'MAPPING_ADDED' | 'RECLASSIFIED' | 'DUPLICATE_CONFIRMED'
+  | 'IMMATERIAL_WAIVED' | 'PENDING_DOC' | 'CARRIED_FORWARD' | 'OTHER';
+
+export interface ExceptionDTO {
+  exceptionId: string;
+  category: ExceptionCategory;
+  eventId: string;
+  severity: number;
+  reason: string;
+  amount: string | null;
+  ai: { eventType: string | null; purpose: string | null; confidence: number | null; reasoning: string | null } | null;
+  disposition: { state: DispositionState; reasonCode: ReasonCode; decidedBy: string; decidedAt: number } | null;
+  anchoredReadOnly: boolean;
+}
+
+export interface ExceptionsResponse {
+  exceptions: ExceptionDTO[];
+  summary: { open: number; blocking: number; byCategory: Record<string, number> };
+}

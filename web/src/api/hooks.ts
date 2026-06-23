@@ -1,5 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as api from './endpoints';
+import { fetchJson } from './client';
+import type { DispositionState, ExceptionsResponse, ReasonCode } from './types';
 
 export const qk = {
   entities: () => ['entities'] as const,
@@ -122,5 +124,32 @@ export function useConfirmAnchor(entityId: string) {
       api.confirmAnchor(entityId, args),
     // Invalidate anchors so stale anchor list is refetched after on-chain confirmation
     onSuccess: () => qc.invalidateQueries({ queryKey: ['anchors', entityId] }),
+  });
+}
+
+// ---- Exception Queue hooks ----
+
+export function useExceptions(entityId: string | undefined, periodId = '2026-Q2') {
+  return useQuery({
+    queryKey: ['exceptions', entityId ?? '', periodId],
+    queryFn: () =>
+      fetchJson<ExceptionsResponse>(
+        `/entities/${encodeURIComponent(entityId!)}/exceptions?periodId=${encodeURIComponent(periodId)}`,
+      ),
+    enabled: !!entityId,
+  });
+}
+
+export function useDisposition(entityId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { exceptionId: string; state: DispositionState; reasonCode: ReasonCode; reasonNote?: string }) =>
+      fetchJson(`/exceptions/${encodeURIComponent(v.exceptionId)}/disposition`, {
+        method: 'POST',
+        body: JSON.stringify({ state: v.state, reasonCode: v.reasonCode, reasonNote: v.reasonNote }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['exceptions', entityId ?? ''] });
+    },
   });
 }
