@@ -6,7 +6,7 @@ export const WORKSPACES: {
   id: WorkspaceId; label: string; icon: string; status: 'ready' | 'soon';
 }[] = [
   { id: 'close',          label: 'Close',          icon: '⚓', status: 'ready' },
-  { id: 'exceptions',     label: 'Exceptions',     icon: '⚠', status: 'soon' },
+  { id: 'exceptions',     label: 'Exceptions',     icon: '⚠', status: 'ready' },
   { id: 'reconciliation', label: 'Reconciliation', icon: '⚖', status: 'soon' },
   { id: 'audit',          label: 'Audit',          icon: '🔍', status: 'soon' },
   { id: 'policy',         label: 'Policy',         icon: '📐', status: 'soon' },
