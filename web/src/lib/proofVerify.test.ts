@@ -46,19 +46,21 @@ describe('recomputeRoot', () => {
 });
 
 describe('hexToBytes validation', () => {
-  it('throws on odd-length hex', async () => {
-    await expect(recomputeRoot('abc', [])).rejects.toThrow('invalid hex');
+  it('throws on odd-length hex (caught as not-64-chars)', async () => {
+    // 'abc' is 3 chars — assertHash32 fires first (not 64 chars)
+    await expect(recomputeRoot('abc', [])).rejects.toThrow('32 bytes');
   });
 
-  it('throws on non-hex chars in leafHashHex', async () => {
-    await expect(recomputeRoot('zz'.repeat(32), [])).rejects.toThrow('invalid hex');
+  it('throws on non-hex chars in leafHashHex (caught as not-64-chars)', async () => {
+    // 'zz'.repeat(32) is 64 chars but non-hex — assertHash32 regex rejects it
+    await expect(recomputeRoot('zz'.repeat(32), [])).rejects.toThrow('32 bytes');
   });
 
-  it('throws on malformed sibling hash', async () => {
+  it('throws on malformed sibling hash (non-hex, caught by assertHash32)', async () => {
     const validLeaf = 'aa'.repeat(32);
     await expect(
       recomputeRoot(validLeaf, [{ hash: 'zz'.repeat(32), position: 'R' }])
-    ).rejects.toThrow('invalid hex');
+    ).rejects.toThrow('32 bytes');
   });
 
   it('valid even-length hex-only strings still work', async () => {
@@ -66,6 +68,21 @@ describe('hexToBytes validation', () => {
     const leafB = await sha256hex(concat(Uint8Array.of(0x00), new TextEncoder().encode('B')));
     // should not throw
     await expect(recomputeRoot(leafA, [{ hash: leafB, position: 'R' }])).resolves.toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('throws when leafHash is valid hex but not 64 chars (too short)', async () => {
+    await expect(recomputeRoot('aabb', [])).rejects.toThrow('32 bytes');
+  });
+
+  it('throws when leafHash is empty string', async () => {
+    await expect(recomputeRoot('', [])).rejects.toThrow('32 bytes');
+  });
+
+  it('throws when sibling hash is valid hex but not 64 chars', async () => {
+    const validLeaf = 'aa'.repeat(32);
+    await expect(
+      recomputeRoot(validLeaf, [{ hash: 'bb', position: 'L' }])
+    ).rejects.toThrow('32 bytes');
   });
 });
 
@@ -100,5 +117,11 @@ describe('resolveProofState', () => {
     const tampered: InclusionProof = { ...proof, merkleRoot: 'ff'.repeat(32) };
     const s = await resolveProofState({ leafHash, proof: tampered, anchors: [] });
     expect(s.kind).toBe('mismatch');
+  });
+
+  it('throws when proof.merkleRoot is valid hex but not 64 chars', async () => {
+    const { leafHash, proof } = await proofFor();
+    const badRoot: InclusionProof = { ...proof, merkleRoot: 'deadbeef' };
+    await expect(resolveProofState({ leafHash, proof: badRoot, anchors: [] })).rejects.toThrow('32 bytes');
   });
 });

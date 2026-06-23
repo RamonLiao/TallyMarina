@@ -16,6 +16,10 @@ function hexToBytes(hex: string): Uint8Array {
   for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
   return out;
 }
+/** SHA-256 hashes must be exactly 32 bytes (64 hex chars). */
+function assertHash32(hex: string): void {
+  if (!/^[0-9a-fA-F]{64}$/.test(hex)) throw new Error('proof hash must be exactly 32 bytes (64 hex chars)');
+}
 function bytesToHex(b: Uint8Array): string {
   return [...b].map((x) => x.toString(16).padStart(2, '0')).join('');
 }
@@ -38,8 +42,10 @@ export async function recomputeRoot(
   leafHashHex: string,
   siblings: { hash: string; position: 'L' | 'R' }[],
 ): Promise<string> {
+  assertHash32(leafHashHex);
   let acc = hexToBytes(leafHashHex);
   for (const sib of siblings) {
+    assertHash32(sib.hash);
     const sibBytes = hexToBytes(sib.hash);
     acc = sib.position === 'L' ? await nodeHash(sibBytes, acc) : await nodeHash(acc, sibBytes);
   }
@@ -65,6 +71,7 @@ export async function resolveProofState(args: {
   const { leafHash, proof, anchors } = args;
   if (!proof) return { kind: 'not-in-journal' };
 
+  assertHash32(proof.merkleRoot);
   const recomputed = await recomputeRoot(leafHash, proof.siblings);
   if (recomputed !== proof.merkleRoot) {
     return { kind: 'mismatch', recomputed, claimed: proof.merkleRoot };
