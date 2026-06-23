@@ -77,6 +77,9 @@ export function buildCockpit(db: Db, entityId: string, periodId: string, lowConf
   ];
   const lock = getPeriodLock(db, entityId, periodId);
   const anchored = hasAnchoredSnapshotForPeriod(db, entityId, periodId);
+  // staleAnchor: period was anchored, then reopened, with no subsequent re-anchor
+  //   (reopenCount>0 && wasAnchoredAtReopen===1 && status==='OPEN') — surfaces the descoped
+  //   restatement-re-anchor-v2 honestly instead of faking a fresh anchor.
   const staleAnchor = lock.reopenCount > 0 && lock.wasAnchoredAtReopen === 1 && lock.status === 'OPEN';
   const closeable = lights.filter((l) => l.status !== 'mock').every((l) => l.status === 'green');
   return {

@@ -47,6 +47,9 @@ export function lockPeriod(
       `INSERT INTO period_lock (entity_id, period_id, status, locked_at, locked_by, lights_snapshot, reopen_count)
        VALUES (?, ?, 'LOCKED', ?, ?, ?, ?)
        ON CONFLICT(entity_id, period_id) DO UPDATE SET
+         -- reopen_count intentionally OMITTED: a re-lock after a reopen must PRESERVE the existing count, not reset it.
+         -- lights_snapshot intentionally RE-SET on conflict: a new lock captures a fresh evidence snapshot;
+         --   the CAS gate (assertPeriodTransition) already forbids locking a non-OPEN period.
          status='LOCKED', locked_at=excluded.locked_at, locked_by=excluded.locked_by, lights_snapshot=excluded.lights_snapshot`,
     ).run(a.entityId, a.periodId, a.now, a.lockedBy, a.lightsSnapshot, cur.reopenCount);
     out = getPeriodLock(db, a.entityId, a.periodId);

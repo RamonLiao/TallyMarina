@@ -7,6 +7,7 @@ import './close.css';
 export function ReopenDialog({ entityId, onChanged, onClose }: { entityId: string; onChanged: () => void; onClose: () => void }) {
   const [reason, setReason] = useState('');
   const [code, setCode] = useState<ReopenReasonCode>('ERROR_CORRECTION');
+  const [amount, setAmount] = useState('');
   const [requested, setRequested] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string>();
@@ -18,7 +19,7 @@ export function ReopenDialog({ entityId, onChanged, onClose }: { entityId: strin
       const res = await fetch(`${API_BASE}/entities/${encodeURIComponent(entityId)}/period/reopen`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ restatementReason: reason.trim(), reasonCode: code }),
+        body: JSON.stringify({ restatementReason: reason.trim(), reasonCode: code, affectedAmountEstimate: amount.trim() || undefined }),
       });
       if (!res.ok) throw new Error(`reopen ${res.status}`);
       onChanged(); onClose();
@@ -41,6 +42,12 @@ export function ReopenDialog({ entityId, onChanged, onClose }: { entityId: strin
             </select>
           </label>
           <textarea placeholder="Restatement reason" value={reason} onChange={(e) => setReason(e.target.value)} maxLength={512} />
+          {/* WHY: optional restatement magnitude is an audit-nice-to-have (ASC 250/IAS 8 disclosure);
+              kept as a string (integer-minor-unit) — never coerced to a JS number. Must reach the backend
+              when provided but NEVER gates the SoD ritual (optional field). */}
+          <label>Affected amount estimate (optional)
+            <input type="text" placeholder="e.g. 150000 (minor units)" value={amount} onChange={(e) => setAmount(e.target.value)} />
+          </label>
           <button type="button" disabled={!reasonOk} onClick={() => setRequested(true)}>Request reopen</button>
         </li>
         <li className={requested ? 'step--active' : 'step--idle'}>
