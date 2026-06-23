@@ -63,3 +63,27 @@
   color: var(--ink-soft, #3e4a6b);
   border-style: dashed;
 }
+
+/* ── CloseCockpit ribbon + RWD ── */
+
+.close-cockpit { display: flex; flex-direction: column; gap: var(--s-4, 16px); }
+.period-ribbon {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3, 12px);
+  padding: var(--s-3, 12px);
+  border-radius: var(--r-md, 16px);
+  background: var(--paper-card, #fbf7ee);
+  transition: background 140ms;
+}
+.period-ribbon--locked { background: var(--ink, #1d2733); color: var(--paper, #f4ecd8); }
+.status-chip { padding: 2px 10px; border-radius: 999px; font-weight: 700; }
+.status-chip--open { background: var(--brass, #b08d57); color: #fff; }
+.status-chip--locked { background: var(--ink, #1d2733); color: var(--paper, #f4ecd8); border: 1px solid var(--brass, #b08d57); }
+.reopen-badge { color: var(--ink-soft, #8a8175); font-size: .85em; }
+.stale-anchor-warn { color: var(--warn, #c28a1e); font-weight: 600; }
+.cockpit-verdict { font-weight: 600; }
+@media (prefers-reduced-motion: reduce) { .period-ribbon { transition: none; } }
+@media (max-width: 640px) {
+  .lights-grid { grid-template-columns: 1fr; }
+}
