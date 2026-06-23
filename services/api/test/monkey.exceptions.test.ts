@@ -120,30 +120,50 @@ describe('monkey: exceptions disposition — extreme inputs', () => {
   });
 
   it('two independent categories on the same event can be disposed separately', async () => {
-    // Seed a low-confidence AUTO event — surfaces both LOW_CONFIDENCE_AUTO and potentially RULES_FAILED.
-    // We verify that disposing one category does not contaminate the other.
+    // Genuine two-category case on a SINGLE event (exercises composite PK independence):
+    //   - status AUTO + aiConfidence 0.4 < 0.85 band → LOW_CONFIDENCE_AUTO
+    //   - status AUTO + rawJson lacks schemaVersion (malformed NormalizedEvent) → SCHEMA_INVALID
+    //     → evaluate() returns REJECTED → RULES_FAILED
+    // Both exceptions share the same eventId; the composite PK (category, eventId) must
+    // ensure disposing one leaves the other's disposition untouched.
     insertEvent(app._db, { id: 'ev-mono-2cat', entityId: EID, rawJson: JSON.stringify({ kind: 'x' }) });
     setAiSuggestion(app._db, 'ev-mono-2cat', {
-      aiEventType: 'X', aiPurpose: 'p', aiCounterparty: null,
-      aiConfidence: 0.4, aiReasoning: 'r', nextStatus: 'NEEDS_REVIEW',
+      aiEventType: 'UNKNOWN_TYPE', aiPurpose: 'p', aiCounterparty: null,
+      aiConfidence: 0.4, aiReasoning: 'r', nextStatus: 'AUTO',
     });
-    // CLASSIFY_REVIEW is the real blocking exception for this event
-    const exId1 = encodeURIComponent('CLASSIFY_REVIEW:ev-mono-2cat');
+
+    // Verify BOTH categories surface before any disposition.
+    const listBefore = await app.inject({
+      method: 'GET', url: `/entities/${EID}/exceptions?periodId=2026-Q2`,
+    });
+    type ExRow = { category: string; eventId: string; disposition: null | { state: string } };
+    const bodyBefore = listBefore.json() as { exceptions: ExRow[] };
+    const lcaBefore = bodyBefore.exceptions.find((e) => e.category === 'LOW_CONFIDENCE_AUTO' && e.eventId === 'ev-mono-2cat');
+    const rfBefore  = bodyBefore.exceptions.find((e) => e.category === 'RULES_FAILED'        && e.eventId === 'ev-mono-2cat');
+    expect(lcaBefore, 'LOW_CONFIDENCE_AUTO must surface for AUTO event below confidence band').toBeTruthy();
+    expect(rfBefore,  'RULES_FAILED must surface for AUTO event with un-evaluatable rawJson').toBeTruthy();
+    expect(lcaBefore?.disposition).toBeNull();
+    expect(rfBefore?.disposition).toBeNull();
+
+    // Dispose only LOW_CONFIDENCE_AUTO.
+    const exId1 = encodeURIComponent('LOW_CONFIDENCE_AUTO:ev-mono-2cat');
     const r1 = await app.inject({
       method: 'POST',
       url: `/exceptions/${exId1}/disposition`,
-      payload: { state: 'resolved', reasonCode: 'RECLASSIFIED' },
+      payload: { state: 'deferred', reasonCode: 'PENDING_DOC' },
     });
     expect(r1.statusCode).toBe(200);
-    expect((r1.json() as { disposition: { category: string } }).disposition.category).toBe('CLASSIFY_REVIEW');
+    expect((r1.json() as { disposition: { category: string } }).disposition.category).toBe('LOW_CONFIDENCE_AUTO');
 
-    // Disposing CLASSIFY_REVIEW must not affect any other category disposition row.
-    const exList = await app.inject({
+    // RULES_FAILED disposition must still be null — composite PK (category, eventId) is independent.
+    const listAfter = await app.inject({
       method: 'GET', url: `/entities/${EID}/exceptions?periodId=2026-Q2`,
     });
-    const exBody = exList.json() as { exceptions: Array<{ category: string; eventId: string; disposition: null | { state: string } }> };
-    const classifyRow = exBody.exceptions.find((e) => e.category === 'CLASSIFY_REVIEW' && e.eventId === 'ev-mono-2cat');
-    expect(classifyRow?.disposition?.state).toBe('resolved');
+    const bodyAfter = listAfter.json() as { exceptions: ExRow[] };
+    const lcaAfter = bodyAfter.exceptions.find((e) => e.category === 'LOW_CONFIDENCE_AUTO' && e.eventId === 'ev-mono-2cat');
+    const rfAfter  = bodyAfter.exceptions.find((e) => e.category === 'RULES_FAILED'        && e.eventId === 'ev-mono-2cat');
+    expect(lcaAfter?.disposition?.state).toBe('deferred');
+    expect(rfAfter?.disposition).toBeNull();
   });
 
   it('disposition on an anchored entity returns 409 ANCHORED_READ_ONLY — spec §4 enforcement', async () => {
