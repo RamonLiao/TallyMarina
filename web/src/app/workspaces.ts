@@ -8,7 +8,7 @@ export const WORKSPACES: {
   { id: 'close',          label: 'Close',          icon: '⚓', status: 'ready' },
   { id: 'exceptions',     label: 'Exceptions',     icon: '⚠', status: 'ready' },
   { id: 'reconciliation', label: 'Reconciliation', icon: '⚖', status: 'soon' },
-  { id: 'audit',          label: 'Audit',          icon: '🔍', status: 'soon' },
+  { id: 'audit',          label: 'Audit',          icon: '🔍', status: 'ready' },
   { id: 'policy',         label: 'Policy',         icon: '📐', status: 'soon' },
   { id: 'export',         label: 'Export',         icon: '📤', status: 'soon' },
   { id: 'onboarding',     label: 'Onboarding',     icon: '🚢', status: 'soon' },

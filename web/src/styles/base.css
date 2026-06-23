@@ -240,3 +240,18 @@ p {
     flex: 0 0 auto;
   }
 }
+
+/* ── Audit workspace lineage RWD (spec §7) ──
+   Lineage is a flex row of 4 stage cards + arrows at ≥1280px.
+   Below that, collapse to 2×2 then to a vertical accordion. The panes reuse
+   .exceptions-layout so the <768px stack-push (list→full-width detail) is inherited. */
+@media (max-width: 1280px) {
+  .audit-lineage { flex-wrap: wrap !important; }
+  .audit-lineage > .audit-stage { flex: 1 1 calc(50% - var(--s-4)) !important; }
+  /* arrows between columns become horizontal separators on wrap */
+  .audit-lineage > .audit-arrow { display: none; }
+}
+@media (max-width: 960px) {
+  .audit-lineage { flex-direction: column !important; }
+  .audit-lineage > .audit-stage { flex: 1 1 auto !important; width: 100%; }
+}

@@ -13,6 +13,7 @@ import { ReviewStep } from './steps/ReviewStep';
 import { JournalStep } from './steps/JournalStep';
 import { AnchorStep } from './steps/AnchorStep';
 import { ExceptionsWorkspace } from './workspaces/ExceptionsWorkspace';
+import { AuditWorkspace } from './workspaces/AuditWorkspace';
 
 function CloseWorkspace() {
   const { step } = useEntityCtx();
@@ -34,6 +35,7 @@ function WorkspaceContent() {
   const { activeWorkspace } = useWorkspace();
   if (activeWorkspace === 'close') return <CloseWorkspace />;
   if (activeWorkspace === 'exceptions') return <ExceptionsWorkspace />;
+  if (activeWorkspace === 'audit') return <AuditWorkspace />;
   const meta = WORKSPACES.find((w) => w.id === activeWorkspace);
   return (
     <EmptyState
