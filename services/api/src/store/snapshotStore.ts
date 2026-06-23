@@ -32,3 +32,8 @@ export function setSnapshotStatus(db: Db, id: string, to: SnapshotStatus): void 
   assertSnapshotTransition(cur.status, to);
   db.prepare('UPDATE snapshots SET status=? WHERE id=?').run(to, id);
 }
+
+export function hasAnchoredSnapshot(db: Db, entityId: string): boolean {
+  const r = db.prepare("SELECT 1 FROM snapshots WHERE entity_id = ? AND status = 'ANCHORED' LIMIT 1").get(entityId);
+  return r !== undefined;
+}

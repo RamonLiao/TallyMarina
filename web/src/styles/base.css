@@ -189,6 +189,22 @@ p {
   body { font-size: 15px; }
 }
 
+/* ── Exceptions workspace RWD: stack-push below 768px ──
+   The list card has inline style flex:'0 0 320px'; !important is required to
+   override it (same pattern as .shell-sidenav above). */
+.exceptions-back-btn {
+  display: none; /* shown only on narrow via media query below */
+}
+
+@media (max-width: 768px) {
+  .exceptions-layout { flex-direction: column !important; }
+  .exceptions-layout > .card { flex: 1 1 auto !important; width: 100% !important; }
+  /* When an exception is selected, hide the list and show detail full-width */
+  .exceptions-layout.has-selection > .exceptions-list-pane { display: none !important; }
+  .exceptions-layout.has-selection > .exceptions-detail-pane { display: block !important; }
+  .exceptions-back-btn { display: inline-flex; }
+}
+
 /* ── Reduced motion ── */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

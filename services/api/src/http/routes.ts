@@ -11,7 +11,11 @@ import {
   listEvents, getEvent, listByStatus, setAiSuggestion, setDecision, markPosted, type EventRow,
 } from '../store/eventStore.js';
 import { insertJournalEntry, listJournal } from '../store/journalStore.js';
-import { insertSnapshot, getSnapshot } from '../store/snapshotStore.js';
+import { insertSnapshot, getSnapshot, hasAnchoredSnapshot } from '../store/snapshotStore.js';
+import { collectExceptions } from '../exceptions/collect.js';
+import { applyDisposition } from '../exceptions/disposition.js';
+import { getDisposition } from '../store/dispositionStore.js';
+import { BLOCKING_CATEGORIES, REASON_CODES, type DispositionState } from '../exceptions/types.js';
 import { listAnchors } from '../store/anchorStore.js';
 import { classifyEvent } from '../ai/classify.js';
 import { reviewCopilot } from '../ai/copilot.js';
@@ -43,6 +47,24 @@ function eventDTO(e: EventRow) {
       ? { eventType: e.finalEventType, purpose: e.finalPurpose } : null,
     routing: (e.status === 'AUTO' || e.status === 'NEEDS_REVIEW') ? e.status : null,
   };
+}
+
+const DEFAULT_PERIOD = '2026-Q2';
+
+function exceptionDTO(db: Db, entityId: string, periodId: string, lowConf: number) {
+  const anchored = hasAnchoredSnapshot(db, entityId);
+  return collectExceptions(db, entityId, periodId, lowConf).map((ex) => {
+    const d = getDisposition(db, ex.category, ex.eventId);
+    return {
+      ...ex,
+      disposition: d ? { state: d.state, reasonCode: d.reasonCode, decidedBy: d.decidedBy, decidedAt: d.decidedAt } : null,
+      anchoredReadOnly: anchored,
+    };
+  });
+}
+
+function isOpen(d: { state: DispositionState } | null): boolean {
+  return d === null || d.state === 'open';
 }
 
 function journalDTO(db: Db, entityId: string) {
@@ -184,11 +206,74 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     return { journal: journalDTO(db, req.params.id) };
   });
 
+  // Exception Queue (Phase 1 A-1)
+  app.get<{ Params: { id: string }; Querystring: { periodId?: string } }>('/entities/:id/exceptions', async (req) => {
+    requireEntity(db, req.params.id);
+    const periodId = req.query.periodId ?? DEFAULT_PERIOD;
+    const list = exceptionDTO(db, req.params.id, periodId, cfg.exceptionLowConfidence);
+    const blocking = list.filter((e) => BLOCKING_CATEGORIES.includes(e.category) && isOpen(e.disposition)).length;
+    const byCategory: Record<string, number> = {};
+    for (const e of list) byCategory[e.category] = (byCategory[e.category] ?? 0) + 1;
+    return { exceptions: list, summary: { open: list.filter((e) => isOpen(e.disposition)).length, blocking, byCategory } };
+  });
+
+  app.get<{ Params: { id: string }; Querystring: { periodId?: string } }>('/entities/:id/close-readiness', async (req) => {
+    requireEntity(db, req.params.id);
+    const periodId = req.query.periodId ?? DEFAULT_PERIOD;
+    const blockers = exceptionDTO(db, req.params.id, periodId, cfg.exceptionLowConfidence)
+      .filter((e) => BLOCKING_CATEGORIES.includes(e.category) && isOpen(e.disposition));
+    return { blocking: blockers.length, blockers };
+  });
+
+  app.post<{ Params: { exceptionId: string }; Body: { state?: string; reasonCode?: string; reasonNote?: string; periodId?: string } }>('/exceptions/:exceptionId/disposition', async (req) => {
+    const decoded = decodeURIComponent(req.params.exceptionId);
+    const sep = decoded.indexOf(':');
+    if (sep < 0) throw new ApiError(400, 'VALIDATION', 'exceptionId must be category:eventId');
+    const category = decoded.slice(0, sep);
+    const eventId = decoded.slice(sep + 1);
+    const b = req.body ?? {};
+    if (!b.state || !b.reasonCode) throw new ApiError(400, 'VALIDATION', 'state and reasonCode are required');
+    if (!REASON_CODES.includes(b.reasonCode as never)) throw new ApiError(400, 'VALIDATION', `unknown reasonCode ${b.reasonCode}`);
+    if (b.reasonCode === 'OTHER' && !b.reasonNote) throw new ApiError(400, 'VALIDATION', 'reasonNote required when reasonCode is OTHER');
+
+    // Re-validate against live exceptions — reject forged / stale ids.
+    const ev = getEvent(db, eventId);
+    if (!ev) throw new ApiError(404, 'EXCEPTION_NOT_FOUND', `no event ${eventId}`);
+    const live = collectExceptions(db, ev.entityId, b.periodId ?? DEFAULT_PERIOD, cfg.exceptionLowConfidence)
+      .find((e) => e.category === category && e.eventId === eventId);
+    if (!live) throw new ApiError(404, 'EXCEPTION_NOT_FOUND', `no current exception ${decoded}`);
+
+    // Spec §4: anchored periods are read-only — reject all disposition writes.
+    if (hasAnchoredSnapshot(db, ev.entityId)) {
+      throw new ApiError(409, 'ANCHORED_READ_ONLY', 'period anchored, exceptions are informational');
+    }
+
+    try {
+      const row = applyDisposition(db, {
+        entityId: ev.entityId, category, eventId,
+        to: b.state as DispositionState, reasonCode: b.reasonCode as never,
+        reasonNote: b.reasonNote ?? null, decidedBy: 'demo-controller', now: Date.now(),
+      });
+      return { disposition: row };
+    } catch (err) {
+      if ((err as Error).message.startsWith('ILLEGAL_TRANSITION')) {
+        throw new ApiError(409, 'ILLEGAL_TRANSITION', (err as Error).message);
+      }
+      throw err;
+    }
+  });
+
   // 10. POST /entities/:id/snapshot
   app.post<{ Params: { id: string }; Body: { periodId?: string } }>('/entities/:id/snapshot', async (req) => {
     requireEntity(db, req.params.id);
     const periodId = req.body?.periodId;
     if (!periodId) throw new ApiError(400, 'VALIDATION', 'periodId is required');
+    // Close gate (spec §4): open blocking exceptions hard-block the freeze.
+    const blockers = exceptionDTO(db, req.params.id, periodId, cfg.exceptionLowConfidence)
+      .filter((e) => BLOCKING_CATEGORIES.includes(e.category) && isOpen(e.disposition));
+    if (blockers.length > 0) {
+      throw new ApiError(409, 'EXCEPTIONS_BLOCKING', `${blockers.length} open exception(s) block close: ${blockers.map((b) => b.exceptionId).join(', ')}`);
+    }
     const jes: JournalEntry[] = listJournal(db, req.params.id).map((r) => JSON.parse(r.jeJson) as JournalEntry);
     const outputs = jes.map((je) => ({
       decision: 'POSTABLE' as const,

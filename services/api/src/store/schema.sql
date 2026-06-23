@@ -43,3 +43,25 @@ CREATE TABLE IF NOT EXISTS anchors (
   explorer_url TEXT NOT NULL,
   anchored_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS exception_disposition (
+  category    TEXT NOT NULL,
+  event_id    TEXT NOT NULL REFERENCES events(id),
+  entity_id   TEXT NOT NULL REFERENCES entities(id),
+  state       TEXT NOT NULL,
+  reason_code TEXT NOT NULL,
+  reason_note TEXT,
+  decided_by  TEXT NOT NULL,
+  decided_at  INTEGER NOT NULL,
+  PRIMARY KEY (category, event_id)
+);
+CREATE TABLE IF NOT EXISTS exception_disposition_log (
+  seq         INTEGER PRIMARY KEY AUTOINCREMENT,
+  category    TEXT NOT NULL,
+  event_id    TEXT NOT NULL,
+  entity_id   TEXT NOT NULL,
+  state       TEXT NOT NULL,
+  reason_code TEXT NOT NULL,
+  reason_note TEXT,
+  decided_by  TEXT NOT NULL,
+  decided_at  INTEGER NOT NULL
+);
