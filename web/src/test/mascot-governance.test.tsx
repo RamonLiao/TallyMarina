@@ -19,7 +19,7 @@ import { ConfidenceBar } from '../components/data/ConfidenceBar';
 import type { JournalDTO, AnchorDTO } from '../api/types';
 
 const journal: JournalDTO[] = [{ id: 'j1', eventId: 'e1', idempotencyKey: 'k', leafHash: '0xabc1234567', je: { idempotencyKey: 'k', lineageHash: '0xL', reversalOf: null, lines: [{ account: 'A', side: 'DEBIT', amountMinor: '1', origCoinType: null, origQtyMinor: null, priceRef: null, fxRef: null, leg: null }] } }];
-const anchors: AnchorDTO[] = [{ id: 'a1', snapshotId: 's1', seq: 1, link: '0xLINK0001', digest: '0xDIG0001', explorerUrl: 'https://x', anchoredAt: 't' }];
+const anchors: AnchorDTO[] = [{ id: 'a1', snapshotId: 's1', seq: 1, link: '0xLINK0001', digest: '0xDIG0001', explorerUrl: 'https://x', anchoredAt: 't', merkleRoot: null }];
 
 // §8.4 — JournalTable is a DATA ZONE. Any otter img here breaks the trust boundary.
 it('renders NO otter mascot in the journal table (§8.4)', () => {

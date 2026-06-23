@@ -36,3 +36,6 @@ web/vite.config.d.ts
 .playwright-mcp/
 desktop-1280.png
 move/audit_anchor/Published.toml
+
+# brainstorming visual-companion mockups (ephemeral)
+.superpowers/brainstorm/

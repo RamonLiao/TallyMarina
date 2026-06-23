@@ -122,3 +122,9 @@ describe('safe normalized field rendering (carry from Task 7)', () => {
     expect(coinType).toBe('—');
   });
 });
+
+it('compact variant drops the 320px floor so it fits a narrow column', () => {
+  const { getByTestId } = render(<ConfidenceBar confidence={0.9} compact />);
+  const root = getByTestId('confidence-bar');
+  expect(root.style.minWidth).toBe('0');
+});

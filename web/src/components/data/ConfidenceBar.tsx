@@ -7,9 +7,11 @@ type Routing = 'AUTO' | 'NEEDS_REVIEW' | 'PENDING';
 export function ConfidenceBar({
   confidence,
   threshold = CLASSIFY_THRESHOLD,
+  compact = false,
 }: {
   confidence: number | null;
   threshold?: number;
+  compact?: boolean;
 }) {
   const routing: Routing =
     confidence == null || Number.isNaN(confidence)
@@ -46,7 +48,7 @@ export function ConfidenceBar({
     <div
       data-testid="confidence-bar"
       data-routing={routing}
-      style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-3)', minWidth: 320 }}
+      style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-3)', minWidth: compact ? 0 : 320 }}
     >
       <div
         style={{
@@ -69,7 +71,7 @@ export function ConfidenceBar({
           }}
         />
       </div>
-      <span className="mono" style={{ fontSize: 15, minWidth: 92, textAlign: 'right' }}>
+      <span className="mono" style={{ fontSize: 15, minWidth: compact ? 0 : 92, textAlign: 'right' }}>
         {confidence == null || Number.isNaN(confidence) ? '—' : confidence.toFixed(2)}
         {routing === 'AUTO' && <span style={{ color: 'var(--credit)' }}> AUTO</span>}
         {routing === 'NEEDS_REVIEW' && <span style={{ color: 'var(--warn)' }}> REVIEW</span>}
