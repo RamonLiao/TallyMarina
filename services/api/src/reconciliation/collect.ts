@@ -4,6 +4,11 @@
 import type { Db } from '../store/db.js';
 import { loadReconFixture } from './fixture.js';
 import { walletAssetMovements } from './movement.js';
+import { getReconDisposition } from '../store/reconBreakStore.js';
+
+function isOpenDisposition(d: { state: string } | null): boolean {
+  return d === null || d.state === 'open';
+}
 
 export interface ReconBreak {
   wallet: string; coinType: string; decimals: number;
@@ -50,4 +55,11 @@ export function collectBreaks(db: Db, entityId: string, _periodId: string): Reco
   }
   out.sort((a, b) => Number(b.material) - Number(a.material) || a.coinType.localeCompare(b.coinType));
   return out;
+}
+
+// Single source of truth for the close-gate control rule: open material recon breaks.
+// Used by both /close-readiness and /snapshot to enforce the same gate.
+export function openMaterialReconBlockers(db: Db, entityId: string, periodId: string): ReconBreak[] {
+  return collectBreaks(db, entityId, periodId)
+    .filter((b) => b.material && isOpenDisposition(getReconDisposition(db, entityId, periodId, b.wallet, b.coinType)));
 }

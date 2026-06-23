@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import type { ReconRowDTO } from '../../api/types';
 import { fmtMinor } from './ReconTable';
-import { computeBreak, RECON_REASON_CODES, type ReconReasonCode } from '../../lib/reconBreak';
+import { computeBreak, RECON_REASON_CODES, encodeReconBreakId, type ReconReasonCode } from '../../lib/reconBreak';
 import { useChainBalance } from '../../data/useChainBalance';
 import { API_BASE } from '../../api/client';
 
@@ -36,7 +36,7 @@ export function ReconDetail({
   async function dispose(state: 'resolved' | 'dismissed' | 'deferred') {
     setBusy(true); setErr(undefined);
     try {
-      const breakId = encodeURIComponent(`${row.wallet}|${row.coinType}`);
+      const breakId = encodeURIComponent(encodeReconBreakId(row.wallet, row.coinType));
       const res = await fetch(`${API_BASE}/recon-breaks/${breakId}/disposition`, {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ state, reasonCode, reasonNote: reasonNote || null }),

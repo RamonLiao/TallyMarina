@@ -17,10 +17,11 @@ import { applyDisposition } from '../exceptions/disposition.js';
 import { getDisposition } from '../store/dispositionStore.js';
 import { BLOCKING_CATEGORIES, REASON_CODES, type DispositionState } from '../exceptions/types.js';
 import { listAnchors } from '../store/anchorStore.js';
-import { collectBreaks } from '../reconciliation/collect.js';
+import { collectBreaks, openMaterialReconBlockers } from '../reconciliation/collect.js';
 import { applyReconDisposition } from '../reconciliation/disposition.js';
 import { getReconDisposition } from '../store/reconBreakStore.js';
 import { RECON_REASON_CODES, type ReconReasonCode } from '../reconciliation/types.js';
+import { encodeReconBreakId, decodeReconBreakId, ReconBreakIdError } from '../reconciliation/breakId.js';
 import { classifyEvent } from '../ai/classify.js';
 import { reviewCopilot } from '../ai/copilot.js';
 import { buildRuleInput } from './buildRuleInput.js';
@@ -92,7 +93,13 @@ function requireEvent(db: Db, id: string): EventRow {
 
 function requireEntityForWallet(db: Db, wallet: string): string {
   for (const e of listEntities(db)) {
-    const breaks = collectBreaks(db, e.id, DEFAULT_PERIOD);
+    let breaks;
+    try {
+      breaks = collectBreaks(db, e.id, DEFAULT_PERIOD);
+    } catch {
+      // Entity has no recon fixture — skip, don't 500.
+      continue;
+    }
     if (breaks.some((b) => b.wallet === wallet)) return e.id;
   }
   throw new ApiError(404, 'RECON_BREAK_NOT_FOUND', `no entity owns wallet ${wallet}`);
@@ -254,11 +261,10 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     const periodId = req.query.periodId ?? DEFAULT_PERIOD;
     const exBlockers = exceptionDTO(db, req.params.id, periodId, cfg.exceptionLowConfidence)
       .filter((e) => BLOCKING_CATEGORIES.includes(e.category) && isOpen(e.disposition));
-    const reconBlockers = collectBreaks(db, req.params.id, periodId)
-      .filter((b) => b.material && isOpen(getReconDisposition(db, req.params.id, periodId, b.wallet, b.coinType)));
+    const reconBlockers = openMaterialReconBlockers(db, req.params.id, periodId);
     return {
       exceptions: { blocking: exBlockers.length, blockers: exBlockers },
-      recon: { blocking: reconBlockers.length, blockers: reconBlockers.map((b) => `${b.wallet}|${b.coinType}`) },
+      recon: { blocking: reconBlockers.length, blockers: reconBlockers.map((b) => encodeReconBreakId(b.wallet, b.coinType)) },
       closeable: exBlockers.length === 0 && reconBlockers.length === 0,
     };
   });
@@ -312,11 +318,10 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     if (blockers.length > 0) {
       throw new ApiError(409, 'EXCEPTIONS_BLOCKING', `${blockers.length} open exception(s) block close: ${blockers.map((b) => b.exceptionId).join(', ')}`);
     }
-    const reconBlockers = collectBreaks(db, req.params.id, periodId)
-      .filter((b) => b.material && isOpen(getReconDisposition(db, req.params.id, periodId, b.wallet, b.coinType)));
+    const reconBlockers = openMaterialReconBlockers(db, req.params.id, periodId);
     if (reconBlockers.length > 0) {
       throw new ApiError(409, 'RECON_BREAKS_BLOCKING',
-        `${reconBlockers.length} open material break(s) block close: ${reconBlockers.map((b) => `${b.wallet}|${b.coinType}`).join(', ')}`);
+        `${reconBlockers.length} open material break(s) block close: ${reconBlockers.map((b) => encodeReconBreakId(b.wallet, b.coinType)).join(', ')}`);
     }
     const jes: JournalEntry[] = listJournal(db, req.params.id).map((r) => JSON.parse(r.jeJson) as JournalEntry);
     const outputs = jes.map((je) => ({
@@ -433,11 +438,17 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
 
   app.post<{ Params: { breakId: string }; Body: { state?: string; reasonCode?: string; reasonNote?: string; periodId?: string } }>('/recon-breaks/:breakId/disposition', async (req) => {
     const decoded = decodeURIComponent(req.params.breakId);
-    if ((decoded.match(/\|/g) ?? []).length !== 1) throw new ApiError(400, 'VALIDATION', 'breakId must be exactly wallet|coinType');
-    const [wallet, coinType] = decoded.split('|');
-    if (!wallet || !coinType) throw new ApiError(400, 'VALIDATION', 'breakId must be wallet|coinType with both parts non-empty');
+    let wallet: string, coinType: string;
+    try {
+      ({ wallet, coinType } = decodeReconBreakId(decoded));
+    } catch (err) {
+      if (err instanceof ReconBreakIdError) throw new ApiError(400, 'VALIDATION', err.message);
+      throw err;
+    }
     const b = req.body ?? {};
     if (!b.state || !b.reasonCode) throw new ApiError(400, 'VALIDATION', 'state and reasonCode are required');
+    const VALID_STATES: string[] = ['open', 'resolved', 'dismissed', 'deferred'];
+    if (!VALID_STATES.includes(b.state)) throw new ApiError(400, 'VALIDATION', `unknown state ${b.state}; must be one of ${VALID_STATES.join(', ')}`);
     if (!RECON_REASON_CODES.includes(b.reasonCode as ReconReasonCode)) throw new ApiError(400, 'VALIDATION', `unknown reasonCode ${b.reasonCode}`);
     if (b.reasonCode === 'OTHER' && !b.reasonNote) throw new ApiError(400, 'VALIDATION', 'reasonNote required when reasonCode is OTHER');
     const periodId = b.periodId ?? DEFAULT_PERIOD;
