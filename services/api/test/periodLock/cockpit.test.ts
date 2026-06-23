@@ -39,6 +39,24 @@ it('JE light is red when trial balance does not net to zero', () => {
   expect(je.status).toBe('red');
 });
 
+// WHY: cockpit must degrade an un-verifiable recon control to red (fail-closed), never 500.
+// A wallet-less event causes openMaterialReconBlockers → walletAssetMovements to throw;
+// buildCockpit must catch that and return recon light red instead of propagating the error.
+it('reconLight degrades to red (fail-closed) when an event has no wallet field', () => {
+  // Seed event with no wallet in rawJson — triggers the throw path in walletAssetMovements.
+  db.prepare("INSERT INTO events (id, entity_id, raw_json, status) VALUES ('ev-nowal','e1','{}','AUTO')").run();
+  // Seed a balanced JE so that light is not an additional blocker we need to reason about.
+  const balanced = JSON.stringify({ lines: [{ side: 'DEBIT', amountMinor: '100' }, { side: 'CREDIT', amountMinor: '100' }] });
+  db.prepare("INSERT INTO journal_entries (id, entity_id, event_id, je_json, idempotency_key, leaf_hash) VALUES ('j-nw','e1','ev-nowal',?, 'kw','hw')").run(balanced);
+
+  // Must not throw.
+  let cockpit: ReturnType<typeof buildCockpit>;
+  expect(() => { cockpit = buildCockpit(db, 'e1', '2026-Q2', 0.7); }).not.toThrow();
+  const recon = cockpit!.lights.find((l) => l.key === 'recon')!;
+  expect(recon.status).toBe('red');
+  expect(recon.real).toBe(true);
+});
+
 it('hasAnchoredSnapshotForPeriod is false for a different period', () => {
   db.prepare("INSERT INTO snapshots (id, entity_id, period_id, manifest_json, manifest_hash, merkle_root, leaf_count, supersedes_seq, status) VALUES ('s1','e1','2026-Q1','{}','h','r',1,NULL,'ANCHORED')").run();
   expect(hasAnchoredSnapshotForPeriod(db, 'e1', '2026-Q1')).toBe(true);

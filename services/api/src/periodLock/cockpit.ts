@@ -46,8 +46,13 @@ function jeLight(db: Db, entityId: string): Light {
 }
 
 function reconLight(db: Db, entityId: string, periodId: string): Light {
-  const blocking = openMaterialReconBlockers(db, entityId, periodId).length;
-  return { key: 'recon', status: blocking === 0 ? 'green' : 'red', label: 'Reconciliation', real: true };
+  try {
+    const blocking = openMaterialReconBlockers(db, entityId, periodId).length;
+    return { key: 'recon', status: blocking === 0 ? 'green' : 'red', label: 'Reconciliation', real: true };
+  } catch {
+    // Cannot verify reconciliation (e.g. wallet-less event) → fail-closed: red blocks close.
+    return { key: 'recon', status: 'red', label: 'Reconciliation', real: true };
+  }
 }
 
 function completenessLight(db: Db, entityId: string): Light {
