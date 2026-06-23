@@ -4,6 +4,7 @@ import { openDb, type Db } from '../src/store/db.js';
 import { insertEvent } from '../src/store/eventStore.js';
 import { insertJournalEntry } from '../src/store/journalStore.js';
 import { collectBreaks } from '../src/reconciliation/collect.js';
+import { validateReconRows } from '../src/reconciliation/fixture.js';
 
 function seedJe(db: Db, eventId: string, wallet: string, coinType: string, debitQty: string, creditQty: string) {
   const lines = [
@@ -60,5 +61,61 @@ describe('collectBreaks', () => {
     const usdc = rows.find((r) => r.coinType === '0xusdc::usdc::USDC')!;
     expect(usdc.breakMinor).toBe('-500000');
     expect(usdc.material).toBe(true);
+  });
+});
+
+describe('collectBreaks — fixture-less entity (missing vs malformed)', () => {
+  let db: Db;
+  beforeEach(() => {
+    db = openDb(':memory:');
+    // 'no-fixture:entity' exists as an entity but has no recon fixture in the fixture file
+    db.prepare("INSERT INTO entities (id, display_name, chain_object_id, cap_object_id, original_package_id) VALUES ('no-fixture:entity','NoFixture','0x10','0x20','0x30')").run();
+  });
+
+  it('fixture-less entity with no JEs → collectBreaks returns [] without throwing', () => {
+    // WHY: any entity without a recon fixture must not 500; recon gate is vacuously satisfied
+    expect(() => collectBreaks(db, 'no-fixture:entity', '2026-Q2')).not.toThrow();
+    const rows = collectBreaks(db, 'no-fixture:entity', '2026-Q2');
+    expect(rows).toHaveLength(0);
+  });
+
+  it('fixture-less entity WITH JEs → book-only rows surface without throwing', () => {
+    // WHY: two-directional design — book movements always surface even without a fixture
+    insertEvent(db, { id: 'evt-nf-001', entityId: 'no-fixture:entity', rawJson: JSON.stringify({ wallet: '0xwallet', coinType: '0xtoken::tok::TOK' }) });
+    insertJournalEntry(db, {
+      id: 'je-nf-001', entityId: 'no-fixture:entity', eventId: 'evt-nf-001',
+      jeJson: JSON.stringify({ idempotencyKey: 'evt-nf-001', lineageHash: 'h', reversalOf: null,
+        lines: [
+          { account: '1000', side: 'DEBIT', amountMinor: '1000', origCoinType: '0xtoken::tok::TOK', origQtyMinor: '1000', priceRef: null, fxRef: null, leg: 'MAIN' },
+          { account: '4000', side: 'CREDIT', amountMinor: '500', origCoinType: '0xtoken::tok::TOK', origQtyMinor: '500', priceRef: null, fxRef: null, leg: 'MAIN' },
+        ] }),
+      idempotencyKey: 'evt-nf-001', leafHash: 'leaf-nf-001',
+    });
+    const rows = collectBreaks(db, 'no-fixture:entity', '2026-Q2');
+    expect(rows.length).toBeGreaterThan(0);
+    const tok = rows.find((r) => r.coinType === '0xtoken::tok::TOK');
+    expect(tok).toBeDefined();
+    expect(tok!.statementMinor).toBe('0');      // no fixture → statement defaults 0
+    expect(tok!.movementMinor).toBe('500');     // net debit - credit
+  });
+
+  it('malformed fixture (non-array raw) → validateReconRows throws (fail-loud)', () => {
+    // WHY: missing = not configured (soft); malformed = corruption (hard, must throw)
+    // validateReconRows is the same path collectBreaks goes through; non-array triggers throw
+    expect(() => validateReconRows('not-an-array', 'any:entity')).toThrow('no recon fixture for entity any:entity');
+  });
+
+  it('malformed fixture (negative minor) → validateReconRows throws', () => {
+    // WHY: a well-formed array with invalid data is corruption, not missing
+    const badRows = [{ wallet: '0xw', coinType: '0x::t::T', decimals: 9, openingMinor: '-1', statementMinor: '0', thresholdMinor: '0' }];
+    expect(() => validateReconRows(badRows, 'any:entity')).toThrow();
+  });
+
+  it('malformed fixture (duplicate rows) → validateReconRows throws', () => {
+    const dupRows = [
+      { wallet: '0xw', coinType: '0x::t::T', decimals: 9, openingMinor: '0', statementMinor: '0', thresholdMinor: '0' },
+      { wallet: '0xw', coinType: '0x::t::T', decimals: 9, openingMinor: '0', statementMinor: '0', thresholdMinor: '0' },
+    ];
+    expect(() => validateReconRows(dupRows, 'any:entity')).toThrow('duplicate');
   });
 });

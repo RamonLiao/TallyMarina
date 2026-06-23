@@ -18,8 +18,19 @@ export interface ReconBreak {
   control: { debitMinor: string; creditMinor: string; legs: number };
 }
 
+function loadReconFixtureTolerant(entityId: string): import('./types.js').ReconFixtureRow[] {
+  try {
+    return loadReconFixture(entityId);
+  } catch (e) {
+    if (e instanceof Error && e.message === `no recon fixture for entity ${entityId}`) {
+      return []; // missing = not configured; treat as empty (vacuously satisfied)
+    }
+    throw e; // malformed fixture — fail loud (Rule 12)
+  }
+}
+
 export function collectBreaks(db: Db, entityId: string, _periodId: string): ReconBreak[] {
-  const fixture = loadReconFixture(entityId); // throws on missing — fail loud
+  const fixture = loadReconFixtureTolerant(entityId); // missing → empty; malformed → throws
   // TODO(multi-period): _periodId is currently ignored — all entity JEs count toward the single demo period. Apply a date/period cutoff filter here when multi-period lands (spec §8).
   const { byKey, control } = walletAssetMovements(db, entityId);
 

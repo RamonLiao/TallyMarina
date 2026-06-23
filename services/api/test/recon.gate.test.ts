@@ -32,3 +32,40 @@ describe('recon close gate', () => {
     expect(body.closeable).toBe(false); // recon material breaks open
   });
 });
+
+describe('recon gate — fixture-less entity', () => {
+  let db: Db; let app: FastifyInstance;
+  beforeEach(async () => {
+    db = openDb(':memory:');
+    // 'other:entity' exists but has NO recon fixture in the fixture file
+    db.prepare("INSERT INTO entities (id, display_name, chain_object_id, cap_object_id, original_package_id) VALUES ('other:entity','Other','0x10','0x20','0x30')").run();
+    app = Fastify();
+    registerRoutes(app, { db, cfg: { reconLiveWallet: '0xreal', explorerBase: 'https://x' } as never, classifyClient: {} as never, copilotClient: {} as never, anchorAdapter: null as never, mutex: { run: (_k: string, fn: () => Promise<never>) => fn() } });
+    await app.ready();
+  });
+
+  it('close-readiness for fixture-less entity returns 200 with recon.blocking=0', async () => {
+    // WHY: missing fixture = not configured → recon gate vacuously satisfied, must not 500
+    const res = await app.inject({ method: 'GET', url: '/entities/other:entity/close-readiness' });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.recon.blocking).toBe(0);
+  });
+
+  it('GET /reconciliation for fixture-less entity returns 200 with empty rows', async () => {
+    // WHY: fixture-less entity should return empty reconciliation, not 500
+    const res = await app.inject({ method: 'GET', url: '/entities/other:entity/reconciliation' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().rows).toEqual([]);
+  });
+
+  it('snapshot freeze for fixture-less entity with no exceptions is not blocked by recon', async () => {
+    // WHY: missing fixture contributes 0 recon blockers; if exceptions also clear, should allow
+    const res = await app.inject({ method: 'POST', url: '/entities/other:entity/snapshot', payload: { periodId: '2026-Q2' } });
+    // 409 is possible if exceptions block (state machine); but NOT due to RECON_BREAKS_BLOCKING
+    if (res.statusCode === 409) {
+      expect(res.json().error?.code).not.toBe('RECON_BREAKS_BLOCKING');
+    }
+    expect(res.statusCode).not.toBe(500);
+  });
+});
