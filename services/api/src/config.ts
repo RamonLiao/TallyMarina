@@ -17,6 +17,7 @@ export interface ApiConfig {
   /** AUTO events with confidence below this band surface as LOW_CONFIDENCE_AUTO exceptions. Optional; defaults to 0.85. Recommended above the AUTO routing threshold for meaningful signal. */
   exceptionLowConfidence: number;
   explorerBase: string;
+  reconLiveWallet?: string;
 }
 
 function req(env: NodeJS.ProcessEnv, key: string): string {
@@ -54,5 +55,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     aiConfidenceThreshold: threshold,
     exceptionLowConfidence,
     explorerBase: req(env, 'EXPLORER_BASE'),
+    reconLiveWallet: env['RECON_LIVE_WALLET'] && env['RECON_LIVE_WALLET'] !== '' ? env['RECON_LIVE_WALLET'] : undefined,
   };
 }

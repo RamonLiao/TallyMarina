@@ -17,6 +17,10 @@ import { applyDisposition } from '../exceptions/disposition.js';
 import { getDisposition } from '../store/dispositionStore.js';
 import { BLOCKING_CATEGORIES, REASON_CODES, type DispositionState } from '../exceptions/types.js';
 import { listAnchors } from '../store/anchorStore.js';
+import { collectBreaks } from '../reconciliation/collect.js';
+import { applyReconDisposition } from '../reconciliation/disposition.js';
+import { getReconDisposition } from '../store/reconBreakStore.js';
+import { RECON_REASON_CODES, type ReconReasonCode } from '../reconciliation/types.js';
 import { classifyEvent } from '../ai/classify.js';
 import { reviewCopilot } from '../ai/copilot.js';
 import { buildRuleInput } from './buildRuleInput.js';
@@ -84,6 +88,34 @@ function requireEvent(db: Db, id: string): EventRow {
   const e = getEvent(db, id);
   if (!e) throw new ApiError(404, 'EVENT_NOT_FOUND', `no event ${id}`);
   return e;
+}
+
+function requireEntityForWallet(db: Db, wallet: string): string {
+  for (const e of listEntities(db)) {
+    const breaks = collectBreaks(db, e.id, DEFAULT_PERIOD);
+    if (breaks.some((b) => b.wallet === wallet)) return e.id;
+  }
+  throw new ApiError(404, 'RECON_BREAK_NOT_FOUND', `no entity owns wallet ${wallet}`);
+}
+
+function reconDTO(db: Db, entityId: string, periodId: string, liveWallet: string | undefined) {
+  const breaks = collectBreaks(db, entityId, periodId);
+  const rows = breaks.map((b) => {
+    const d = getReconDisposition(db, entityId, periodId, b.wallet, b.coinType);
+    return {
+      ...b,
+      provenance: {
+        computed: 'book' as const,
+        statement: 'mock' as const,
+        chain: (b.coinType === '0x2::sui::SUI' ? 'live' : 'n/a') as 'live' | 'n/a',
+      },
+      disposition: d ? { state: d.state, reasonCode: d.reasonCode, reasonNote: d.reasonNote } : null,
+    };
+  });
+  const material = rows.filter((r) => r.material).length;
+  const openMaterial = rows.filter((r) => r.material && isOpen(r.disposition)).length;
+  const balanced = rows.filter((r) => BigInt(r.breakMinor) === 0n).length;
+  return { rows, realWallet: liveWallet ?? null, summary: { material, openMaterial, balanced } };
 }
 
 export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
@@ -378,6 +410,45 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
       entityId: req.params.id, snapshotId: b.snapshotId, digest: b.digest, expectedSeq: b.expectedSeq,
     });
     return { anchor };
+  });
+
+  // Reconciliation Workspace (Phase 1 A-3)
+  app.get<{ Params: { id: string }; Querystring: { periodId?: string } }>('/entities/:id/reconciliation', async (req) => {
+    requireEntity(db, req.params.id);
+    const periodId = req.query.periodId ?? DEFAULT_PERIOD;
+    return reconDTO(db, req.params.id, periodId, cfg.reconLiveWallet);
+  });
+
+  app.post<{ Params: { breakId: string }; Body: { state?: string; reasonCode?: string; reasonNote?: string; periodId?: string } }>('/recon-breaks/:breakId/disposition', async (req) => {
+    const decoded = decodeURIComponent(req.params.breakId);
+    if ((decoded.match(/\|/g) ?? []).length !== 1) throw new ApiError(400, 'VALIDATION', 'breakId must be exactly wallet|coinType');
+    const [wallet, coinType] = decoded.split('|');
+    const b = req.body ?? {};
+    if (!b.state || !b.reasonCode) throw new ApiError(400, 'VALIDATION', 'state and reasonCode are required');
+    if (!RECON_REASON_CODES.includes(b.reasonCode as ReconReasonCode)) throw new ApiError(400, 'VALIDATION', `unknown reasonCode ${b.reasonCode}`);
+    if (b.reasonCode === 'OTHER' && !b.reasonNote) throw new ApiError(400, 'VALIDATION', 'reasonNote required when reasonCode is OTHER');
+    const periodId = b.periodId ?? DEFAULT_PERIOD;
+
+    const entityId = requireEntityForWallet(db, wallet);
+    const liveBreaks = collectBreaks(db, entityId, periodId);
+    if (!liveBreaks.find((x) => x.wallet === wallet && x.coinType === coinType)) {
+      throw new ApiError(404, 'RECON_BREAK_NOT_FOUND', `no current break ${decoded}`);
+    }
+
+    if (hasAnchoredSnapshot(db, entityId)) {
+      throw new ApiError(409, 'ANCHORED_READ_ONLY', 'period anchored, reconciliation is informational');
+    }
+    try {
+      const row = applyReconDisposition(db, {
+        entityId, periodId, wallet, coinType,
+        to: b.state as DispositionState, reasonCode: b.reasonCode as ReconReasonCode,
+        reasonNote: b.reasonNote ?? null, decidedBy: 'demo-controller', now: Date.now(),
+      });
+      return { disposition: row };
+    } catch (err) {
+      if ((err as Error).message.startsWith('ILLEGAL_TRANSITION')) throw new ApiError(409, 'ILLEGAL_TRANSITION', (err as Error).message);
+      throw err;
+    }
   });
 
   // 13. GET /entities/:id/anchors
