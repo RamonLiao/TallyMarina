@@ -29,3 +29,15 @@
   .recon-table td::before { content: attr(data-label); float: left; color: var(--ink-soft, #8a8175); font-size: 0.8em; }
   .recon-table td:nth-child(2), .recon-table td:nth-child(3) { display: block; } /* show all in card */
 }
+
+/* ReconDetail */
+.recon-anchored-ribbon { background: color-mix(in srgb, var(--aqua, #2aa9c4) 14%, transparent); color: var(--aqua, #2aa9c4); padding: 6px 10px; border-radius: var(--radius, 12px); margin-bottom: 10px; }
+.recon-eq { width: 100%; border-collapse: collapse; }
+.recon-eq td { padding: 4px 8px; }
+.recon-eq td:last-child { text-align: right; }
+.recon-eq-rule td { border-top: 1px solid var(--brass, #b08d57); font-weight: 600; }
+.recon-eq-note td { color: var(--ink-soft, #8a8175); font-size: 0.85em; }
+.prov--unavail { color: var(--warn, #c79a3a); }
+.recon-disp { margin-top: 14px; display: flex; flex-direction: column; gap: 8px; }
+.recon-disp-actions { display: flex; gap: 8px; }
+.recon-err { color: var(--debit, #b5532e); }

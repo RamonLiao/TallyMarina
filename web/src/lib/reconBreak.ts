@@ -12,3 +12,6 @@ export function computeBreak(computedMinor: string, statementMinor: string, thre
   const material = abs > 0n && abs >= BigInt(thresholdMinor);
   return { breakMinor: brk, direction, material };
 }
+
+export const RECON_REASON_CODES = ['timing', 'error', 'fee', 'fx', 'in-transit', 'unidentified', 'OTHER'] as const;
+export type ReconReasonCode = typeof RECON_REASON_CODES[number];
