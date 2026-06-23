@@ -196,3 +196,16 @@ p {
     transition-duration: 0.001ms !important;
   }
 }
+
+/* Workspace shell: stack sidenav above content on narrow viewports.
+   !important is required to override SideNav's inline flex-direction/min-width
+   (inline styles otherwise beat stylesheet rules). */
+@media (max-width: 768px) {
+  .shell-body { flex-direction: column; }
+  .shell-sidenav { position: static !important; width: 100%; }
+  .shell-sidenav nav {
+    flex-direction: row !important;
+    flex-wrap: wrap !important;
+    min-width: 0 !important;
+  }
+}

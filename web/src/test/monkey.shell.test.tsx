@@ -35,8 +35,10 @@ it('switching back to Close restores the step rail', async () => {
 it('GuardrailBanner persists across workspaces (AI-no-posting governance always visible)', async () => {
   renderApp();
   await userEvent.click(screen.getByRole('button', { name: /Policy/ }));
-  // GuardrailBanner declares AI-suggestions-only; assert its hallmark copy is present.
-  expect(screen.getByText(/AI/i)).toBeInTheDocument();
+  // GuardrailBanner is a role="note" element; scope the assertion to it (not any /AI/ text
+  // on the page) so this proves the banner itself persists, not an incidental match.
+  const banner = screen.getByRole('note', { name: /no posting authority/i });
+  expect(banner).toHaveTextContent(/AI suggestions only/i);
 });
 
 it('rapid workspace switching leaves no stale content', async () => {

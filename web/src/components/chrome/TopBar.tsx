@@ -34,7 +34,7 @@ export function TopBar() {
             TallyMarina
           </span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           <EntitySwitcher />
           <PeriodPill />
           <div className="wallet-slot">

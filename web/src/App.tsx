@@ -45,8 +45,8 @@ function Shell() {
   return (
     <>
       <TopBar />
-      <div style={{ display: 'flex', maxWidth: 1200, margin: '0 auto', alignItems: 'flex-start' }}>
-        <aside style={{ position: 'sticky', top: 0, alignSelf: 'flex-start' }}>
+      <div className="shell-body" style={{ display: 'flex', maxWidth: 1200, margin: '0 auto', alignItems: 'flex-start' }}>
+        <aside className="shell-sidenav" style={{ position: 'sticky', top: 0, alignSelf: 'flex-start' }}>
           <SideNav />
         </aside>
         <main
