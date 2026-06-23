@@ -368,6 +368,17 @@ the demo is a credible *controls/governance* reconciliation with these stated li
   current JEs; if JEs changed after freeze, the client could recompute a different number than
   the close used. Single-period demo freezes then read-only, so divergence is bounded, but the
   evidence claim is "recomputable against current state," not "pinned to the close input hash."
+- **Disposition not bound to the break value/version** — a recon-break disposition is keyed by
+  `(entity, period, wallet, coinType)` only. If a JE change after a `dismissed`/`resolved`
+  disposition alters the break amount, the stale disposition still applies and a newly-material
+  break would not re-block the close. Real subledger would version/value-bind the disposition
+  (store the break value at decision time and re-open on change). Single-period demo freezes
+  JEs at close, so this is bounded; disclosed (cf. the accountant review's N4).
+- **No request-time authorization / cross-tenant isolation** — the API has no auth system
+  (RBAC/zkLogin deferred project-wide). `POST /recon-breaks/:breakId/disposition` resolves the
+  entity from the wallet and does not verify caller ownership, so in a multi-tenant deployment
+  it would be an IDOR. The demo is single-entity and unauthenticated by design; `decidedBy` is a
+  fixed server constant (anti-impersonation until real auth lands), matching the Exception Queue.
 
 ## 9. Reuse Inventory (honest — reuse vs port vs net-new)
 
