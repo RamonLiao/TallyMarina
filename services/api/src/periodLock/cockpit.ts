@@ -28,6 +28,9 @@ function classificationLight(db: Db, entityId: string, periodId: string, lowConf
   return { key: 'classification', status: green ? 'green' : 'red', label: 'Classification', real: true };
 }
 
+// NOTE: jeLight and completenessLight are ENTITY-scoped, not period-scoped, because
+// events/JEs carry no period_id (spec §9 "Period attribution / Cutoff control" — blocking-for-production).
+// This is intentional and consistent with the entity-scoped /snapshot, exceptions, and recon gates.
 function jeLight(db: Db, entityId: string): Light {
   const jes = listJournal(db, entityId);
   if (jes.length === 0) return { key: 'je', status: 'red', label: 'Journal entries (TB tie-out)', real: true };

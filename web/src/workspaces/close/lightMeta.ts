@@ -6,7 +6,7 @@ export const LIGHT_META: Record<LightStatus, { glyph: string; word: string; cls:
   green:   { glyph: '✓', word: 'Ready',     cls: 'light--green' },
   red:     { glyph: '!', word: 'Blocking',  cls: 'light--red' },
   derived: { glyph: '≈', word: 'Derived',   cls: 'light--derived' },
-  mock:    { glyph: '◌', word: '未接真訊號', cls: 'light--mock' },
+  mock:    { glyph: '◌', word: 'Not wired',  cls: 'light--mock' },
 };
 
 // WHY: backend never sends status:'derived'. A completeness light arrives as

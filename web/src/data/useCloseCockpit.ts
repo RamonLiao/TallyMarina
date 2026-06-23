@@ -24,6 +24,11 @@ export function useCloseCockpit(entityId: string | null) {
     }
   }, [entityId]);
 
+  // WHY: lock/anchor status is entity-specific; showing a prior entity's LOCKED state
+  // could mislead an operator about which period is closed. Clear immediately on entityId
+  // change so stale data never reaches the render. (useReconciliation has the same latent
+  // pattern but is not a control surface — intentional divergence.)
+  useEffect(() => { setData(undefined); setError(undefined); }, [entityId]);
   useEffect(() => { void refetch(); }, [refetch]);
   return { data, loading, error, refetch };
 }

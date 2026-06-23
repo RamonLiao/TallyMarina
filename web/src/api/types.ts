@@ -167,6 +167,9 @@ export type ReopenReasonCode = (typeof REOPEN_REASON_CODES)[number];
 
 // ---- Close Cockpit types ----
 
+// Wire/API LightStatus from the backend is 'green' | 'red' | 'mock'.
+// 'derived' is a FRONTEND-ONLY display state computed by effectiveStatus() in lightMeta.ts
+// (green + real:false → rendered as derived/≈). The backend never returns 'derived'.
 export type LightStatus = 'green' | 'red' | 'derived' | 'mock';
 export interface CockpitLight {
   key: string;
