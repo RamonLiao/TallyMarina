@@ -13,8 +13,8 @@ const RECON_BREAKS = [
 ];
 function dismissReconBreaks(db: Db, entityId: string, periodId: string) {
   for (const key of RECON_BREAKS) {
-    const [wallet, coinType] = key.split('|');
-    upsertReconDisposition(db, { entityId, periodId, wallet, coinType, state: 'dismissed', reasonCode: 'IMMATERIAL_WAIVED', reasonNote: null, decidedBy: 'test', decidedAt: Date.now() });
+    const [wallet, coinType] = key.split('|') as [string, string];
+    upsertReconDisposition(db, { entityId, periodId, wallet, coinType, state: 'dismissed', reasonCode: 'unidentified', reasonNote: null, decidedBy: 'test', decidedAt: Date.now() });
   }
 }
 

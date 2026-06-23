@@ -435,6 +435,7 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     const decoded = decodeURIComponent(req.params.breakId);
     if ((decoded.match(/\|/g) ?? []).length !== 1) throw new ApiError(400, 'VALIDATION', 'breakId must be exactly wallet|coinType');
     const [wallet, coinType] = decoded.split('|');
+    if (!wallet || !coinType) throw new ApiError(400, 'VALIDATION', 'breakId must be wallet|coinType with both parts non-empty');
     const b = req.body ?? {};
     if (!b.state || !b.reasonCode) throw new ApiError(400, 'VALIDATION', 'state and reasonCode are required');
     if (!RECON_REASON_CODES.includes(b.reasonCode as ReconReasonCode)) throw new ApiError(400, 'VALIDATION', `unknown reasonCode ${b.reasonCode}`);
