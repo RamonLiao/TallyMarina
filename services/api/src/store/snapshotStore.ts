@@ -37,3 +37,8 @@ export function hasAnchoredSnapshot(db: Db, entityId: string): boolean {
   const r = db.prepare("SELECT 1 FROM snapshots WHERE entity_id = ? AND status = 'ANCHORED' LIMIT 1").get(entityId);
   return r !== undefined;
 }
+
+export function hasAnchoredSnapshotForPeriod(db: Db, entityId: string, periodId: string): boolean {
+  const r = db.prepare("SELECT 1 FROM snapshots WHERE entity_id = ? AND period_id = ? AND status = 'ANCHORED' LIMIT 1").get(entityId, periodId);
+  return r !== undefined;
+}
