@@ -49,4 +49,31 @@ describe('disposition state machine', () => {
     applyDisposition(db, base({ to: 'resolved' }) as never);
     expect(() => applyDisposition(db, base({ to: 'deferred' }) as never)).toThrow(/ILLEGAL_TRANSITION/);
   });
+
+  it('exhaustive transition table: every legal pair passes, every illegal pair throws ILLEGAL_TRANSITION', () => {
+    const states = ['open', 'resolved', 'dismissed', 'deferred'] as const;
+    type S = typeof states[number];
+    const legalMap: Record<S, readonly S[]> = {
+      open:      ['resolved', 'dismissed', 'deferred'],
+      deferred:  ['open', 'resolved', 'dismissed'],
+      resolved:  [],
+      dismissed: [],
+    };
+    for (const from of states) {
+      for (const to of states) {
+        const isLegal = (legalMap[from] as readonly string[]).includes(to);
+        if (isLegal) {
+          expect(
+            () => assertDispositionTransition(from, to),
+            `expected ${from}→${to} to be legal`,
+          ).not.toThrow();
+        } else {
+          expect(
+            () => assertDispositionTransition(from, to),
+            `expected ${from}→${to} to throw ILLEGAL_TRANSITION`,
+          ).toThrow(/ILLEGAL_TRANSITION/);
+        }
+      }
+    }
+  });
 });
