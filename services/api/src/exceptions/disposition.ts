@@ -23,20 +23,25 @@ export interface ApplyArgs {
 }
 
 export function applyDisposition(db: Db, args: ApplyArgs): DispositionRow {
-  const current = getDisposition(db, args.category, args.eventId);
-  const from: DispositionState = current?.state ?? 'open';
-  assertDispositionTransition(from, args.to);
-  const row: DispositionRow = {
-    category: args.category,
-    eventId: args.eventId,
-    entityId: args.entityId,
-    state: args.to,
-    reasonCode: args.reasonCode,
-    reasonNote: args.reasonNote ?? null,
-    decidedBy: args.decidedBy,
-    decidedAt: args.now,
-  };
-  upsertDisposition(db, row);
-  appendDispositionLog(db, row);
-  return row;
+  let result!: DispositionRow;
+  db.transaction(() => {
+    // Re-read inside transaction so the transition check is race-free.
+    const current = getDisposition(db, args.category, args.eventId);
+    const from: DispositionState = current?.state ?? 'open';
+    assertDispositionTransition(from, args.to);
+    const row: DispositionRow = {
+      category: args.category,
+      eventId: args.eventId,
+      entityId: args.entityId,
+      state: args.to,
+      reasonCode: args.reasonCode,
+      reasonNote: args.reasonNote ?? null,
+      decidedBy: args.decidedBy,
+      decidedAt: args.now,
+    };
+    upsertDisposition(db, row);
+    appendDispositionLog(db, row);
+    result = row;
+  })();
+  return result;
 }

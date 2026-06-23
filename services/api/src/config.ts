@@ -14,7 +14,7 @@ export interface ApiConfig {
   aiModelClassify: string;
   aiModelCopilot: string;
   aiConfidenceThreshold: number;
-  /** AUTO events with confidence below this comfort band surface as LOW_CONFIDENCE_AUTO exceptions. Optional; defaults to 0.85. Must be > aiConfidenceThreshold to be meaningful. */
+  /** AUTO events with confidence below this band surface as LOW_CONFIDENCE_AUTO exceptions. Optional; defaults to 0.85. Recommended above the AUTO routing threshold for meaningful signal. */
   exceptionLowConfidence: number;
   explorerBase: string;
 }

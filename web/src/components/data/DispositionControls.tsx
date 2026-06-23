@@ -7,6 +7,8 @@ const REASON_CODES: ReasonCode[] = [
   'IMMATERIAL_WAIVED', 'PENDING_DOC', 'CARRIED_FORWARD', 'OTHER',
 ];
 
+// UI intentionally omits deferred→open (no "un-defer" action offered). The backend
+// disposition.ts LEGAL table is the authoritative source of truth; this is stricter.
 const LEGAL: Record<DispositionState, DispositionState[]> = {
   open: ['resolved', 'deferred', 'dismissed'],
   deferred: ['resolved', 'dismissed'],

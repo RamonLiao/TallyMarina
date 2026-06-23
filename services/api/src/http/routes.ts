@@ -225,7 +225,7 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     return { blocking: blockers.length, blockers };
   });
 
-  app.post<{ Params: { exceptionId: string }; Body: { state?: string; reasonCode?: string; reasonNote?: string; decidedBy?: string; periodId?: string } }>('/exceptions/:exceptionId/disposition', async (req) => {
+  app.post<{ Params: { exceptionId: string }; Body: { state?: string; reasonCode?: string; reasonNote?: string; periodId?: string } }>('/exceptions/:exceptionId/disposition', async (req) => {
     const decoded = decodeURIComponent(req.params.exceptionId);
     const sep = decoded.indexOf(':');
     if (sep < 0) throw new ApiError(400, 'VALIDATION', 'exceptionId must be category:eventId');
@@ -243,11 +243,16 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
       .find((e) => e.category === category && e.eventId === eventId);
     if (!live) throw new ApiError(404, 'EXCEPTION_NOT_FOUND', `no current exception ${decoded}`);
 
+    // Spec §4: anchored periods are read-only — reject all disposition writes.
+    if (hasAnchoredSnapshot(db, ev.entityId)) {
+      throw new ApiError(409, 'ANCHORED_READ_ONLY', 'period anchored, exceptions are informational');
+    }
+
     try {
       const row = applyDisposition(db, {
         entityId: ev.entityId, category, eventId,
         to: b.state as DispositionState, reasonCode: b.reasonCode as never,
-        reasonNote: b.reasonNote ?? null, decidedBy: b.decidedBy ?? 'demo-controller', now: Date.now(),
+        reasonNote: b.reasonNote ?? null, decidedBy: 'demo-controller', now: Date.now(),
       });
       return { disposition: row };
     } catch (err) {
