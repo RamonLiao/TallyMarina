@@ -61,7 +61,18 @@ function Shell() {
         <GuardrailBanner />
       </div>
       <div className="shell-body" style={{ display: 'flex', maxWidth: 1200, margin: '0 auto', alignItems: 'flex-start' }}>
-        <aside className="shell-sidenav" style={{ position: 'sticky', top: 0, alignSelf: 'flex-start' }}>
+        <aside
+          className="shell-sidenav"
+          style={{
+            position: 'sticky',
+            top: 'var(--space-4)',
+            alignSelf: 'flex-start',
+            // Constrain to the viewport and own the overflow so a long content
+            // column can't make the rail extend off-screen / peek past the chrome.
+            maxHeight: 'calc(100vh - var(--space-8))',
+            overflowY: 'auto',
+          }}
+        >
           <SideNav />
         </aside>
         <main
