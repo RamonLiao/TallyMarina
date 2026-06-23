@@ -8,6 +8,10 @@ vi.mock('../data/useReconciliation', () => ({
     loading: false, error: undefined, refetch: () => {},
   }),
 }));
+vi.mock('../api/hooks', () => ({
+  useJournal: () => ({ data: [] }),
+  useEvents: () => ({ data: [] }),
+}));
 // useAnchors not yet implemented; anchored=false stub in ReconciliationWorkspace (no import needed).
 
 describe('ReconciliationWorkspace', () => {

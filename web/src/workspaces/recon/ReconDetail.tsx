@@ -6,8 +6,27 @@ import { computeBreak, RECON_REASON_CODES, type ReconReasonCode } from '../../li
 import { useChainBalance } from '../../data/useChainBalance';
 import { API_BASE } from '../../api/client';
 
-export function ReconDetail({ row, realWallet, anchored, onDisposed }: { row: ReconRowDTO; realWallet: string | null; anchored: boolean; onDisposed: () => void }) {
-  const b = computeBreak(row.computedMinor, row.statementMinor, row.thresholdMinor);
+export function ReconDetail({
+  row,
+  realWallet,
+  anchored,
+  onDisposed,
+  clientMovements = {},
+}: {
+  row: ReconRowDTO;
+  realWallet: string | null;
+  anchored: boolean;
+  onDisposed: () => void;
+  clientMovements?: Record<string, bigint>;
+}) {
+  const key = `${row.wallet}|${row.coinType}`;
+  const clientMovement = clientMovements[key] ?? BigInt(row.movementMinor);
+  const clientComputed = BigInt(row.openingMinor) + clientMovement;
+  const dtoMovement = BigInt(row.movementMinor);
+  const hasDrift = clientMovement !== dtoMovement;
+
+  const b = computeBreak(clientComputed.toString(), row.statementMinor, row.thresholdMinor);
+  const clientBreak = clientComputed - BigInt(row.statementMinor);
   const chain = useChainBalance(row.coinType === '0x2::sui::SUI' ? realWallet : null, row.coinType);
   const [reasonCode, setReasonCode] = useState<ReconReasonCode>('error');
   const [reasonNote, setReasonNote] = useState('');
@@ -29,17 +48,33 @@ export function ReconDetail({ row, realWallet, anchored, onDisposed }: { row: Re
   }
 
   const d = (m: string) => fmtMinor(m, row.decimals);
+  const dBig = (v: bigint) => fmtMinor(v.toString(), row.decimals);
   return (
     <section className="recon-detail">
       {anchored && <div className="recon-anchored-ribbon">Period anchored — reconciliation read-only ⚓</div>}
+      {hasDrift && (
+        <div className="drift-warn drift-warn--banner" role="alert" aria-label="evidence drift">
+          ⚠ evidence drift — browser recomputed {clientMovement.toString()} ≠ backend {row.movementMinor}
+        </div>
+      )}
       <h3>{row.coinType} · {row.wallet}</h3>
       <table className="recon-eq td--mono">
         <tbody>
           <tr><td>Opening balance (book)</td><td>{d(row.openingMinor)}<sup>B</sup></td></tr>
-          <tr><td>+ Movements (Σ {row.control.legs} legs)</td><td>{d(row.movementMinor)}</td></tr>
-          <tr className="recon-eq-rule"><td>= Computed ending (book)</td><td>{d(row.computedMinor)}<sup>B</sup></td></tr>
+          <tr>
+            <td>+ Movements (Σ {row.control.legs} legs)</td>
+            <td>
+              {dBig(clientMovement)}
+              {hasDrift && (
+                <span className="drift-warn" aria-label="evidence drift">
+                  {' '}⚠ browser≠backend
+                </span>
+              )}
+            </td>
+          </tr>
+          <tr className="recon-eq-rule"><td>= Computed ending (book)</td><td>{dBig(clientComputed)}<sup>B</sup></td></tr>
           <tr><td>Statement ending (mock)</td><td>{d(row.statementMinor)}<sup>M</sup></td></tr>
-          <tr className="recon-eq-rule"><td>Break (computed − statement)</td><td>{d(row.breakMinor)} {b.material ? '⛔' : b.direction === 'balanced' ? '✓' : '⚠'}</td></tr>
+          <tr className="recon-eq-rule"><td>Break (computed − statement)</td><td>{dBig(clientBreak)} {b.material ? '⛔' : b.direction === 'balanced' ? '✓' : '⚠'}</td></tr>
           <tr><td colSpan={2} className="recon-eq-note">threshold ±{d(row.thresholdMinor)} · {b.material ? '|break| ≥ threshold → blocking' : 'within tolerance'}</td></tr>
           <tr><td colSpan={2} className="recon-eq-note">control: Σdebit {d(row.control.debitMinor)} · Σcredit {d(row.control.creditMinor)} · leg count: {row.control.legs}</td></tr>
           <tr>

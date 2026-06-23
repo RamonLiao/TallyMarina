@@ -25,7 +25,17 @@ export function fmtBreak(minor: string, decimals: number): string {
 }
 const DIR_LABEL = { 'book-over': 'book over statement', 'statement-over': 'statement over book', balanced: 'balanced' } as const;
 
-export function ReconTable({ rows, selectedKey, onSelect }: { rows: ReconRowDTO[]; selectedKey: string | null; onSelect: (key: string) => void }) {
+export function ReconTable({
+  rows,
+  selectedKey,
+  onSelect,
+  clientMovements = {},
+}: {
+  rows: ReconRowDTO[];
+  selectedKey: string | null;
+  onSelect: (key: string) => void;
+  clientMovements?: Record<string, bigint>;
+}) {
   return (
     <table className="recon-table">
       <thead>
@@ -37,20 +47,31 @@ export function ReconTable({ rows, selectedKey, onSelect }: { rows: ReconRowDTO[
       <tbody>
         {rows.map((r) => {
           const key = `${r.wallet}|${r.coinType}`;
-          const b = computeBreak(r.computedMinor, r.statementMinor, r.thresholdMinor);
+          const clientMovement = clientMovements[key] ?? BigInt(r.movementMinor);
+          const clientComputed = BigInt(r.openingMinor) + clientMovement;
+          const dtoMovement = BigInt(r.movementMinor);
+          const hasDrift = clientMovement !== dtoMovement;
+          const b = computeBreak(clientComputed.toString(), r.statementMinor, r.thresholdMinor);
           const cls = b.material ? 'recon-row recon-row--material' : 'recon-row';
           return (
             <tr key={key} className={`${cls}${selectedKey === key ? ' is-selected' : ''}`} onClick={() => onSelect(key)}>
               <td data-label="Wallet · Asset"><span title={r.wallet}>{shortAddr(r.wallet)}</span> · <strong title={r.coinType}>{symbol(r.coinType)}</strong></td>
               <td data-label="Opening" className="td--mono">{fmtMinor(r.openingMinor, r.decimals)}<sup>B</sup></td>
-              <td data-label="+ Movements" className="td--mono">{fmtMinor(r.movementMinor, r.decimals)}</td>
-              <td data-label="= Computed" className="td--mono">{fmtMinor(r.computedMinor, r.decimals)}<sup>B</sup></td>
+              <td data-label="+ Movements" className="td--mono">
+                {fmtMinor(clientMovement.toString(), r.decimals)}
+                {hasDrift && (
+                  <span className="drift-warn" role="alert" aria-label="evidence drift">
+                    {' '}⚠ evidence drift — browser recomputed {clientMovement.toString()} ≠ backend {r.movementMinor}
+                  </span>
+                )}
+              </td>
+              <td data-label="= Computed" className="td--mono">{fmtMinor(clientComputed.toString(), r.decimals)}<sup>B</sup></td>
               <td data-label="Statement" className="td--mono">{fmtMinor(r.statementMinor, r.decimals)}<sup>M</sup></td>
               <td data-label="Break" className="td--mono">
                 {b.direction === 'balanced'
-                  ? <span className="brk brk--ok" aria-label="balanced">{fmtBreak(r.breakMinor, r.decimals)} ✓</span>
+                  ? <span className="brk brk--ok" aria-label="balanced">{fmtBreak((clientComputed - BigInt(r.statementMinor)).toString(), r.decimals)} ✓</span>
                   : <><span className={`brk ${b.material ? 'brk--material' : 'brk--immaterial'}`} aria-label={b.material ? 'material break' : 'immaterial break'}>
-                      {fmtBreak(r.breakMinor, r.decimals)} {b.material ? '⛔' : '⚠'}
+                      {fmtBreak((clientComputed - BigInt(r.statementMinor)).toString(), r.decimals)} {b.material ? '⛔' : '⚠'}
                     </span>{' '}<em className="brk-dir">({DIR_LABEL[b.direction]})</em></>}
               </td>
               <td data-label="Chain" className="td--mono recon-chain">

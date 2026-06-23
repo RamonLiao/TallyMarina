@@ -1,5 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useReconciliation } from '../data/useReconciliation';
+import { useJournal, useEvents } from '../api/hooks';
+import { recomputeMovements } from '../lib/reconMovements';
 import { ReconTable } from './recon/ReconTable';
 import { ReconDetail } from './recon/ReconDetail';
 import { EmptyState } from '../components/chrome/EmptyState';
@@ -7,9 +9,21 @@ import './recon/recon.css';
 
 export function ReconciliationWorkspace({ entityId }: { entityId: string }) {
   const { data, loading, error, refetch } = useReconciliation(entityId);
+  const { data: journal = [] } = useJournal(entityId);
+  const { data: events = [] } = useEvents(entityId);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   // Reset selection on entity switch (selection-leak guard).
   useEffect(() => { setSelectedKey(null); }, [entityId]);
+
+  const clientMovements = useMemo(() => {
+    if (!journal.length || !events.length) return {};
+    try {
+      return recomputeMovements(journal, events);
+    } catch {
+      // Integrity gap — return empty so drift check fires on every row
+      return {};
+    }
+  }, [journal, events]);
 
   if (loading) return <div className="recon-loading">Loading reconciliation…</div>;
   if (error) return <div className="recon-err" role="alert">Failed to load reconciliation: {error}</div>;
@@ -36,11 +50,11 @@ export function ReconciliationWorkspace({ entityId }: { entityId: string }) {
           ? <span className="brk--material">material breaks: {data.summary.openMaterial}</span>
           : <span>all reconciled</span>}
       </header>
-      <ReconTable rows={data.rows} selectedKey={selectedKey} onSelect={setSelectedKey} />
+      <ReconTable rows={data.rows} selectedKey={selectedKey} onSelect={setSelectedKey} clientMovements={clientMovements} />
       {selected && (
         <>
           <button className="exceptions-back-btn" onClick={() => setSelectedKey(null)}>‹ Accounts · {data.rows.length}</button>
-          <ReconDetail row={selected} realWallet={data.realWallet} anchored={anchored} onDisposed={refetch} />
+          <ReconDetail row={selected} realWallet={data.realWallet} anchored={anchored} onDisposed={refetch} clientMovements={clientMovements} />
         </>
       )}
     </div>

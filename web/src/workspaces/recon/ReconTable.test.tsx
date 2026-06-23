@@ -3,17 +3,24 @@ import { render, screen, fireEvent, within } from '@testing-library/react';
 import { ReconTable } from './ReconTable';
 import type { ReconRowDTO } from '../../api/types';
 
+const suiType = '0x2::sui::SUI';
+
 const row = (over: Partial<ReconRowDTO>): ReconRowDTO => ({
-  wallet: '0xacmeTreasury', coinType: '0x2::sui::SUI', decimals: 9,
+  wallet: '0xacmeTreasury', coinType: suiType, decimals: 9,
   openingMinor: '1200000000', movementMinor: '3800000000', computedMinor: '5000000000',
   statementMinor: '3798000000', breakMinor: '1202000000', thresholdMinor: '1000000000', material: true,
   control: { debitMinor: '5000000000', creditMinor: '1200000000', legs: 2 },
   provenance: { computed: 'book', statement: 'mock', chain: 'live' }, disposition: null, ...over,
 });
 
+const key = (r: ReconRowDTO) => `${r.wallet}|${r.coinType}`;
+
 describe('ReconTable', () => {
   it('renders a material break with a blocking marker, signed break value, and direction label', () => {
-    render(<ReconTable rows={[row({})]} selectedKey={null} onSelect={() => {}} />);
+    // clientMovements matches DTO → no drift; clientComputed = 1200000000+3800000000=5000000000
+    // clientBreak = 5000000000 − 3798000000 = 1202000000 → +1.202000000
+    const r = row({});
+    render(<ReconTable rows={[r]} selectedKey={null} onSelect={() => {}} clientMovements={{ [key(r)]: 3800000000n }} />);
     // Material row must exist — WHY: material breaks require user action before close
     const materialEl = screen.getByLabelText(/material break/i);
     expect(materialEl).toBeInTheDocument();
@@ -46,12 +53,37 @@ describe('ReconTable', () => {
   });
 
   it('negative break renders U+2212 minus sign', () => {
-    render(<ReconTable rows={[row({ breakMinor: '-500000000', computedMinor: '3298000000', statementMinor: '3798000000' })]} selectedKey={null} onSelect={() => {}} />);
+    // opening=3800000000, movement=-500000000 → clientComputed=3300000000
+    // statement=3800000000 → clientBreak = 3300000000-3800000000 = -500000000
+    const r = row({
+      openingMinor: '3800000000',
+      movementMinor: '-500000000',
+      computedMinor: '3300000000',
+      statementMinor: '3800000000',
+      breakMinor: '-500000000',
+    });
+    render(<ReconTable rows={[r]} selectedKey={null} onSelect={() => {}} clientMovements={{ [key(r)]: -500000000n }} />);
     // WHY: U+2212 (−) not hyphen-minus (-) for typographic correctness; negative = statement-over-book
     const breakEl = screen.getByLabelText(/material break/i);
     // text contains the minus char U+2212
     expect(breakEl.textContent).toMatch(/−/);
     // must NOT have a leading +
     expect(breakEl.textContent).not.toMatch(/^\+/);
+  });
+
+  it('shows NO drift warning when clientMovements matches DTO', () => {
+    // WHY: the drift marker must only fire on genuine backend disagreement
+    const r = row({});
+    render(<ReconTable rows={[r]} selectedKey={null} onSelect={() => {}} clientMovements={{ [key(r)]: 3800000000n }} />);
+    expect(screen.queryByLabelText(/evidence drift/i)).not.toBeInTheDocument();
+  });
+
+  it('shows drift warning when clientMovements disagrees with DTO movementMinor', () => {
+    // WHY: browser independently verifies backend — disagreement must be visible
+    const r = row({ movementMinor: '3800000000' });
+    const badClientMovement = 3700000000n; // disagrees by 100000000
+    render(<ReconTable rows={[r]} selectedKey={null} onSelect={() => {}} clientMovements={{ [key(r)]: badClientMovement }} />);
+    expect(screen.getByLabelText(/evidence drift/i)).toBeInTheDocument();
+    expect(screen.getByText(/evidence drift.*browser recomputed.*≠.*backend/i)).toBeInTheDocument();
   });
 });
