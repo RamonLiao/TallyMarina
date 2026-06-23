@@ -38,6 +38,21 @@ describe('collectExceptions', () => {
     expect(cats).not.toContain('LOW_CONFIDENCE_AUTO:hi'); // 0.95 ≥ 0.85, no comfort issue (RULES_FAILED may still apply, asserted elsewhere)
   });
 
+  it('fires RULES_FAILED for AUTO event with unmappable eventType (positive control)', () => {
+    // eventType 'UNKNOWN_TYPE' is not in STRATEGIES → evaluate() returns REVIEW_REQUIRED (decision !== 'POSTABLE')
+    // aiConfidence 0.95 ≥ LOW (0.85) → no LOW_CONFIDENCE_AUTO overlap; clean single assertion.
+    const unmappable = {
+      eventType: 'UNKNOWN_TYPE', bookId: 'b1', eventTime: '2026-04-01T00:00:00Z',
+      coinType: '0x2::sui::SUI', wallet: 'wallet1', amountMinor: '1000',
+    };
+    addEvent(db, 'unmapped', unmappable);
+    setAiSuggestion(db, 'unmapped', { aiEventType: 'UNKNOWN_TYPE', aiPurpose: 'p', aiCounterparty: null, aiConfidence: 0.95, aiReasoning: 'r', nextStatus: 'AUTO' });
+    const out = collectExceptions(db, 'e1', '2026-Q2', LOW);
+    const rf = out.find((e) => e.eventId === 'unmapped' && e.category === 'RULES_FAILED');
+    expect(rf).toBeDefined();
+    expect(rf!.exceptionId).toBe('RULES_FAILED:unmapped');
+  });
+
   it('excludes POSTED events from RULES_FAILED (already produced JE)', () => {
     addEvent(db, 'posted', { kind: 'unmappable' });
     setAiSuggestion(db, 'posted', { aiEventType: 'UNMAPPABLE', aiPurpose: 'p', aiCounterparty: null, aiConfidence: 0.99, aiReasoning: 'r', nextStatus: 'AUTO' });
