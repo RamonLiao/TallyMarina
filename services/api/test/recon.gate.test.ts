@@ -18,6 +18,13 @@ describe('recon close gate', () => {
   });
 
   it('open material recon break blocks freeze with RECON_BREAKS_BLOCKING', async () => {
+    // WHY: PERIOD_NOT_LOCKED is now the first gate (before recon) — we must lock first
+    // so we can verify the recon gate is the one that blocks (not the period-lock gate).
+    // Force-insert a LOCKED period_lock row so only the recon gate is tested here.
+    db.prepare(
+      `INSERT INTO period_lock (entity_id, period_id, status, locked_at, locked_by, lights_snapshot, reopen_count)
+       VALUES ('acme:pilot-001', '2026-Q2', 'LOCKED', 0, 'test', '[]', 0)`,
+    ).run();
     // No JEs → USDC/WETH/USDT fixture breaks are material & open → must block.
     const res = await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/snapshot', payload: { periodId: '2026-Q2' } });
     expect(res.statusCode).toBe(409);

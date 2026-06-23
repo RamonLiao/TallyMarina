@@ -99,6 +99,13 @@ describe('exceptions routes + close gate', () => {
       aiConfidence: 0.4, aiReasoning: 'r', nextStatus: 'NEEDS_REVIEW',
     });
 
+    // Force-lock the period so we can test the exceptions gate specifically
+    // (PERIOD_NOT_LOCKED is now the first guard — we bypass it with a direct DB insert here).
+    app._db.prepare(
+      `INSERT INTO period_lock (entity_id, period_id, status, locked_at, locked_by, lights_snapshot, reopen_count)
+       VALUES (?, '2026-Q2', 'LOCKED', 0, 'test', '[]', 0)`,
+    ).run(EID);
+
     // Snapshot must be blocked by the CLASSIFY_REVIEW exception
     const snap1 = await app.inject({
       method: 'POST', url: `/entities/${EID}/snapshot`,
@@ -119,7 +126,7 @@ describe('exceptions routes + close gate', () => {
     // Dismiss recon breaks so the recon gate also passes
     dismissReconBreaks(app._db, EID, '2026-Q2');
 
-    // Now snapshot should proceed (both gates pass, journal entries exist from run-rules)
+    // Now snapshot should proceed (both gates pass, journal entries exist from run-rules, period LOCKED)
     const snap2 = await app.inject({
       method: 'POST', url: `/entities/${EID}/snapshot`,
       payload: { periodId: '2026-Q2' },

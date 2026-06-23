@@ -22,6 +22,10 @@ import { applyReconDisposition } from '../reconciliation/disposition.js';
 import { getReconDisposition } from '../store/reconBreakStore.js';
 import { RECON_REASON_CODES, type ReconReasonCode } from '../reconciliation/types.js';
 import { encodeReconBreakId, decodeReconBreakId, ReconBreakIdError } from '../reconciliation/breakId.js';
+import { REOPEN_REASON_CODES, type ReopenReasonCode } from '../periodLock/state.js';
+import { getPeriodLock, lockPeriod, reopenPeriod } from '../periodLock/store.js';
+import { buildCockpit } from '../periodLock/cockpit.js';
+import { hasAnchoredSnapshotForPeriod } from '../store/snapshotStore.js';
 import { classifyEvent } from '../ai/classify.js';
 import { reviewCopilot } from '../ai/copilot.js';
 import { buildRuleInput } from './buildRuleInput.js';
@@ -270,6 +274,61 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     };
   });
 
+  // Period Close Cockpit (Phase 2 B1)
+  const LOCKED_BY = 'demo-controller'; // server-const until auth (spec §9 SoD blocking-for-production)
+
+  app.get<{ Params: { id: string }; Querystring: { periodId?: string } }>('/entities/:id/close-cockpit', async (req) => {
+    requireEntity(db, req.params.id);
+    const periodId = req.query.periodId ?? DEFAULT_PERIOD;
+    return buildCockpit(db, req.params.id, periodId, cfg.exceptionLowConfidence);
+  });
+
+  app.post<{ Params: { id: string }; Body: { periodId?: string } }>('/entities/:id/period/lock', async (req) => {
+    requireEntity(db, req.params.id);
+    const periodId = (req.body as { periodId?: string } | undefined)?.periodId ?? DEFAULT_PERIOD;
+    // Recompute server-side — NEVER trust client-sent lights.
+    const view = buildCockpit(db, req.params.id, periodId, cfg.exceptionLowConfidence);
+    if (!view.closeable) {
+      const reds = view.lights.filter((l) => l.status !== 'mock' && l.status !== 'green').map((l) => l.key);
+      throw new ApiError(409, 'LIGHTS_NOT_GREEN', `blocking lights not green: ${reds.join(', ')}`);
+    }
+    try {
+      const row = lockPeriod(db, {
+        entityId: req.params.id, periodId,
+        lightsSnapshot: JSON.stringify(view.lights), lockedBy: LOCKED_BY, now: Date.now(),
+      });
+      return { lock: row };
+    } catch (err) {
+      if ((err as Error).message.startsWith('ILLEGAL_TRANSITION')) throw new ApiError(409, 'ILLEGAL_TRANSITION', (err as Error).message);
+      throw err;
+    }
+  });
+
+  app.post<{ Params: { id: string }; Body: { periodId?: string; restatementReason?: string; reasonCode?: string; affectedAmountEstimate?: string } }>('/entities/:id/period/reopen', async (req) => {
+    requireEntity(db, req.params.id);
+    const b = req.body as { periodId?: string; restatementReason?: string; reasonCode?: string; affectedAmountEstimate?: string } | undefined ?? {};
+    const periodId = b.periodId ?? DEFAULT_PERIOD;
+    const reason = (b.restatementReason ?? '').trim();
+    if (!reason) throw new ApiError(400, 'VALIDATION', 'restatementReason required');
+    if (reason.length > 512) throw new ApiError(400, 'VALIDATION', 'restatementReason exceeds 512 chars');
+    if (!b.reasonCode || !REOPEN_REASON_CODES.includes(b.reasonCode as ReopenReasonCode)) {
+      throw new ApiError(400, 'VALIDATION', `unknown reasonCode ${b.reasonCode}`);
+    }
+    const wasAnchored = hasAnchoredSnapshotForPeriod(db, req.params.id, periodId);
+    try {
+      const row = reopenPeriod(db, {
+        entityId: req.params.id, periodId, restatementReason: reason,
+        reasonCode: b.reasonCode as ReopenReasonCode,
+        affectedAmountEstimate: b.affectedAmountEstimate ?? null,
+        wasAnchored, requestedBy: LOCKED_BY, approvedBy: LOCKED_BY, now: Date.now(),
+      });
+      return { lock: row };
+    } catch (err) {
+      if ((err as Error).message.startsWith('ILLEGAL_TRANSITION')) throw new ApiError(409, 'ILLEGAL_TRANSITION', (err as Error).message);
+      throw err;
+    }
+  });
+
   app.post<{ Params: { exceptionId: string }; Body: { state?: string; reasonCode?: string; reasonNote?: string; periodId?: string } }>('/exceptions/:exceptionId/disposition', async (req) => {
     const decoded = decodeURIComponent(req.params.exceptionId);
     const sep = decoded.indexOf(':');
@@ -313,88 +372,98 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     requireEntity(db, req.params.id);
     const periodId = req.body?.periodId;
     if (!periodId) throw new ApiError(400, 'VALIDATION', 'periodId is required');
-    // Close gate (spec §4): open blocking exceptions hard-block the freeze.
-    const blockers = exceptionDTO(db, req.params.id, periodId, cfg.exceptionLowConfidence)
-      .filter((e) => BLOCKING_CATEGORIES.includes(e.category) && isOpen(e.disposition));
-    if (blockers.length > 0) {
-      throw new ApiError(409, 'EXCEPTIONS_BLOCKING', `${blockers.length} open exception(s) block close: ${blockers.map((b) => b.exceptionId).join(', ')}`);
-    }
-    const reconBlockers = openMaterialReconBlockers(db, req.params.id, periodId);
-    if (reconBlockers.length > 0) {
-      throw new ApiError(409, 'RECON_BREAKS_BLOCKING',
-        `${reconBlockers.length} open material break(s) block close: ${reconBlockers.map((b) => encodeReconBreakId(b.wallet, b.coinType)).join(', ')}`);
-    }
-    const jes: JournalEntry[] = listJournal(db, req.params.id).map((r) => JSON.parse(r.jeJson) as JournalEntry);
-    const outputs = jes.map((je) => ({
-      decision: 'POSTABLE' as const,
-      assessment: { eventType: 'DIGITAL_ASSET_RECEIPT' as const, accountingClass: '', measurementModel: '' },
-      measurements: [], lotMovements: [], journalEntries: [je], disclosureFacts: [], exceptions: [],
-      explanation: { ruleIds: [], policyVersions: ['demo-ps-1', 'demo-rule-1'], priceRefs: [], fxRefs: [] },
-    }));
-    const repo = new InMemorySnapshotRepo();
-    const { auditSnapshot } = buildSnapshot(
-      outputs,
-      { entityId: req.params.id, periodId, createdAtLogical: Date.now() },
-      repo,
-    );
-    const id = `snap-${req.params.id}-${periodId}-${auditSnapshot.seq}`;
-    // Idempotent freeze: snapshot id is content-deterministic, so re-freezing the
-    // same period collides on the PRIMARY KEY. Resolve an existing row to a fail-closed
-    // DTO: the `-`-joined id is ambiguous, so verify entityId + periodId match this
-    // request (no cross-entity leak), then verify content via merkleRoot (the journal
-    // fingerprint — manifestHash folds in createdAtLogical and is NOT a content invariant).
-    const resolveExisting = () => {
-      const ex = getSnapshot(db, id);
-      if (!ex) return null;
-      if (ex.entityId !== req.params.id || ex.periodId !== periodId) {
-        throw new ApiError(409, 'SNAPSHOT_CONFLICT', `snapshot id ${id} resolves to a different entity/period`);
+    // Wrap in mutex (architect I3) so the LOCKED-gate read is consistent with the insert.
+    return deps.mutex.run(req.params.id, async () => {
+      // PERIOD_NOT_LOCKED must be the FIRST guard (before exceptions/recon gates):
+      // an OPEN fresh entity has un-dismissed recon breaks; if the recon gate ran first,
+      // the OPEN-period check would get 409 RECON_BREAKS_BLOCKING instead of PERIOD_NOT_LOCKED.
+      const lock = getPeriodLock(db, req.params.id, periodId);
+      if (lock.status !== 'LOCKED') {
+        throw new ApiError(409, 'PERIOD_NOT_LOCKED', 'lock the period before anchoring');
       }
-      if (ex.merkleRoot !== auditSnapshot.merkleRoot) {
-        throw new ApiError(409, 'SNAPSHOT_CONFLICT', `snapshot ${id} exists with a different merkle root`);
+      // Close gate (spec §4): open blocking exceptions hard-block the freeze.
+      const blockers = exceptionDTO(db, req.params.id, periodId, cfg.exceptionLowConfidence)
+        .filter((e) => BLOCKING_CATEGORIES.includes(e.category) && isOpen(e.disposition));
+      if (blockers.length > 0) {
+        throw new ApiError(409, 'EXCEPTIONS_BLOCKING', `${blockers.length} open exception(s) block close: ${blockers.map((b) => b.exceptionId).join(', ')}`);
       }
-      // Fail loud: a non-FROZEN existing row (already ANCHORED) must NOT be returned as a
-      // freshly-freezable snapshot — the UI would offer Anchor and prepare would then 409.
-      if (ex.status !== 'FROZEN') {
-        throw new ApiError(409, 'ALREADY_ANCHORED', `snapshot ${id} is ${ex.status}; the period is already anchored`);
+      const reconBlockers = openMaterialReconBlockers(db, req.params.id, periodId);
+      if (reconBlockers.length > 0) {
+        throw new ApiError(409, 'RECON_BREAKS_BLOCKING',
+          `${reconBlockers.length} open material break(s) block close: ${reconBlockers.map((b) => encodeReconBreakId(b.wallet, b.coinType)).join(', ')}`);
+      }
+      const jes: JournalEntry[] = listJournal(db, req.params.id).map((r) => JSON.parse(r.jeJson) as JournalEntry);
+      const outputs = jes.map((je) => ({
+        decision: 'POSTABLE' as const,
+        assessment: { eventType: 'DIGITAL_ASSET_RECEIPT' as const, accountingClass: '', measurementModel: '' },
+        measurements: [], lotMovements: [], journalEntries: [je], disclosureFacts: [], exceptions: [],
+        explanation: { ruleIds: [], policyVersions: ['demo-ps-1', 'demo-rule-1'], priceRefs: [], fxRefs: [] },
+      }));
+      const repo = new InMemorySnapshotRepo();
+      const { auditSnapshot } = buildSnapshot(
+        outputs,
+        { entityId: req.params.id, periodId, createdAtLogical: Date.now() },
+        repo,
+      );
+      const id = `snap-${req.params.id}-${periodId}-${auditSnapshot.seq}`;
+      // Idempotent freeze: snapshot id is content-deterministic, so re-freezing the
+      // same period collides on the PRIMARY KEY. Resolve an existing row to a fail-closed
+      // DTO: the `-`-joined id is ambiguous, so verify entityId + periodId match this
+      // request (no cross-entity leak), then verify content via merkleRoot (the journal
+      // fingerprint — manifestHash folds in createdAtLogical and is NOT a content invariant).
+      const resolveExisting = () => {
+        const ex = getSnapshot(db, id);
+        if (!ex) return null;
+        if (ex.entityId !== req.params.id || ex.periodId !== periodId) {
+          throw new ApiError(409, 'SNAPSHOT_CONFLICT', `snapshot id ${id} resolves to a different entity/period`);
+        }
+        if (ex.merkleRoot !== auditSnapshot.merkleRoot) {
+          throw new ApiError(409, 'SNAPSHOT_CONFLICT', `snapshot ${id} exists with a different merkle root`);
+        }
+        // Fail loud: a non-FROZEN existing row (already ANCHORED) must NOT be returned as a
+        // freshly-freezable snapshot — the UI would offer Anchor and prepare would then 409.
+        if (ex.status !== 'FROZEN') {
+          throw new ApiError(409, 'ALREADY_ANCHORED', `snapshot ${id} is ${ex.status}; the period is already anchored`);
+        }
+        return {
+          snapshot: {
+            id, periodId,
+            manifestHash: ex.manifestHash, merkleRoot: ex.merkleRoot,
+            leafCount: ex.leafCount, supersedesSeq: ex.supersedesSeq, status: ex.status,
+          },
+        };
+      };
+      const pre = resolveExisting();
+      if (pre) return pre;
+      try {
+        insertSnapshot(db, {
+          id, entityId: req.params.id, periodId,
+          manifestJson: JSON.stringify(auditSnapshot.manifest),
+          manifestHash: auditSnapshot.manifestHash,
+          merkleRoot: auditSnapshot.merkleRoot,
+          leafCount: auditSnapshot.leafCount,
+          supersedesSeq: auditSnapshot.supersedesSeq,
+        });
+      } catch (e) {
+        // Race: a concurrent freeze inserted between our read and write. Re-resolve and
+        // return idempotently; re-throw anything that is not the PK collision.
+        if (e instanceof Error && /UNIQUE constraint failed/.test(e.message)) {
+          const post = resolveExisting();
+          if (post) return post;
+        }
+        throw e;
       }
       return {
         snapshot: {
           id, periodId,
-          manifestHash: ex.manifestHash, merkleRoot: ex.merkleRoot,
-          leafCount: ex.leafCount, supersedesSeq: ex.supersedesSeq, status: ex.status,
+          manifestHash: auditSnapshot.manifestHash,
+          merkleRoot: auditSnapshot.merkleRoot,
+          leafCount: auditSnapshot.leafCount,
+          supersedesSeq: auditSnapshot.supersedesSeq,
+          status: 'FROZEN',
         },
       };
-    };
-    const pre = resolveExisting();
-    if (pre) return pre;
-    try {
-      insertSnapshot(db, {
-        id, entityId: req.params.id, periodId,
-        manifestJson: JSON.stringify(auditSnapshot.manifest),
-        manifestHash: auditSnapshot.manifestHash,
-        merkleRoot: auditSnapshot.merkleRoot,
-        leafCount: auditSnapshot.leafCount,
-        supersedesSeq: auditSnapshot.supersedesSeq,
-      });
-    } catch (e) {
-      // Race: a concurrent freeze inserted between our read and write. Re-resolve and
-      // return idempotently; re-throw anything that is not the PK collision.
-      if (e instanceof Error && /UNIQUE constraint failed/.test(e.message)) {
-        const post = resolveExisting();
-        if (post) return post;
-      }
-      throw e;
-    }
-    return {
-      snapshot: {
-        id, periodId,
-        manifestHash: auditSnapshot.manifestHash,
-        merkleRoot: auditSnapshot.merkleRoot,
-        leafCount: auditSnapshot.leafCount,
-        supersedesSeq: auditSnapshot.supersedesSeq,
-        status: 'FROZEN',
-      },
-    };
+    });
   });
 
   // 11. POST /entities/:id/anchor/prepare
