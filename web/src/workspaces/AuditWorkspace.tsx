@@ -62,6 +62,7 @@ export function AuditWorkspace() {
           <EventCompare
             events={list.filter((e) => compareIds.includes(e.id))}
             journal={journal ?? []}
+            onOpenLineage={(id) => { setCompareIds([]); setSelectedId(id); }}
           />
         )}
       </div>
