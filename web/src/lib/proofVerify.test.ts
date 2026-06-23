@@ -121,9 +121,11 @@ describe('resolveProofState', () => {
 
   it('verifies regardless of hash case (uppercase proof root matches lowercase anchor root)', async () => {
     const { leafHash, root, proof } = await proofFor();
-    // proof root uppercased; anchor root lowercase — must still verify (case-normalized compare)
-    const upper: InclusionProof = { ...proof, merkleRoot: root.toUpperCase() };
-    const s = await resolveProofState({ leafHash, proof: upper, anchors: [anchor({ merkleRoot: root, seq: 9 })] });
+    // Mixed-case on BOTH sides (different casings) — normalization must verify regardless.
+    const mixUp = (h: string) => h.split('').map((c, i) => (i % 2 ? c.toUpperCase() : c.toLowerCase())).join('');
+    const mixDown = (h: string) => h.split('').map((c, i) => (i % 2 ? c.toLowerCase() : c.toUpperCase())).join('');
+    const upper: InclusionProof = { ...proof, merkleRoot: mixUp(root) };
+    const s = await resolveProofState({ leafHash, proof: upper, anchors: [anchor({ merkleRoot: mixDown(root), seq: 9 })] });
     expect(s.kind).toBe('verified-onchain');
     if (s.kind === 'verified-onchain') expect(s.anchor.seq).toBe(9);
   });
