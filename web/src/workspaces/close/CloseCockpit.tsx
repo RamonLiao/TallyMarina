@@ -1,14 +1,18 @@
 // web/src/workspaces/close/CloseCockpit.tsx
+import { useState } from 'react';
 import { useCloseCockpit } from '../../data/useCloseCockpit';
 import { useWorkspace } from '../../app/WorkspaceContext';
 import { useEntityCtx } from '../../app/EntityContext';
 import { isWorkspaceId } from '../../app/workspaces';
 import { LightCard } from './LightCard';
 import { sortLights, dispatchTarget } from './lightMeta';
+import { LockPanel } from './LockPanel';
+import { ReopenDialog } from './ReopenDialog';
 import './close.css';
 
 export function CloseCockpit({ entityId }: { entityId: string }) {
-  const { data, loading } = useCloseCockpit(entityId);
+  const { data, loading, refetch } = useCloseCockpit(entityId);
+  const [reopenOpen, setReopenOpen] = useState(false);
   const { setWorkspace } = useWorkspace();
   const { setStep } = useEntityCtx();
 
@@ -42,6 +46,13 @@ export function CloseCockpit({ entityId }: { entityId: string }) {
           <LightCard key={l.key} light={l} onDispatch={onDispatch} />
         ))}
       </div>
+      <LockPanel data={data} entityId={entityId} onChanged={refetch} />
+      {data.status === 'LOCKED' && (
+        <button type="button" onClick={() => setReopenOpen(true)}>Reopen…</button>
+      )}
+      {reopenOpen && (
+        <ReopenDialog entityId={entityId} onChanged={refetch} onClose={() => setReopenOpen(false)} />
+      )}
     </div>
   );
 }

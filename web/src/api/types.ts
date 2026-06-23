@@ -159,6 +159,12 @@ export interface CloseReadiness {
   closeable: boolean;
 }
 
+// ---- Reopen reason codes ----
+
+// Mirror of services/api/src/periodLock/state.ts REOPEN_REASON_CODES (keep in sync with backend state.ts).
+export const REOPEN_REASON_CODES = ['ERROR_CORRECTION', 'ESTIMATE_CHANGE', 'LATE_ARRIVING_TXN', 'RECLASSIFICATION', 'OTHER'] as const;
+export type ReopenReasonCode = (typeof REOPEN_REASON_CODES)[number];
+
 // ---- Close Cockpit types ----
 
 export type LightStatus = 'green' | 'red' | 'derived' | 'mock';

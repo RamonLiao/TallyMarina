@@ -18,7 +18,10 @@ vi.mock('../../app/EntityContext', () => ({ useEntityCtx: () => ({ setStep: vi.f
 it('shows an aria-live verdict counting blocking lights', () => {
   render(<CloseCockpit entityId="e1" />);
   // WHY: the verdict must be reachable without scanning six cards (a11y + glanceability).
-  expect(screen.getByRole('status')).toHaveTextContent(/1 light/i);
+  // Multiple role=status exist (verdict + LockPanel blocker); the cockpit verdict has aria-live.
+  const statuses = screen.getAllByRole('status');
+  const verdict = statuses.find((el) => el.getAttribute('aria-live') === 'polite');
+  expect(verdict).toHaveTextContent(/1 light/i);
 });
 
 it('renders the period status chip', () => {
