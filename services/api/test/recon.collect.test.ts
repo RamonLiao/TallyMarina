@@ -40,6 +40,20 @@ describe('collectBreaks', () => {
     expect(usdt.material).toBe(true);
   });
 
+  it('book-only asset surfaces via key union with statementMinor=0 and nonzero signed break', () => {
+    insertEvent(db, { id: 'evt-bookonly', entityId: 'acme:pilot-001', rawJson: JSON.stringify({ wallet: '0xacmeTreasury', coinType: '0xrandom::tok::TOK' }) });
+    seedJe(db, 'evt-bookonly', '0xacmeTreasury', '0xrandom::tok::TOK', '9000000000', '2000000000'); // net +7000000000
+    const rows = collectBreaks(db, 'acme:pilot-001', '2026-Q2');
+    const tok = rows.find((r) => r.coinType === '0xrandom::tok::TOK')!;
+    expect(tok).toBeDefined();
+    expect(tok.statementMinor).toBe('0');                // book-only: no fixture entry → opening defaults 0
+    expect(tok.computedMinor).toBe('7000000000');        // opening(0) + movement(7000000000)
+    expect(tok.movementMinor).toBe('7000000000');
+    const brk = BigInt(tok.breakMinor);
+    expect(brk).not.toBe(0n);                           // nonzero signed break
+    expect(brk).toBe(7000000000n);                      // computed(7e9) − statement(0)
+  });
+
   it('materiality boundary: |break| == threshold is material', () => {
     // USDC fixture: no JE → computed = opening 5000.0; statement 5000.5 → break -0.5 (>= threshold 0.1)
     const rows = collectBreaks(db, 'acme:pilot-001', '2026-Q2');
