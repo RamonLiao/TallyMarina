@@ -3,7 +3,6 @@
 // structured DATA (red flags / suggested entry carry NO mascot).
 import type { CopilotAdvice } from '../../api/types';
 import { Mascot, type MascotPose } from './Mascot';
-import { GuardrailBanner } from '../data/GuardrailBanner';
 
 export function CopilotDock({
   advice, loading, pose,
@@ -18,7 +17,6 @@ export function CopilotDock({
         <Mascot pose={loading ? 'thinking' : pose} size={40} />
         <strong className="font-display" style={{ fontSize: 18 }}>Copilot</strong>
       </div>
-      <GuardrailBanner />
 
       {loading && <p className="font-body" style={{ color: 'var(--ink-soft)', marginTop: 'var(--s-3)' }}>Reading the transaction…</p>}
 
