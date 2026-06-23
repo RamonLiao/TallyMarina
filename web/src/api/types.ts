@@ -158,3 +158,23 @@ export interface CloseReadiness {
   recon: { blocking: number; blockers: string[] };
   closeable: boolean;
 }
+
+// ---- Close Cockpit types ----
+
+export type LightStatus = 'green' | 'red' | 'derived' | 'mock';
+export interface CockpitLight {
+  key: string;
+  status: LightStatus;
+  label: string;
+  real: boolean;
+}
+export interface CloseCockpitResponse {
+  lights: CockpitLight[];
+  status: 'OPEN' | 'LOCKED';
+  anchored: boolean;
+  staleAnchor: boolean;
+  closeable: boolean;
+  reopenCount: number;
+  restatementReason: string | null;
+  reasonCode: string | null;
+}
