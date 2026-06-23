@@ -21,10 +21,10 @@ function Row({ e, selected, onSelect }: { e: ExceptionDTO; selected: boolean; on
         textAlign: 'left',
         alignItems: 'center',
         padding: 'var(--s-3)',
-        borderLeft: blocker ? '3px solid var(--brass)' : '3px solid transparent',
-        background: selected ? 'var(--paper-card)' : 'transparent',
         border: 'none',
+        borderLeft: blocker ? '3px solid var(--brass)' : '3px solid transparent',
         borderBottom: '1px solid var(--paper-line)',
+        background: selected ? 'var(--paper-card)' : 'transparent',
         cursor: 'pointer',
       }}
     >

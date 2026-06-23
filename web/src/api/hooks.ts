@@ -143,10 +143,10 @@ export function useExceptions(entityId: string | undefined, periodId = '2026-Q2'
 export function useDisposition(entityId: string | undefined) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (v: { exceptionId: string; state: DispositionState; reasonCode: ReasonCode; reasonNote?: string }) =>
+    mutationFn: (v: { exceptionId: string; state: DispositionState; reasonCode: ReasonCode; reasonNote?: string; periodId?: string }) =>
       fetchJson(`/exceptions/${encodeURIComponent(v.exceptionId)}/disposition`, {
         method: 'POST',
-        body: JSON.stringify({ state: v.state, reasonCode: v.reasonCode, reasonNote: v.reasonNote }),
+        body: JSON.stringify({ state: v.state, reasonCode: v.reasonCode, reasonNote: v.reasonNote, ...(v.periodId !== undefined ? { periodId: v.periodId } : {}) }),
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['exceptions', entityId ?? ''] });

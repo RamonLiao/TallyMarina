@@ -21,6 +21,16 @@ describe('ExceptionList', () => {
     expect(screen.getByText(/RULES_FAILED|Rule/i)).toBeInTheDocument();
   });
 
+  it('does NOT render "Blocks close" when all items have severity < 2, but renders "Hold"', () => {
+    const items = [
+      ex({ exceptionId: 'LOW_CONFIDENCE_AUTO:1', eventId: '1', category: 'LOW_CONFIDENCE_AUTO', severity: 1 }),
+      ex({ exceptionId: 'LOW_CONFIDENCE_AUTO:2', eventId: '2', category: 'LOW_CONFIDENCE_AUTO', severity: 0 }),
+    ];
+    render(<ExceptionList exceptions={items} selectedId={null} onSelect={() => {}} />);
+    expect(screen.queryByText(/blocks close/i)).toBeNull();
+    expect(screen.getByText(/hold/i)).toBeInTheDocument();
+  });
+
   it('calls onSelect with exceptionId on row click', () => {
     const onSelect = vi.fn();
     render(<ExceptionList exceptions={[ex({ exceptionId: 'RULES_FAILED:2', eventId: '2', category: 'RULES_FAILED', severity: 3 })]} selectedId={null} onSelect={onSelect} />);
