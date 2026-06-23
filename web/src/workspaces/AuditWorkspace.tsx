@@ -1,5 +1,5 @@
 // DATA ZONE (spec §8.4) — NEVER import Mascot here (right pane is all data surfaces).
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useEntityCtx } from '../app/EntityContext';
 import { useEvents, useJournal } from '../api/hooks';
 import { EventList } from '../components/data/EventList';
@@ -16,6 +16,11 @@ export function AuditWorkspace() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [compareIds, setCompareIds] = useState<string[]>([]);
   const [statusFilter, setStatusFilter] = useState<EventStatus | 'ALL'>('ALL');
+
+  useEffect(() => {
+    setSelectedId(null);
+    setCompareIds([]);
+  }, [entity?.id]);
 
   const list = events ?? [];
   if (list.length === 0) return <EmptyState variant="clear-seas" />;

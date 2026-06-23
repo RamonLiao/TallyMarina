@@ -11,6 +11,7 @@ import type { AnchorDTO, InclusionProof } from '../api/types';
 const LEAF_NODE_PREFIX = 0x01;
 
 function hexToBytes(hex: string): Uint8Array {
+  if (hex.length % 2 !== 0 || !/^[0-9a-fA-F]*$/.test(hex)) throw new Error('invalid hex');
   const out = new Uint8Array(hex.length / 2);
   for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
   return out;
@@ -49,7 +50,8 @@ export type ProofState =
   | { kind: 'verified-onchain'; anchor: AnchorDTO }
   | { kind: 'verified-pending' }
   | { kind: 'not-in-journal' }
-  | { kind: 'mismatch'; recomputed: string; claimed: string };
+  | { kind: 'mismatch'; recomputed: string; claimed: string }
+  | { kind: 'error'; message: string };
 
 /**
  * Three honest states (+ mismatch). `proof === null` means the idempotencyKey is

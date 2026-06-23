@@ -45,6 +45,30 @@ describe('recomputeRoot', () => {
   });
 });
 
+describe('hexToBytes validation', () => {
+  it('throws on odd-length hex', async () => {
+    await expect(recomputeRoot('abc', [])).rejects.toThrow('invalid hex');
+  });
+
+  it('throws on non-hex chars in leafHashHex', async () => {
+    await expect(recomputeRoot('zz'.repeat(32), [])).rejects.toThrow('invalid hex');
+  });
+
+  it('throws on malformed sibling hash', async () => {
+    const validLeaf = 'aa'.repeat(32);
+    await expect(
+      recomputeRoot(validLeaf, [{ hash: 'zz'.repeat(32), position: 'R' }])
+    ).rejects.toThrow('invalid hex');
+  });
+
+  it('valid even-length hex-only strings still work', async () => {
+    const leafA = await sha256hex(concat(Uint8Array.of(0x00), new TextEncoder().encode('A')));
+    const leafB = await sha256hex(concat(Uint8Array.of(0x00), new TextEncoder().encode('B')));
+    // should not throw
+    await expect(recomputeRoot(leafA, [{ hash: leafB, position: 'R' }])).resolves.toMatch(/^[0-9a-f]{64}$/);
+  });
+});
+
 describe('resolveProofState', () => {
   const proofFor = async (): Promise<{ proof: InclusionProof; leafHash: string; root: string }> => {
     const leafHash = await sha256hex(concat(Uint8Array.of(0x00), new TextEncoder().encode('A')));

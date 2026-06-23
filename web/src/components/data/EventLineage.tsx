@@ -1,9 +1,21 @@
 // DATA ZONE (spec §8.4) — NEVER import Mascot here. The four-stage forensic walkthrough.
+import { Component, type ReactNode } from 'react';
 import type { EventDTO, JournalDTO, JournalLine } from '../../api/types';
 import { ConfidenceBar } from './ConfidenceBar';
 import { JournalTable } from './JournalTable';
 import { ProofBadge } from './ProofBadge';
 import { sumFunctional, origMemo } from '../../lib/balance';
+
+class JeErrorBoundary extends Component<{ children: ReactNode }, { error: boolean }> {
+  constructor(props: { children: ReactNode }) { super(props); this.state = { error: false }; }
+  static getDerivedStateFromError() { return { error: true }; }
+  render() {
+    if (this.state.error) {
+      return <div className="mono" style={{ fontSize: 13, color: 'var(--debit)', fontWeight: 600 }}>⚠ malformed amount — cannot compute balance</div>;
+    }
+    return this.props.children;
+  }
+}
 
 const ARROW = '→'; // mirrors HashChain's mono arrow (rotates to ↓ via CSS on stacked layouts)
 
@@ -31,21 +43,29 @@ function RefRow({ label, value }: { label: string; value: string | null }) {
 }
 
 function BalanceFooter({ lines }: { lines: JournalLine[] }) {
-  const b = sumFunctional(lines);
-  const memo = origMemo(lines);
-  return (
-    <div className="mono" style={{ fontSize: 13, marginTop: 'var(--s-2)' }}>
-      <span>Σ DR {b.functionalDebit.toString()} · Σ CR {b.functionalCredit.toString()} · </span>
-      <span style={{ color: b.balanced ? 'var(--credit)' : 'var(--debit)', fontWeight: 600 }}>
-        Δ {b.delta.toString()} {b.balanced ? '✓' : '✗'}
-      </span>
-      {Object.keys(memo).length > 0 && (
-        <div style={{ color: 'var(--ink-soft)' }}>
-          memo (orig ccy, not part of balance): {Object.entries(memo).map(([c, q]) => `${c}:${q.toString()}`).join(' · ')}
-        </div>
-      )}
-    </div>
-  );
+  let content: React.ReactNode;
+  try {
+    const b = sumFunctional(lines);
+    const memo = origMemo(lines);
+    content = (
+      <>
+        <span>Σ DR {b.functionalDebit.toString()} · Σ CR {b.functionalCredit.toString()} · </span>
+        <span style={{ color: b.balanced ? 'var(--credit)' : 'var(--debit)', fontWeight: 600 }}>
+          Δ {b.delta.toString()} {b.balanced ? '✓' : '✗'}
+        </span>
+        {Object.keys(memo).length > 0 && (
+          <div style={{ color: 'var(--ink-soft)' }}>
+            memo (orig ccy, not part of balance): {Object.entries(memo).map(([c, q]) => `${c}:${q.toString()}`).join(' · ')}
+          </div>
+        )}
+      </>
+    );
+  } catch {
+    content = (
+      <span style={{ color: 'var(--debit)', fontWeight: 600 }}>⚠ malformed amount — cannot compute balance</span>
+    );
+  }
+  return <div className="mono" style={{ fontSize: 13, marginTop: 'var(--s-2)' }}>{content}</div>;
 }
 
 export function EventLineage({ event, entityId, journal }: { event: EventDTO; entityId: string; journal: JournalDTO[] }) {
@@ -91,8 +111,10 @@ export function EventLineage({ event, entityId, journal }: { event: EventDTO; en
               {reversedBy(j.idempotencyKey) && (
                 <div style={{ fontSize: 11, color: 'var(--brass)', fontWeight: 600 }}>REVERSED BY ← {reversedBy(j.idempotencyKey)!.idempotencyKey}</div>
               )}
-              <JournalTable journal={[j]} />
-              <BalanceFooter lines={j.je.lines} />
+              <JeErrorBoundary>
+                <JournalTable journal={[j]} />
+                <BalanceFooter lines={j.je.lines} />
+              </JeErrorBoundary>
               {j.je.lines.map((l, i) => (
                 <div key={i}>
                   <RefRow label="priceRef" value={l.priceRef} />

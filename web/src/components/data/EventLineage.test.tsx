@@ -56,3 +56,22 @@ it('shows reversal badge when reversalOf is set (1.5)', () => {
   wrap(<EventLineage event={event()} entityId="e" journal={[je({ je: { ...je().je, reversalOf: 'k0' } })]} />);
   expect(screen.getByText(/reversal of/i)).toBeInTheDocument();
 });
+
+it('renders inline error for a JE with malformed amountMinor without crashing other stages', () => {
+  const badJe = je({
+    je: {
+      ...je().je,
+      lines: [
+        { account: 'SUI', side: 'DEBIT', amountMinor: 'oops', origCoinType: null, origQtyMinor: null, priceRef: null, fxRef: null, leg: 'in' },
+        { account: 'USDC', side: 'CREDIT', amountMinor: 'oops', origCoinType: null, origQtyMinor: null, priceRef: null, fxRef: null, leg: 'out' },
+      ],
+    },
+  });
+  wrap(<EventLineage event={event()} entityId="e" journal={[badJe]} />);
+  // malformed amount shows inline error
+  expect(screen.getByText(/malformed amount/i)).toBeInTheDocument();
+  // other stages still render (no crash, ① Raw and ② Classification still present)
+  expect(screen.getByText(/Raw event/i)).toBeInTheDocument();
+  expect(screen.getByText(/Classification/i)).toBeInTheDocument();
+  expect(screen.getByText(/On-chain/i)).toBeInTheDocument();
+});

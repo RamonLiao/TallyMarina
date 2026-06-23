@@ -15,7 +15,8 @@ export function ProofBadge({ leafHash, idempotencyKey, lineageHash, entityId }: 
     let alive = true;
     if (!data) { setState(null); return; }
     resolveProofState({ leafHash, proof: data.inclusionProof, anchors: data.anchors })
-      .then((s) => { if (alive) setState(s); });
+      .then((s) => { if (alive) setState(s); })
+      .catch((err: unknown) => { if (alive) setState({ kind: 'error', message: err instanceof Error ? err.message : String(err) }); });
     return () => { alive = false; };
   }, [data, leafHash]);
 
@@ -37,6 +38,9 @@ export function ProofBadge({ leafHash, idempotencyKey, lineageHash, entityId }: 
       )}
       {state?.kind === 'mismatch' && (
         <div style={{ color: 'var(--debit)' }}>✗ PROOF MISMATCH — recomputed root ≠ claimed root</div>
+      )}
+      {state?.kind === 'error' && (
+        <div style={{ color: 'var(--debit)' }}>✗ cannot verify — malformed proof data</div>
       )}
     </div>
   );
