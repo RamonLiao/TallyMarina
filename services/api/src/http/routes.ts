@@ -252,9 +252,15 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
   app.get<{ Params: { id: string }; Querystring: { periodId?: string } }>('/entities/:id/close-readiness', async (req) => {
     requireEntity(db, req.params.id);
     const periodId = req.query.periodId ?? DEFAULT_PERIOD;
-    const blockers = exceptionDTO(db, req.params.id, periodId, cfg.exceptionLowConfidence)
+    const exBlockers = exceptionDTO(db, req.params.id, periodId, cfg.exceptionLowConfidence)
       .filter((e) => BLOCKING_CATEGORIES.includes(e.category) && isOpen(e.disposition));
-    return { blocking: blockers.length, blockers };
+    const reconBlockers = collectBreaks(db, req.params.id, periodId)
+      .filter((b) => b.material && isOpen(getReconDisposition(db, req.params.id, periodId, b.wallet, b.coinType)));
+    return {
+      exceptions: { blocking: exBlockers.length, blockers: exBlockers },
+      recon: { blocking: reconBlockers.length, blockers: reconBlockers.map((b) => `${b.wallet}|${b.coinType}`) },
+      closeable: exBlockers.length === 0 && reconBlockers.length === 0,
+    };
   });
 
   app.post<{ Params: { exceptionId: string }; Body: { state?: string; reasonCode?: string; reasonNote?: string; periodId?: string } }>('/exceptions/:exceptionId/disposition', async (req) => {
@@ -305,6 +311,12 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
       .filter((e) => BLOCKING_CATEGORIES.includes(e.category) && isOpen(e.disposition));
     if (blockers.length > 0) {
       throw new ApiError(409, 'EXCEPTIONS_BLOCKING', `${blockers.length} open exception(s) block close: ${blockers.map((b) => b.exceptionId).join(', ')}`);
+    }
+    const reconBlockers = collectBreaks(db, req.params.id, periodId)
+      .filter((b) => b.material && isOpen(getReconDisposition(db, req.params.id, periodId, b.wallet, b.coinType)));
+    if (reconBlockers.length > 0) {
+      throw new ApiError(409, 'RECON_BREAKS_BLOCKING',
+        `${reconBlockers.length} open material break(s) block close: ${reconBlockers.map((b) => `${b.wallet}|${b.coinType}`).join(', ')}`);
     }
     const jes: JournalEntry[] = listJournal(db, req.params.id).map((r) => JSON.parse(r.jeJson) as JournalEntry);
     const outputs = jes.map((je) => ({

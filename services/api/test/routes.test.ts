@@ -12,6 +12,21 @@ import type { FixtureBundle } from '../src/deps/ingestion.js';
 import { insertSnapshot } from '../src/store/snapshotStore.js';
 import { insertEntity } from '../src/store/entityStore.js';
 import { deriveEntityRef } from '../src/deps/anchorSvc.js';
+import { upsertReconDisposition } from '../src/store/reconBreakStore.js';
+
+// Fixture recon breaks that need dismissal before any snapshot can proceed.
+const RECON_BREAKS = [
+  '0xacmeTreasury|0x2::sui::SUI',
+  '0xacmeTreasury|0xusdc::usdc::USDC',
+  '0xacmeTreasury|0xweth::weth::WETH',
+  '0xacmeTreasury|0xusdt::usdt::USDT',
+];
+function dismissReconBreaks(database: Db, entityId: string, periodId: string) {
+  for (const key of RECON_BREAKS) {
+    const [wallet, coinType] = key.split('|');
+    upsertReconDisposition(database, { entityId, periodId, wallet, coinType, state: 'dismissed', reasonCode: 'IMMATERIAL_WAIVED', reasonNote: null, decidedBy: 'test', decidedAt: Date.now() });
+  }
+}
 
 const cfg = loadConfig({
   SUI_NETWORK: 'testnet', SUI_GRPC_URL: 'https://grpc', ANCHOR_PACKAGE_ID: '0xpkg',
@@ -138,6 +153,7 @@ describe('REST contract', () => {
     expect(rr.statusCode).toBe(200);
     const rrBody = rr.json() as { posted: number; skipped: number; journal: unknown[] };
     expect(rrBody.posted).toBeGreaterThanOrEqual(1);
+    dismissReconBreaks(db, 'acme:pilot-001', '2026-Q2');
     const snap = await app.inject({
       method: 'POST', url: '/entities/acme:pilot-001/snapshot',
       payload: { periodId: '2026-Q2' },
@@ -158,6 +174,7 @@ describe('REST contract', () => {
     await app.inject({
       method: 'POST', url: '/entities/acme:pilot-001/run-rules', payload: { periodId: '2026-Q2' },
     });
+    dismissReconBreaks(db, 'acme:pilot-001', '2026-Q2');
     const first = await app.inject({
       method: 'POST', url: '/entities/acme:pilot-001/snapshot', payload: { periodId: '2026-Q2' },
     });
@@ -182,6 +199,7 @@ describe('REST contract', () => {
     await app.inject({ method: 'POST', url: '/events/evt-001/classify', payload: {} });
     await app.inject({ method: 'POST', url: '/events/evt-002/classify', payload: {} });
     await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/run-rules', payload: { periodId: '2026-Q2' } });
+    dismissReconBreaks(db, 'acme:pilot-001', '2026-Q2');
     const first = await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/snapshot', payload: { periodId: '2026-Q2' } });
     const { snapshot } = first.json() as { snapshot: { id: string } };
     // period_id has no FK; repointing it simulates an id that resolves to a different period.
@@ -197,6 +215,7 @@ describe('REST contract', () => {
     await app.inject({ method: 'POST', url: '/events/evt-001/classify', payload: {} });
     await app.inject({ method: 'POST', url: '/events/evt-002/classify', payload: {} });
     await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/run-rules', payload: { periodId: '2026-Q2' } });
+    dismissReconBreaks(db, 'acme:pilot-001', '2026-Q2');
     const first = await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/snapshot', payload: { periodId: '2026-Q2' } });
     const { snapshot } = first.json() as { snapshot: { id: string } };
     db.prepare("UPDATE snapshots SET status='ANCHORED' WHERE id=?").run(snapshot.id);
