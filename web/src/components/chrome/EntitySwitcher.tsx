@@ -18,11 +18,19 @@ export function EntitySwitcher() {
         setEntity(next);
       }}
       style={{
-        background: 'rgba(255,255,255,0.08)',
+        // Drop the native chevron and paint our own (paper-tinted) so the
+        // control matches the dark TopBar instead of the OS default arrow.
+        appearance: 'none',
+        WebkitAppearance: 'none',
+        backgroundColor: 'rgba(255,255,255,0.08)',
+        backgroundImage:
+          "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23F4ECD8' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E\")",
+        backgroundRepeat: 'no-repeat',
+        backgroundPosition: 'right var(--space-2) center',
         color: 'var(--paper)',
         border: '1px solid rgba(255,255,255,0.16)',
         borderRadius: 'var(--radius-pill)',
-        padding: 'var(--space-1) var(--space-3)',
+        padding: 'var(--space-1) calc(var(--space-3) + 16px) var(--space-1) var(--space-3)',
         fontFamily: 'var(--font-display)',
         fontSize: 14,
         // Shrink before wrapping so the 768–1050px range doesn't force a doubled-height TopBar.

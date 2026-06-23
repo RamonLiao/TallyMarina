@@ -239,4 +239,11 @@ p {
   .shell-sidenav nav > button {
     flex: 0 0 auto;
   }
+  /* In the horizontal scroll strip the brass fill reads weakly; add an
+     underline on the active tab. !important overrides SideNav's inline
+     `border: 1px solid transparent` (inline beats stylesheet otherwise). */
+  .shell-sidenav nav > button[aria-current="page"] {
+    border-bottom: 2px solid var(--brass) !important;
+    border-radius: var(--radius-md) var(--radius-md) 0 0 !important;
+  }
 }
