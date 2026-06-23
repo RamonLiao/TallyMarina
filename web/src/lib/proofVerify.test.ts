@@ -51,7 +51,7 @@ describe('hexToBytes validation', () => {
     await expect(recomputeRoot('abc', [])).rejects.toThrow('32 bytes');
   });
 
-  it('throws on non-hex chars in leafHashHex (caught as not-64-chars)', async () => {
+  it('throws on non-hex chars in leafHashHex (caught by hash format validation)', async () => {
     // 'zz'.repeat(32) is 64 chars but non-hex — assertHash32 regex rejects it
     await expect(recomputeRoot('zz'.repeat(32), [])).rejects.toThrow('32 bytes');
   });
@@ -117,6 +117,15 @@ describe('resolveProofState', () => {
     const tampered: InclusionProof = { ...proof, merkleRoot: 'ff'.repeat(32) };
     const s = await resolveProofState({ leafHash, proof: tampered, anchors: [] });
     expect(s.kind).toBe('mismatch');
+  });
+
+  it('verifies regardless of hash case (uppercase proof root matches lowercase anchor root)', async () => {
+    const { leafHash, root, proof } = await proofFor();
+    // proof root uppercased; anchor root lowercase — must still verify (case-normalized compare)
+    const upper: InclusionProof = { ...proof, merkleRoot: root.toUpperCase() };
+    const s = await resolveProofState({ leafHash, proof: upper, anchors: [anchor({ merkleRoot: root, seq: 9 })] });
+    expect(s.kind).toBe('verified-onchain');
+    if (s.kind === 'verified-onchain') expect(s.anchor.seq).toBe(9);
   });
 
   it('throws when proof.merkleRoot is valid hex but not 64 chars', async () => {

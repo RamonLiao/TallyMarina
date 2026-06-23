@@ -72,10 +72,14 @@ export async function resolveProofState(args: {
   if (!proof) return { kind: 'not-in-journal' };
 
   assertHash32(proof.merkleRoot);
+  // Normalize hash case before comparison: recomputeRoot emits lowercase hex,
+  // so compare lowercased to avoid a false mismatch if a backend ever returns
+  // upper/mixed-case hex. (Sources are lowercase today; this keeps it robust.)
+  const claimedRoot = proof.merkleRoot.toLowerCase();
   const recomputed = await recomputeRoot(leafHash, proof.siblings);
-  if (recomputed !== proof.merkleRoot) {
+  if (recomputed !== claimedRoot) {
     return { kind: 'mismatch', recomputed, claimed: proof.merkleRoot };
   }
-  const match = anchors.find((a) => a.merkleRoot !== null && a.merkleRoot === proof.merkleRoot);
+  const match = anchors.find((a) => a.merkleRoot !== null && a.merkleRoot.toLowerCase() === claimedRoot);
   return match ? { kind: 'verified-onchain', anchor: match } : { kind: 'verified-pending' };
 }
