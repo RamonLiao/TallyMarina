@@ -151,7 +151,7 @@ it('useRunRules invalidates journal AND events — new JEs must appear immediate
 it('useConfirmAnchor invalidates anchors — on-chain digest must be visible right after confirmation', async () => {
   vi.spyOn(endpoints, 'confirmAnchor').mockResolvedValue({
     id: 'anchor-1', snapshotId: 'snap-1', seq: 1,
-    link: 'sui://x', digest: 'abc', explorerUrl: 'https://x', anchoredAt: '2024-01-01T00:00:00Z', merkleRoot: null,
+    link: 'sui://x', digest: 'abc', explorerUrl: 'https://x', anchoredAt: '2024-01-01T00:00:00Z', merkleRoot: null, periodId: '', leafCount: 0,
   });
   const { qc, wrapper } = makeWrapper();
   const spy = vi.spyOn(qc, 'invalidateQueries');

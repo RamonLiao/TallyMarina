@@ -21,7 +21,7 @@ function concat(...parts: Uint8Array[]): Uint8Array {
 
 const anchor = (over: Partial<AnchorDTO>): AnchorDTO => ({
   id: 'a', snapshotId: 's', seq: 1, link: 'L', digest: 'D', explorerUrl: '#',
-  anchoredAt: 't', merkleRoot: null, ...over,
+  anchoredAt: 't', merkleRoot: null, periodId: '', leafCount: 0, ...over,
 });
 
 describe('recomputeRoot', () => {
