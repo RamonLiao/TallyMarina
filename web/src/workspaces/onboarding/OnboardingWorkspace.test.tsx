@@ -24,7 +24,7 @@ describe('OnboardingWorkspace', () => {
     render(<OnboardingWorkspace />);
     expect(screen.getAllByText('USD').length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText(/America\/New_York/)).toBeInTheDocument();
-    expect(screen.getAllByText(/UNVERIFIED/i).length).toBeGreaterThanOrEqual(1); // unverified source
-    expect(screen.getAllByText(/VERIFIED/i).length).toBeGreaterThanOrEqual(1);   // demo-owned verified
+    expect(screen.getAllByText(/^UNVERIFIED$/).length).toBeGreaterThanOrEqual(1); // unverified source
+    expect(screen.getAllByText(/^VERIFIED$/).length).toBeGreaterThanOrEqual(1);   // demo-owned verified
   });
 });

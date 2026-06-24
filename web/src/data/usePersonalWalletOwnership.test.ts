@@ -22,7 +22,9 @@ describe('usePersonalWalletOwnership', () => {
     (postOnboardingVerify as ReturnType<typeof vi.fn>).mockResolvedValue({ verdict: 'VERIFIED', attestation: {} });
 
     const { result } = renderHook(() => usePersonalWalletOwnership());
-    await act(async () => { await result.current.verify('0xabc'); });
+    let ok: boolean | undefined;
+    await act(async () => { ok = await result.current.verify('0xabc'); });
+    expect(ok).toBe(true);
     await waitFor(() => expect(result.current.status).toBe('verified'));
     expect(signPersonalMessage).toHaveBeenCalledWith({ message: new TextEncoder().encode('MSG') });
     expect(postOnboardingVerify).toHaveBeenCalledWith({ wallet: '0xabc', nonce: 'n', signature: 'sigb64', connectedAccount: '0xabc' });
@@ -34,7 +36,9 @@ describe('usePersonalWalletOwnership', () => {
     (postOnboardingVerify as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('ADDRESS_MISMATCH: nope'));
 
     const { result } = renderHook(() => usePersonalWalletOwnership());
-    await act(async () => { await result.current.verify('0xabc'); });
+    let ok: boolean | undefined;
+    await act(async () => { ok = await result.current.verify('0xabc'); });
+    expect(ok).toBe(false);
     await waitFor(() => expect(result.current.status).toBe('error'));
     expect(result.current.errorCode).toContain('ADDRESS_MISMATCH');
   });

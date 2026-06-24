@@ -10,7 +10,7 @@ export function usePersonalWalletOwnership() {
   const [status, setStatus] = useState<Status>('idle');
   const [errorCode, setErrorCode] = useState<string | undefined>();
 
-  const verify = useCallback(async (wallet: string) => {
+  const verify = useCallback(async (wallet: string): Promise<boolean> => {
     setErrorCode(undefined);
     try {
       setStatus('awaiting-signature');
@@ -19,9 +19,11 @@ export function usePersonalWalletOwnership() {
       setStatus('verifying');
       await postOnboardingVerify({ wallet, nonce, signature, connectedAccount: account?.address ?? wallet });
       setStatus('verified');
+      return true;
     } catch (e) {
       setErrorCode((e as Error).message);
       setStatus('error');
+      return false;
     }
   }, [dAppKit, account]);
 

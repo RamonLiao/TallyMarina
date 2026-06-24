@@ -24,8 +24,8 @@ export function SourceTable({ data, onVerified }: { data: OnboardingDTO; onVerif
 
   async function onVerify(wallet: string) {
     setActiveWallet(wallet);
-    await verify(wallet);
-    if (status !== 'error') onVerified();
+    const ok = await verify(wallet);
+    if (ok) onVerified();
   }
 
   return (
