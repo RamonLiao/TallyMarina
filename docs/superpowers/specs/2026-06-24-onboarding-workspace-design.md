@@ -39,7 +39,7 @@ Three layers, additive only (no existing behavior changed):
 
 ### Backend (additive — 2 read endpoints, 1 write path)
 - `GET /onboarding/:entityId` → entity meta + derived sources (each with current attestation state). **Entity-meta gap**: the `entities` table has only `id / display_name / chain_object_id / cap_object_id / original_package_id` — there are NO functional/reporting-currency, fiscal-calendar, or timezone columns. Per §1.1 (no entity write this round), these are served read-only from a serializable demo constants module `onboardingConstants.ts` (mirrors the existing `policyConstants.ts` chokepoint pattern), keyed by entityId. Do NOT alter the entities table.
-- `POST /onboarding/challenge` → issue single-use nonce bound to (entity, wallet).
+- `POST /onboarding/challenge` → issue single-use nonce bound to (entity, wallet). **Soft membership gate (demo decision)**: the challenge does NOT hard-reject a wallet that isn't a known source — any connected wallet may be challenged and verified (you can only ever prove a wallet you actually control). A real testnet address the presenter controls is seeded as a listed source via a `DEMO_OWNED_WALLET` constant (`onboardingConstants.ts`) so the happy-path row is clickable; the **source list = `deriveSources(events) ∪ { DEMO_OWNED_WALLET }`**. A wallet verified but not in the source list surfaces as a "verified (unlisted)" entry rather than an error. Rationale: seeded fixture wallets (`0xacmeTreasury`, …) are not real signable addresses, so a hard `∈sources` gate would make the flow undemoable.
 - `POST /onboarding/verify` → verify signature server-side, persist attestation.
 
 ### DB (2 new tables, additive to schema.sql)
@@ -57,7 +57,7 @@ Three layers, additive only (no existing behavior changed):
   │   dApp Kit: connect wallet → connectedAddress
   ▼
 POST /onboarding/challenge { entityId, wallet }
-  │   BE: assert wallet ∈ deriveSources(entityId)  (else 422 fail-closed)
+  │   BE: assert entity exists; normalize wallet (NO ∈sources rejection — soft gate)
   │       generate nonce (crypto random); INSERT onboarding_challenge
   │       (entityId, wallet, nonce, expiresAt = now + 5min, consumed_at = NULL)
   ▼   → { nonce, message, expiresAt }   message = server-built template
@@ -111,7 +111,8 @@ Built by a single function imported by both challenge and verify (anti-drift cho
 
 | Situation | Behavior |
 |---|---|
-| wallet ∉ entity sources | challenge 422; UI offers no Verify |
+| entity does not exist | challenge/GET 404 `ENTITY_NOT_FOUND` |
+| wallet not a known source | NOT rejected (soft gate); after verify, shown as "verified (unlisted)" |
 | nonce expired / consumed / missing | verify 422 `CHALLENGE_INVALID`; badge stays UNVERIFIED |
 | recovered address ≠ wallet | verify 422 `ADDRESS_MISMATCH`; **nonce NOT consumed** |
 | malformed signature / verifyPersonalMessageSignature throws | 422 `BAD_SIGNATURE` (caught, not 500) |
@@ -134,7 +135,7 @@ This round, ownership status is **display-only**: a source's transactions flow i
 
 1. **Replay** (reuse captured signature) → nonce single-use (atomic `WHERE consumed_at IS NULL`) + TTL.
 2. **Address spoofing** (sign with a different key, claim wallet X) → `verifyPersonalMessageSignature(..., { address })` recovers the public key, derives its Sui address, and throws unless it matches the supplied (normalized) `wallet`; server never trusts client-asserted address.
-3. **Cross-wallet nonce swap** (get A's challenge, submit as B) → nonce bound to (wallet, entity) at issuance; verify checks stored nonce's wallet === claimed wallet.
+3. **Cross-wallet nonce swap** (get A's challenge, submit as B) → nonce bound to (wallet, entity) at issuance; verify looks up the stored challenge by (entity, wallet, nonce) and rebuilds the message from the stored `wallet`, so a nonce issued for A cannot be redeemed for B. (The soft membership gate does not weaken this — binding is per-nonce, independent of source membership.)
 4. **Message injection** (client supplies arbitrary message text) → server **rebuilds** message bytes from the stored challenge; signature is verified over server-rebuilt bytes, never over the client message string.
 5. **Actor forgery / non-atomic write** (client sets verifier; or attestation written but nonce not consumed) → verifier is a server-fixed constant; consume-nonce + append-attestation are wrapped in a single transaction.
 
@@ -142,7 +143,7 @@ Encodes prior lessons: read/permission/state gates enforced on the backend (not 
 
 ## 7. Testing
 
-- **Backend unit**: message template golden — lock the exact **byte sequence** (`TextEncoder().encode`), not just the string, incl. newline style (anti-drift: challenge/verify share one fn); issueChallenge rejects non-source wallet; verify failure paths each genuinely triggered (expired / consumed / mismatch / bad signature); atomic consume (concurrent double-verify on same nonce → only one succeeds); attestation append-only + verifier/initiated_by server-fixed; mismatch/bad-sig do NOT consume the nonce.
+- **Backend unit**: message template golden — lock the exact **byte sequence** (`TextEncoder().encode`), not just the string, incl. newline style (anti-drift: challenge/verify share one fn); issueChallenge accepts any wallet (soft gate) and source list includes `DEMO_OWNED_WALLET`; verify failure paths each genuinely triggered (expired / consumed / mismatch / bad signature); atomic consume (concurrent double-verify on same nonce → only one succeeds); attestation append-only + verifier/initiated_by server-fixed; mismatch/bad-sig do NOT consume the nonce.
 - **Real-signature test**: `@mysten/sui` `Ed25519Keypair` actually signs the rebuilt message → `verifyPersonalMessageSignature` passes; flip one byte → throws → `BAD_SIGNATURE`; sign with a different key but claim wallet X → throws on `{ address }` mismatch → `ADDRESS_MISMATCH` (cf. "fail paths must be really triggered, not type-aligned" lesson). Also test a non-Ed25519 (e.g. Secp256k1) signer verifies, confirming scheme-agnostic acceptance.
 - **Frontend**: `useOnboardingData` cross-key gate (deferred-fetch mock; other-entity response arrives late and never surfaces); badge safe-state (no attestation → UNVERIFIED); Verify happy path (mock signPersonalMessage).
 - **Monkey**: replay same signature twice (2nd → 422); cross-wallet nonce swap; client-supplied forged message string; excess sources; oversized nonce/address.
@@ -160,6 +161,7 @@ Reuse existing primitives — the codebase already provides what this workspace 
 
 ### Tokens & badge semantics (verified against `web/src/`)
 - **UNVERIFIED badge → `--ink-soft`** (neutral safe default, mirrors the existing `badge--draft`). Do **NOT** use `--warn`/amber — amber = NEEDS_REVIEW (action-required), which would wrongly imply the user erred by not yet verifying.
+- **"verified (unlisted)" state** (a wallet that proved ownership but isn't in the entity's derived source list) → use the `--credit` green VERIFIED badge plus a small `--ink-soft` "unlisted" tag, shown as a distinct row appended below the source rows. Don't reuse amber.
 - **VERIFIED badge → `--credit` (green)** — green is the existing "confirmed/passed" semantic (AUTO badge). **NEVER `--aqua`**: aqua is reserved EXCLUSIVELY for on-chain/blockchain semantics (`Badge.module.css` §8.1, ANCHORED). Ownership proof is off-chain (§8), so aqua would falsely signal an on-chain anchor. Brass is emphasis/version-chip only — weaker semantic than `--credit`; prefer green.
 
 ### Layout patterns (reuse)
