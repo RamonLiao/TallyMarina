@@ -32,21 +32,13 @@ This matches the established pattern of the prior two soon slots (Export, Policy
 Three layers, additive only (no existing behavior changed):
 
 ### Frontend
-- Wire dApp Kit providers in `main.tsx`, in this exact nesting (per sui-architect review — `SuiClientProvider`/`WalletProvider` alone will not mount):
-  ```tsx
-  const { networkConfig } = createNetworkConfig({ testnet: { url: getFullnodeUrl('testnet') } });
-  <QueryClientProvider client={queryClient}>
-    <SuiClientProvider networks={networkConfig} defaultNetwork="testnet">
-      <WalletProvider autoConnect>{app}</WalletProvider>
-    </SuiClientProvider>
-  </QueryClientProvider>
-  ```
-  TanStack `QueryClientProvider` + `createNetworkConfig` are required. Do NOT call `registerWallet` (that is the wallet-builder API; dApps rely on Wallet-Standard self-registration). Deps already present in `web/package.json` (`@mysten/dapp-kit-react ^2`, `@mysten/dapp-kit-core ^1.6`, `@mysten/sui ^2`); provider not yet mounted. Run the SDK compat-banner check before locking versions.
+- **dApp Kit providers are ALREADY mounted** — `web/src/providers/AppProviders.tsx` wraps the app in `QueryClientProvider` + `DAppKitProvider dAppKit={dAppKit}`, where `dAppKit` (`web/src/wallet/dapp-kit.ts`) is `createDAppKit({ networks: ['testnet','mainnet'], defaultNetwork: 'testnet', createClient: ... })`. **No `main.tsx` / provider change needed.** (Note: this codebase uses the new `@mysten/dapp-kit-react ^2` / `@mysten/dapp-kit-core ^1.6` API — `createDAppKit` + `DAppKitProvider` — NOT the older `@mysten/dapp-kit`'s `SuiClientProvider`/`WalletProvider`/`createNetworkConfig`.)
+- **Signing API**: there is no `useSignPersonalMessage` hook in dapp-kit-react v2. Use `const dAppKit = useDAppKit(); const { bytes, signature } = await dAppKit.signPersonalMessage(messageBytes)` (returns wallet-standard `SignedPersonalMessage` `{ bytes: string base64, signature: string base64 }`). Current connected account via `useCurrentAccount()` (`UiWalletAccount | null`, `.address`). Connect UI via `ConnectButton` from `@mysten/dapp-kit-react/ui` (already theme-mapped, §9).
 - `OnboardingWorkspace` → `EntitySummaryCard` (entity meta, read-only) + `SourceTable` (one row per derived wallet source: wallet address / ownership badge / Verify action). Note: `purpose` / `legal owner` / `GL dimension` are NOT in the event data — they belong to the deferred source-CRUD slice (§1.1); do not invent them. Show only what is derivable (wallet address, and optionally asset/coinType count from movements).
 - Visual law inherited from Policy/Export: fail-closed, safe-state badge (UNVERIFIED is the safe default), no aqua, brass for emphasis.
 
 ### Backend (additive — 2 read endpoints, 1 write path)
-- `GET /onboarding/:entityId` → entity meta + derived sources (each with current attestation state).
+- `GET /onboarding/:entityId` → entity meta + derived sources (each with current attestation state). **Entity-meta gap**: the `entities` table has only `id / display_name / chain_object_id / cap_object_id / original_package_id` — there are NO functional/reporting-currency, fiscal-calendar, or timezone columns. Per §1.1 (no entity write this round), these are served read-only from a serializable demo constants module `onboardingConstants.ts` (mirrors the existing `policyConstants.ts` chokepoint pattern), keyed by entityId. Do NOT alter the entities table.
 - `POST /onboarding/challenge` → issue single-use nonce bound to (entity, wallet).
 - `POST /onboarding/verify` → verify signature server-side, persist attestation.
 
@@ -110,7 +102,7 @@ Built by a single function imported by both challenge and verify (anti-drift cho
 - routes: 3 thin handlers over the above.
 
 ### Frontend
-- `usePersonalWalletOwnership` — dApp Kit `useSignPersonalMessage` + `useCurrentAccount`.
+- `usePersonalWalletOwnership` — wraps `useDAppKit().signPersonalMessage(bytes)` + `useCurrentAccount()` (no `useSignPersonalMessage` hook exists in v2).
 - `useOnboardingData(entityId)` — fetch `GET /onboarding/:entityId`; stores `{entityId, value}` pair and exposes value only when `state.entityId === entityId` (render-stage cross-key gate, cf. Period Close stale lesson).
 - `OnboardingWorkspace` → `EntitySummaryCard` + `SourceTable`.
 - `main.tsx` — mount `SuiClientProvider` (testnet) + `WalletProvider`.
