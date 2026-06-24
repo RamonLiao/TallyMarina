@@ -1,7 +1,25 @@
 import { render, screen, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { vi } from 'vitest';
 import { WorkspaceProvider, useWorkspace } from '../../app/WorkspaceContext';
 import { SideNav } from './SideNav';
+
+// All real workspaces are now 'ready'. Inject a synthetic 'soon' workspace so
+// the gating behavior tests remain live without depending on the live registry state.
+vi.mock('../../app/workspaces', () => ({
+  WORKSPACES: [
+    { id: 'close',          label: 'Close',          icon: '⚓', status: 'ready' },
+    { id: 'exceptions',     label: 'Exceptions',     icon: '⚠', status: 'ready' },
+    { id: 'reconciliation', label: 'Reconciliation', icon: '⚖', status: 'ready' },
+    { id: 'audit',          label: 'Audit',          icon: '🔍', status: 'ready' },
+    { id: 'policy',         label: 'Policy',         icon: '📐', status: 'ready' },
+    { id: 'export',         label: 'Export',         icon: '📤', status: 'ready' },
+    { id: 'onboarding',     label: 'Onboarding',     icon: '🚢', status: 'ready' },
+    { id: 'soon-test',      label: 'SoonTest',       icon: '🚧', status: 'soon' },
+  ],
+  isWorkspaceId: (v: string) =>
+    ['close','exceptions','reconciliation','audit','policy','export','onboarding','soon-test'].includes(v),
+}));
 
 function probeWrap(ui: React.ReactNode) {
   let ctx!: ReturnType<typeof useWorkspace>;
@@ -30,8 +48,8 @@ it('clicking a soon workspace switches the active workspace', async () => {
 
 it('soon workspaces carry a non-color status marker (text), not color alone', () => {
   probeWrap(<SideNav />);
-  // Onboarding is still 'soon'; Policy graduated to 'ready' in Task 9.
-  const onboarding = screen.getByRole('button', { name: /Onboarding/ });
-  expect(onboarding).toHaveAttribute('data-status', 'soon');
-  expect(onboarding.textContent).toMatch(/soon/i);
+  // The test injects a synthetic 'soon-test' workspace; all real workspaces are now 'ready'.
+  const soonBtn = screen.getByRole('button', { name: /SoonTest/ });
+  expect(soonBtn).toHaveAttribute('data-status', 'soon');
+  expect(soonBtn.textContent).toMatch(/soon/i);
 });
