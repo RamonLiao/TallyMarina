@@ -107,3 +107,24 @@ CREATE TABLE IF NOT EXISTS period_lock (
   approved_by             TEXT,
   PRIMARY KEY (entity_id, period_id)
 );
+CREATE TABLE IF NOT EXISTS onboarding_challenge (
+  entity_id   TEXT NOT NULL REFERENCES entities(id),
+  wallet      TEXT NOT NULL,
+  nonce       TEXT NOT NULL,
+  expires_at  INTEGER NOT NULL,
+  consumed_at INTEGER,
+  created_at  INTEGER NOT NULL,
+  PRIMARY KEY (entity_id, wallet, nonce)
+);
+CREATE TABLE IF NOT EXISTS wallet_ownership_attestation (
+  id               TEXT PRIMARY KEY,
+  entity_id        TEXT NOT NULL REFERENCES entities(id),
+  wallet           TEXT NOT NULL,
+  nonce            TEXT NOT NULL,
+  verifier         TEXT NOT NULL,
+  initiated_by     TEXT NOT NULL,
+  message_snapshot TEXT NOT NULL,
+  template_version TEXT NOT NULL,
+  connected_account TEXT NOT NULL,
+  verified_at      INTEGER NOT NULL
+);
