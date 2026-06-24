@@ -7,10 +7,20 @@
 
 ## 1. Goal & Boundary
 
-A **read-only presentation-&-rounding governance panel**. It displays the active
+A **read-only presentation governance panel**. It displays the active
 `ResolvedPolicySet` and COA mapping, and runs a **pure-frontend what-if
-recompute** over existing journal-entry (JE) samples across two levers
-(rounding threshold, COA mapping), emitting a **diff preview**.
+recompute** over existing journal-entry (JE) samples on the **COA mapping
+lever**, emitting a **diff preview**.
+
+### Lever A (rounding) cut to deferred — data infeasibility (planning finding)
+The rounding what-if lever was **dropped from this slot**. Posted JE lines
+carry only the already-rounded integer `amountMinor`; the pre-rounding
+fractional value (needs `origQtyMinor × resolved price × fx`) is not derivable
+frontend-side — `priceRef`/`fxRef` are unresolved string refs and the price/fx
+values are backend demo constants not exposed. So rounding cannot be recomputed
+purely frontend from loaded JEs (spec's stated premise). It is deferred (§6)
+with its governance design notes preserved there. COA remap (Lever B) has no
+such dependency — it is fully computable from posted JE + event eventType.
 
 It **does not apply, persist, or mutate** anything, and does **not change
 rules-engine behavior** — honoring workspace-shell spec §6.9 ("AI 不可改 policy").
@@ -22,16 +32,16 @@ levers a CPA cares about most — **cost-basis method** (FIFO/LIFO/WAC) and
 **"method locked — preview not supported"**. `functionalCurrency` is further
 labeled **"fixed system assumption, not a configured policy"** (it is a
 hardcoded `'USD'` demo constant with empty `fxRates`). The panel's honest value
-prop is **presentation (COA reclassification) & rounding what-if**, plus
-governance display — not measurement-policy simulation.
+prop is **presentation (COA reclassification) what-if**, plus governance
+display — not measurement-policy simulation.
 
 ### Scope decisions (from brainstorm)
 - **Write boundary**: viewer + dry-run preview, **no** real CRUD (violates §6.9
   + flagged high-risk in `tasks/notes.md`).
-- **Preview levers**: A (`roundingThresholdMinor`) + B (COA mapping). Both
-  deterministic and pure-frontend computable. C (`costBasisMethod`) and D
-  (`functionalCurrency`) deferred (error-prone cost-basis state machine / no FX
-  infra).
+- **Preview levers**: **B (COA mapping) only** — deterministic and
+  pure-frontend computable. A (`roundingThresholdMinor`) deferred (data
+  infeasibility, above). C (`costBasisMethod`) and D (`functionalCurrency`)
+  deferred (error-prone cost-basis state machine / no FX infra).
 - **Data source**: additive read-only API endpoint exposing existing backend
   policy constants (mirrors how export exposed `periodId`/`leafCount`).
 - **Period applicability (D1=a)**: preview acts **only** on JEs of the
@@ -93,18 +103,10 @@ Pure functions, deterministic, immutable inputs (return new objects; originals
 untouched). React/fetch-free so unit tests stay pure (architect N5). Reuse
 `trialActivity`/`balance`/existing guards rather than reimplement.
 
-### Lever A — rounding (CPA §3 — corrected treatment)
-`previewRounding(jes, newThresholdMinor) → { absorbed: JeDiff[], flagged: JeReview[], roundingDiffDelta }`
-- Residual **below** threshold = deemed immaterial → absorbed into a dedicated
-  **Rounding-Difference account (P&L)**, NOT suspense. (Suspense is for
-  unclassified items pending investigation; routine rounding does not belong
-  there.)
-- Residual **at/above** threshold = material → **red-flag as a review
-  exception** (reuse engine's `JE_OUT_OF_BALANCE` / `REVIEW_REQUIRED`
-  semantics), **never auto-route**. A large unexplained difference signals a
-  real error (price/FX/lot math), not rounding.
-
-### Lever B — COA remap (CPA §4 — with controls)
+### Lever B — COA remap (CPA §4 — with controls), the sole lever this slot
+Join: `JournalDTO.eventId → EventDTO.id → final.eventType ?? ai.eventType` gives
+each JE's eventType; `JeLine.leg` (coerce `unknown`→string) gives the leg. Remap
+key = (eventType, leg), matching the backend `coaMappingTable` rule order.
 `previewCoaRemap(jes, newMappingTable) → { changed: JeDiff[], coverage, conservation, warnings }`
 - Pure lookup remap of (eventType, leg) → account; recompute trial-balance
   classification.
@@ -123,8 +125,9 @@ untouched). React/fetch-free so unit tests stay pure (architect N5). Reuse
   identically; flag divergence.
 
 ### Red-team (core logic — attack vectors + defenses)
-1. **Negative / non-integer threshold** → entry clamp + reject NaN, fall back
-   to baseline.
+1. **Malformed remap input** (empty/whitespace account, duplicate rule keys) →
+   reject/normalize; duplicate (eventType, leg) keys resolve by first-match
+   order (mirrors backend rule order), surfaced not silently shadowed.
 2. **COA remap to non-existent account** → validate against known account set;
    unknown → mark invalid, never silently swallow.
 3. **Unbalanced legs after remap** → per-JE balance assertion (reuse existing
@@ -146,10 +149,11 @@ label + mono value). Two clusters:
 - **Governance**: `policySetVersion` as a brass `.status-chip`; `periodOpen` via
   `.status-chip` (open=brass / locked=navy, per `close.css`); applicable
   `periodId`.
-- **Accounting config**: costBasis, functionalCurrency, rounding as mono
-  definition-rows. costBasis + functionalCurrency rendered read-only with a
-  **"method locked — preview not supported"** chip; functionalCurrency tagged
-  **"fixed system assumption"**.
+- **Accounting config**: costBasis, functionalCurrency, `roundingThresholdMinor`
+  as mono definition-rows (all read-only display). costBasis +
+  functionalCurrency carry a **"method locked — preview not supported"** chip;
+  functionalCurrency tagged **"fixed system assumption"**;
+  `roundingThresholdMinor` carries a **"what-if deferred"** chip.
 
 ### Region 2 — live COA mapping table
 The real, live mapping. Must be visually distinct from the preview's what-if
@@ -163,10 +167,11 @@ mapping so users never confuse them.
   (`.export-draft-card` `border-style: dashed`, `export.css:153-155`). This is
   the codebase's actual "not committed" vocabulary; do NOT invent a diagonal
   watermark.
-- **Lever inputs**: trigger via a **ghost-pill "Recompute preview"**
-  (`.export-retry-btn`, `export.css:216-234`) — explicitly NOT `.btn-primary`
-  (brass primary = real actions like Lock/Download). Ghost = safe/secondary, so
-  controls don't read as mutating.
+- **Lever input (COA remap only)**: an editable copy of the mapping table;
+  trigger via a **ghost-pill "Recompute preview"** (`.export-retry-btn`,
+  `export.css:216-234`) — explicitly NOT `.btn-primary` (brass primary = real
+  actions like Lock/Download). Ghost = safe/secondary, so controls don't read as
+  mutating.
 - **Diff table** (resolve the two colliding diff conventions):
   - "Changed" rows use **brass-Δ + left-border** (the `EventCompare` idiom,
     `EventCompare.tsx:50-56`) — deliberately not red/green, since changed≠bad.
@@ -201,9 +206,8 @@ add `aria-disabled`.
 - **Closed-period guard** → JEs outside the current open period are fenced and
   excluded from recompute; surfaced, not silently dropped.
 - **Tests**:
-  - `policyPreview` pure-function unit tests — each lever: happy path + 5
-    red-team edges + Lever A above/below threshold split + Lever B coverage/
-    conservation/orphaned/account-type/reversal assertions.
+  - `policyPreview` pure-function unit tests — Lever B: happy path + 5 red-team
+    edges + coverage/conservation/orphaned/account-type/reversal assertions.
   - Component render tests.
   - **Monkey testing** (garbage thresholds, huge JE volume, malicious mapping,
     closed-period JEs in sample).
@@ -218,6 +222,13 @@ add `aria-disabled`.
 ## 6. Deferred (honest)
 - **D1=b**: full effective-dated policy version history (`effectiveFrom`/`To`,
   per-JE posting version, prior-version diff).
+- **Lever A (rounding) what-if**: cut from this slot for data infeasibility
+  (posted JEs are pre-rounded; pre-rounding inputs not exposed). Preserved
+  design intent (corrected CPA treatment): residual **below** threshold →
+  dedicated **Rounding-Difference account (P&L)**, NOT suspense; residual
+  **at/above** threshold → **red-flag review exception** (reuse
+  `JE_OUT_OF_BALANCE`/`REVIEW_REQUIRED`), never auto-route. Requires exposing
+  resolved price/fx + a parity-safe re-derivation path before it can ship.
 - **C/D levers**: `costBasisMethod` and `functionalCurrency` preview.
 - **On-chain provenance binding** of `policySetVersion` (hash of
   `ResolvedPolicySet` into the anchored leaf) — current version is an off-chain
