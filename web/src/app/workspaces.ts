@@ -11,7 +11,7 @@ export const WORKSPACES: {
   { id: 'audit',          label: 'Audit',          icon: '🔍', status: 'ready' },
   { id: 'policy',         label: 'Policy',         icon: '📐', status: 'ready' },
   { id: 'export',         label: 'Export',         icon: '📤', status: 'ready' },
-  { id: 'onboarding',     label: 'Onboarding',     icon: '🚢', status: 'soon' },
+  { id: 'onboarding',     label: 'Onboarding',     icon: '🚢', status: 'ready' },
 ];
 
 const IDS = new Set(WORKSPACES.map((w) => w.id));

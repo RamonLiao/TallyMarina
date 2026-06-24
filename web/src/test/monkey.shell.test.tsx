@@ -8,6 +8,25 @@ vi.mock('@mysten/dapp-kit-react/ui', () => ({
   ConnectButton: () => <button type="button">Connect Wallet</button>,
 }));
 
+// All real workspaces are now 'ready'. Inject a synthetic 'soon-test' workspace so
+// the EmptyState gating test remains live without depending on live registry state.
+// WorkspaceContent routes by id (not status); 'soon-test' has no explicit branch,
+// so it falls through to the EmptyState "coming soon" render.
+vi.mock('../app/workspaces', () => ({
+  WORKSPACES: [
+    { id: 'close',          label: 'Close',          icon: '⚓', status: 'ready' },
+    { id: 'exceptions',     label: 'Exceptions',     icon: '⚠', status: 'ready' },
+    { id: 'reconciliation', label: 'Reconciliation', icon: '⚖', status: 'ready' },
+    { id: 'audit',          label: 'Audit',          icon: '🔍', status: 'ready' },
+    { id: 'policy',         label: 'Policy',         icon: '📐', status: 'ready' },
+    { id: 'export',         label: 'Export',         icon: '📤', status: 'ready' },
+    { id: 'onboarding',     label: 'Onboarding',     icon: '🚢', status: 'ready' },
+    { id: 'soon-test',      label: 'SoonTest',       icon: '🚧', status: 'soon' },
+  ],
+  isWorkspaceId: (v: string) =>
+    ['close','exceptions','reconciliation','audit','policy','export','onboarding','soon-test'].includes(v),
+}));
+
 function renderApp() {
   return render(<AppProviders><App /></AppProviders>);
 }
@@ -19,8 +38,9 @@ it('starts in the Close workspace showing the step rail', () => {
 
 it('switching to a soon workspace shows EmptyState and HIDES the close step rail', async () => {
   renderApp();
-  // Onboarding is still 'soon'; Policy graduated to 'ready' in Task 9.
-  await userEvent.click(screen.getByRole('button', { name: /Onboarding/ }));
+  // The test injects a synthetic 'soon-test' workspace; all real workspaces are now 'ready'.
+  // 'soon-test' has no branch in WorkspaceContent so it falls through to EmptyState.
+  await userEvent.click(screen.getByRole('button', { name: /SoonTest/ }));
   expect(screen.getByText(/coming soon/i)).toBeInTheDocument();
   // Why this matters: an empty workspace must not leak the previous workspace's content.
   expect(screen.queryByLabelText('Close-the-period progress')).not.toBeInTheDocument();
