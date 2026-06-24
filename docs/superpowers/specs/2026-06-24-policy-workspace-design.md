@@ -53,11 +53,15 @@ display — not measurement-policy simulation.
 
 ### Spine (脊椎)
 Policy's value is **governance/traceability display**, not cryptographic
-closure. Spine anchor (D2=a — wired this slot): the preview baseline
-`policySetVersion` from `GET /policy/active` is **cross-checked for equality**
-against the `policySetVersion` embedded in export bundle manifests. This
-requires first **wiring `policySetVersion` into the export `manifestObj`** (see
-§2), sourced from the same shared constant the endpoint reads.
+closure. Spine anchor (D2=a — wired this slot): both the export bundle manifest
+and the workspace display source `policySetVersion` from the **same
+`GET /policy/active` constant** (single source of truth), achieved by wiring
+`policySetVersion` into the export `manifestObj` (see §2). Because both read the
+same backend constant, same-session values are equal by construction — this is
+a single-source guarantee, **not an independent cryptographic attestation**
+(see governance-honesty note). A test pins both read sites to the endpoint
+value so a future hardcode on either side is caught (regression guard, not a
+runtime cross-check).
 
 ### Governance honesty (architect I4 / CPA §5)
 Policy is purely off-chain hardcoded constants; `policySetVersion` is **not**
@@ -203,8 +207,9 @@ add `aria-disabled`.
 
 - **Endpoint missing / failure** → policy card shows "policy unavailable",
   preview disabled (no crash, no fake data).
-- **Closed-period guard** → JEs outside the current open period are fenced and
-  excluded from recompute; surfaced, not silently dropped.
+- **Closed-period guard** → see §6 Deferred: true per-period fencing needs a
+  `periodId` on `JournalDTO` (not currently carried); the demo runs a single
+  open period (`2026-Q2`), so all loaded JEs belong to the open period.
 - **Tests**:
   - `policyPreview` pure-function unit tests — Lever B: happy path + 5 red-team
     edges + coverage/conservation/orphaned/account-type/reversal assertions.
@@ -220,8 +225,17 @@ add `aria-disabled`.
 - Targets: web vitest stays green (366 → +new, all green) + build 0; api green.
 
 ## 6. Deferred (honest)
+- **D1=a closed-period fencing**: deferred — `JournalDTO` carries no `periodId`,
+  so the frontend cannot fence JEs by period without backend support. The demo
+  is single-period (`2026-Q2`) so the category-error risk does not materialize
+  now; real fencing requires exposing per-JE period metadata (additive backend
+  change) before multi-period.
 - **D1=b**: full effective-dated policy version history (`effectiveFrom`/`To`,
   per-JE posting version, prior-version diff).
+- **CROSS_STATEMENT account-type sanity**: not implemented — requires
+  account-type (asset/liability/equity/income/expense) metadata not exposed by
+  any endpoint. Removed from the engine's `Warning` union rather than left as a
+  dead member advertising an absent guarantee.
 - **Lever A (rounding) what-if**: cut from this slot for data infeasibility
   (posted JEs are pre-rounded; pre-rounding inputs not exposed). Preserved
   design intent (corrected CPA treatment): residual **below** threshold →
