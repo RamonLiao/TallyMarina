@@ -34,6 +34,12 @@ import { buildSnapshot, InMemorySnapshotRepo } from '../deps/snapshotSvc.js';
 import { prepareAnchor, confirmAnchor, type AnchorServiceDeps } from './anchorService.js';
 import { SnapshotError } from '@subledger/snapshot-svc';
 import { DEMO_POLICY_SET, DEMO_COA_RULES, DEMO_DEFAULT_ACCOUNT } from './policyConstants.js';
+import { deriveSources } from '../onboarding/sources.js';
+import { issueChallenge } from '../onboarding/challenge.js';
+import { verifyOwnership } from '../onboarding/verify.js';
+import { latestAttestation, listAttestations } from '../store/onboardingStore.js';
+import { DEMO_ENTITY_META } from '../onboarding/constants.js';
+import { normalizeSuiAddress } from '@mysten/sui/utils';
 
 export interface RouteDeps {
   db: Db;
@@ -156,6 +162,52 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     coaMapping: { rules: DEMO_COA_RULES, defaultAccount: DEMO_DEFAULT_ACCOUNT },
     periodId: DEFAULT_PERIOD,
   }));
+
+  // GET /onboarding/:id — entity meta + derived sources + ownership attestation state
+  app.get<{ Params: { id: string } }>('/onboarding/:id', async (req) => {
+    const entity = requireEntity(db, req.params.id);
+    const sources = deriveSources(db, req.params.id);
+    const listed = new Set(sources.map((s) => normalizeSuiAddress(s.wallet)));
+    const sourcesOut = sources.map((s) => {
+      const att = latestAttestation(db, req.params.id, normalizeSuiAddress(s.wallet));
+      return {
+        wallet: s.wallet, eventCount: s.eventCount, isDemoOwned: s.isDemoOwned,
+        ownership: att ? { verified: true, verifiedAt: att.verifiedAt } : { verified: false },
+      };
+    });
+    const unlistedMap = listAttestations(db, req.params.id)
+      .filter((a) => !listed.has(a.wallet))
+      .reduce<Record<string, { wallet: string; verifiedAt: number }>>((acc, a) => {
+        if (!acc[a.wallet] || a.verifiedAt > acc[a.wallet]!.verifiedAt) acc[a.wallet] = { wallet: a.wallet, verifiedAt: a.verifiedAt };
+        return acc;
+      }, {});
+    return {
+      entity: { id: entity.id, displayName: entity.displayName, meta: DEMO_ENTITY_META[entity.id] ?? null },
+      sources: sourcesOut,
+      unlistedVerified: Object.values(unlistedMap),
+    };
+  });
+
+  // POST /onboarding/challenge — issue single-use nonce
+  app.post<{ Body: { wallet?: string } }>('/onboarding/challenge', async (req) => {
+    if (!req.body?.wallet) throw new ApiError(400, 'VALIDATION', 'wallet required');
+    return issueChallenge(db, cfg.entityId, req.body.wallet, Date.now());
+  });
+
+  // POST /onboarding/verify — server-side signature verification → attestation
+  app.post<{ Body: { wallet?: string; nonce?: string; signature?: string; connectedAccount?: string } }>(
+    '/onboarding/verify',
+    async (req) => {
+      const { wallet, nonce, signature, connectedAccount } = req.body ?? {};
+      if (!wallet || !nonce || !signature) throw new ApiError(400, 'VALIDATION', 'wallet, nonce, signature required');
+      const att = await verifyOwnership(
+        db,
+        { entityId: cfg.entityId, wallet, nonce, signature, connectedAccount: connectedAccount ?? wallet },
+        Date.now(),
+      );
+      return { verdict: 'VERIFIED', attestation: { wallet: att.wallet, verifiedAt: att.verifiedAt, verifier: att.verifier, templateVersion: att.templateVersion } };
+    },
+  );
 
   // 1. GET /entities
   app.get('/entities', async () => ({
