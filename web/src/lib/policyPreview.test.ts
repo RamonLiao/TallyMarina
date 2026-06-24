@@ -109,3 +109,29 @@ describe('previewCoaRemap', () => {
     expect(() => previewCoaRemap({ ...base, journal: [dirty], nextRules: baseRules, nextDefault: 'Suspense' })).not.toThrow();
   });
 });
+
+describe('policyPreview — monkey/extreme', () => {
+  const events = [{ id: 'e1', entityId: 'x', status: 'POSTED' as const, normalized: {}, ai: null, final: { eventType: 'DIGITAL_ASSET_RECEIPT', purpose: '' }, routing: null }];
+  const mkLine = (account: string, side: 'DEBIT'|'CREDIT', amt: string, leg: unknown) => ({ account, side, amountMinor: amt, origCoinType: null, origQtyMinor: null, priceRef: null, fxRef: null, leg });
+
+  it('huge journal volume does not throw and conserves totals', () => {
+    const journal = Array.from({ length: 5000 }, (_, i) => ({
+      id: `j${i}`, eventId: 'e1', idempotencyKey: `k${i}`, leafHash: 'h',
+      je: { idempotencyKey: `k${i}`, lineageHash: 'l', reversalOf: null, lines: [mkLine('DigitalAssets', 'DEBIT', '1000', 'L1'), mkLine('AccountsReceivable', 'CREDIT', '1000', 'L2')] },
+    }));
+    const r = previewCoaRemap({ journal, events, baseRules: [{ eventType: 'DIGITAL_ASSET_RECEIPT', leg: 'L1', account: 'DigitalAssets' }], baseDefault: 'Suspense', nextRules: [{ eventType: 'DIGITAL_ASSET_RECEIPT', leg: 'L1', account: 'CryptoHoldings' }], nextDefault: 'Suspense', knownAccounts: ['DigitalAssets','AccountsReceivable','CryptoHoldings','Suspense'] });
+    expect(r.conservation.balanced).toBe(true);
+  });
+
+  it('malicious leg values (object/number coerced) do not crash', () => {
+    const journal = [{ id: 'j', eventId: 'e1', idempotencyKey: 'k', leafHash: 'h', je: { idempotencyKey: 'k', lineageHash: 'l', reversalOf: null, lines: [mkLine('X', 'DEBIT', '1', { evil: true } as unknown), mkLine('Y', 'CREDIT', '1', 42 as unknown)] } }];
+    expect(() => previewCoaRemap({ journal: journal as any, events, baseRules: [], baseDefault: 'Suspense', nextRules: [], nextDefault: 'Suspense', knownAccounts: ['X','Y','Suspense'] })).not.toThrow();
+  });
+
+  it('negative and oversized minor amounts handled as BigInt', () => {
+    const big = '999999999999999999999999999999';
+    const journal = [{ id: 'j', eventId: 'e1', idempotencyKey: 'k', leafHash: 'h', je: { idempotencyKey: 'k', lineageHash: 'l', reversalOf: null, lines: [mkLine('X', 'DEBIT', big, 'L1'), mkLine('X', 'CREDIT', `-${big}`, 'L1')] } }];
+    const r = previewCoaRemap({ journal: journal as any, events, baseRules: [], baseDefault: 'Suspense', nextRules: [], nextDefault: 'Suspense', knownAccounts: ['X','Suspense'] });
+    expect(typeof r.conservation.beforeDebit).toBe('string');
+  });
+});
