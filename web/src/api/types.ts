@@ -158,3 +158,32 @@ export interface CloseReadiness {
   recon: { blocking: number; blockers: string[] };
   closeable: boolean;
 }
+
+// ---- Reopen reason codes ----
+
+// Mirror of services/api/src/periodLock/state.ts REOPEN_REASON_CODES (keep in sync with backend state.ts).
+export const REOPEN_REASON_CODES = ['ERROR_CORRECTION', 'ESTIMATE_CHANGE', 'LATE_ARRIVING_TXN', 'RECLASSIFICATION', 'OTHER'] as const;
+export type ReopenReasonCode = (typeof REOPEN_REASON_CODES)[number];
+
+// ---- Close Cockpit types ----
+
+// Wire/API LightStatus from the backend is 'green' | 'red' | 'mock'.
+// 'derived' is a FRONTEND-ONLY display state computed by effectiveStatus() in lightMeta.ts
+// (green + real:false → rendered as derived/≈). The backend never returns 'derived'.
+export type LightStatus = 'green' | 'red' | 'derived' | 'mock';
+export interface CockpitLight {
+  key: string;
+  status: LightStatus;
+  label: string;
+  real: boolean;
+}
+export interface CloseCockpitResponse {
+  lights: CockpitLight[];
+  status: 'OPEN' | 'LOCKED';
+  anchored: boolean;
+  staleAnchor: boolean;
+  closeable: boolean;
+  reopenCount: number;
+  restatementReason: string | null;
+  reasonCode: string | null;
+}

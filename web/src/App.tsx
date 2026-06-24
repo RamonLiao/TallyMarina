@@ -15,19 +15,25 @@ import { AnchorStep } from './steps/AnchorStep';
 import { ExceptionsWorkspace } from './workspaces/ExceptionsWorkspace';
 import { AuditWorkspace } from './workspaces/AuditWorkspace';
 import { ReconciliationWorkspace } from './workspaces/ReconciliationWorkspace';
+import { CloseCockpit } from './workspaces/close/CloseCockpit';
 
 function CloseWorkspace() {
-  const { step } = useEntityCtx();
+  const { step, entity } = useEntityCtx();
   return (
     <>
-      <StepRail current={step} />
-      <section style={{ marginTop: 'var(--space-6)' }} data-step={step}>
-        {step === 'ingest' && <IngestStep />}
-        {step === 'classify' && <ClassifyStep />}
-        {step === 'review' && <ReviewStep />}
-        {step === 'journal' && <JournalStep />}
-        {step === 'anchor' && <AnchorStep />}
-      </section>
+      <CloseCockpit entityId={entity?.id ?? ''} />
+      {/* StepRail + steps are now SECONDARY — the cockpit is the primary landing. */}
+      <details className="close-steps-secondary" style={{ marginTop: 'var(--space-6)' }}>
+        <summary>Step-by-step close flow</summary>
+        <StepRail current={step} />
+        <section data-step={step}>
+          {step === 'ingest' && <IngestStep />}
+          {step === 'classify' && <ClassifyStep />}
+          {step === 'review' && <ReviewStep />}
+          {step === 'journal' && <JournalStep />}
+          {step === 'anchor' && <AnchorStep />}
+        </section>
+      </details>
     </>
   );
 }

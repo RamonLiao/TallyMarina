@@ -1,0 +1,100 @@
+/* web/src/workspaces/close/close.css
+ * Token reconciliation vs tokens.css:
+ *   --line   → NOT defined; replaced with --paper-line (real token). Inline fallback kept.
+ *   --s-1..--s-3, --r-md, --shadow-md, --credit, --debit, --warn,
+ *   --ink-soft, --paper-card → all defined in tokens.css as aliases or palette entries.
+ *   --aqua / --aqua-bright   → RESERVED for on-chain provenance; NOT used here.
+ */
+
+.lights-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--s-3, 24px);
+}
+
+.light-card {
+  padding: var(--s-3, 24px);
+  border: 1px solid var(--paper-line, #e3d7bc);
+  border-radius: var(--r-md, 16px);
+  background: var(--paper-card, #fbf6ea);
+  box-shadow: var(--shadow-md, 0 4px 16px 0 rgba(30, 42, 74, 0.12));
+}
+
+.light-card__head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2, 16px);
+  font-weight: 700;
+}
+
+.light-card__glyph {
+  font-size: 1.1em;
+}
+
+.light-card__label {
+  color: var(--ink-soft, #3e4a6b);
+  font-size: 0.9em;
+  margin-top: var(--s-1, 8px);
+}
+
+.light-card__cta {
+  margin-top: var(--s-2, 16px);
+}
+
+/* ── State colours ── */
+
+.light--green {
+  color: var(--credit, #2f7a5a);
+}
+
+/* Red: left inset border as severity cue (legible without colour) */
+.light--red {
+  color: var(--debit, #b5532e);
+  box-shadow:
+    inset 3px 0 0 var(--debit, #b5532e),
+    var(--shadow-md, 0 4px 16px 0 rgba(30, 42, 74, 0.12));
+}
+
+.light--derived {
+  color: var(--warn, #c28a1e);
+}
+
+.light--mock {
+  color: var(--ink-soft, #3e4a6b);
+  border-style: dashed;
+}
+
+/* ── CloseCockpit ribbon + RWD ── */
+
+.close-cockpit { display: flex; flex-direction: column; gap: var(--s-4, 16px); }
+.period-ribbon {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3, 12px);
+  padding: var(--s-3, 12px);
+  border-radius: var(--r-md, 16px);
+  background: var(--paper-card, #fbf7ee);
+  transition: background 140ms;
+}
+.period-ribbon--locked { background: var(--ink, #1d2733); color: var(--paper, #f4ecd8); }
+.status-chip { padding: 2px 10px; border-radius: 999px; font-weight: 700; }
+.status-chip--open { background: var(--brass, #b08d57); color: #fff; }
+.status-chip--locked { background: var(--ink, #1d2733); color: var(--paper, #f4ecd8); border: 1px solid var(--brass, #b08d57); }
+.reopen-badge { color: var(--ink-soft, #8a8175); font-size: .85em; }
+.stale-anchor-warn { color: var(--warn, #c28a1e); font-weight: 600; }
+.cockpit-verdict { font-weight: 600; }
+@media (prefers-reduced-motion: reduce) { .period-ribbon { transition: none; } }
+@media (max-width: 640px) {
+  .lights-grid { grid-template-columns: 1fr; }
+}
+
+/* ── LockPanel ── */
+.lock-panel { position: sticky; bottom: 0; background: var(--paper, #f4ecd8); padding: var(--s-3, 12px) 0; }
+.lock-blockers { color: var(--debit, #b5532e); font-weight: 600; }
+.lock-err { color: var(--debit, #b5532e); }
+
+/* ── ReopenDialog ── */
+.reopen-ribbon { background: color-mix(in srgb, var(--warn, #c28a1e) 14%, transparent); color: var(--warn, #c28a1e); padding: var(--s-2, 8px) var(--s-3, 12px); border-radius: var(--r-md, 12px); margin-bottom: var(--s-3, 12px); }
+.reopen-steps { list-style: none; padding: 0; display: flex; flex-direction: column; gap: var(--s-3, 12px); }
+.step--idle { opacity: .5; }
+@media (max-width: 640px) { .reopen-steps { gap: var(--s-2, 8px); } }

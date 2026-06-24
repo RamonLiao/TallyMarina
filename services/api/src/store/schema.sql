@@ -90,3 +90,20 @@ CREATE TABLE IF NOT EXISTS recon_break_disposition_log (
   decided_by  TEXT NOT NULL,
   decided_at  INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS period_lock (
+  entity_id               TEXT NOT NULL REFERENCES entities(id),
+  period_id               TEXT NOT NULL,
+  status                  TEXT NOT NULL,
+  locked_at               INTEGER,
+  locked_by               TEXT,
+  lights_snapshot         TEXT,
+  reopened_at             INTEGER,
+  reopen_count            INTEGER NOT NULL DEFAULT 0,
+  restatement_reason      TEXT,
+  reason_code             TEXT,
+  affected_amount_estimate TEXT,
+  was_anchored_at_reopen  INTEGER,
+  requested_by            TEXT,
+  approved_by             TEXT,
+  PRIMARY KEY (entity_id, period_id)
+);
