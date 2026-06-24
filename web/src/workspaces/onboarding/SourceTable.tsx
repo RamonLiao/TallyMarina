@@ -60,7 +60,7 @@ export function SourceTable({ data, onVerified }: { data: OnboardingDTO; onVerif
               <td>
                 {!s.ownership.verified && (
                   account
-                    ? <button disabled={busy} onClick={() => { void onVerify(s.wallet); }}>{busy ? 'Signing…' : 'Verify ownership'}</button>
+                    ? <button className="btn-primary" disabled={busy} onClick={() => { void onVerify(s.wallet); }}>{busy ? 'Signing…' : 'Verify ownership'}</button>
                     : <span className="ob-hint">Connect wallet to verify</span>
                 )}
                 {rowErr && <span className="ob-bad"> {errMsg(errorCode)}</span>}
