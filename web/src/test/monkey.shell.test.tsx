@@ -19,8 +19,8 @@ it('starts in the Close workspace showing the step rail', () => {
 
 it('switching to a soon workspace shows EmptyState and HIDES the close step rail', async () => {
   renderApp();
-  // Policy is still 'soon'; Reconciliation graduated to 'ready' in Phase 1 A-3.
-  await userEvent.click(screen.getByRole('button', { name: /Policy/ }));
+  // Onboarding is still 'soon'; Policy graduated to 'ready' in Task 9.
+  await userEvent.click(screen.getByRole('button', { name: /Onboarding/ }));
   expect(screen.getByText(/coming soon/i)).toBeInTheDocument();
   // Why this matters: an empty workspace must not leak the previous workspace's content.
   expect(screen.queryByLabelText('Close-the-period progress')).not.toBeInTheDocument();
