@@ -223,7 +223,7 @@ export function ExportWorkspace({ entityId }: { entityId: string }) {
     } finally {
       setAssembling(false);
     }
-  }, [data, entityId, periodId, journal, events, anchors]);
+  }, [data, entityId, periodId]);
 
   const handleDownload = useCallback(() => {
     if (!outcome || !outcome.ok) return;
