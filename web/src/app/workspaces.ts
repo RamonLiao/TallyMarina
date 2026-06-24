@@ -10,7 +10,7 @@ export const WORKSPACES: {
   { id: 'reconciliation', label: 'Reconciliation', icon: '⚖', status: 'ready' },
   { id: 'audit',          label: 'Audit',          icon: '🔍', status: 'ready' },
   { id: 'policy',         label: 'Policy',         icon: '📐', status: 'soon' },
-  { id: 'export',         label: 'Export',         icon: '📤', status: 'soon' },
+  { id: 'export',         label: 'Export',         icon: '📤', status: 'ready' },
   { id: 'onboarding',     label: 'Onboarding',     icon: '🚢', status: 'soon' },
 ];
 
