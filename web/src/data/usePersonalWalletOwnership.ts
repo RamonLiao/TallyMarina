@@ -15,7 +15,7 @@ export function usePersonalWalletOwnership() {
     try {
       setStatus('awaiting-signature');
       const { nonce, message } = await postOnboardingChallenge(wallet);
-      const { signature } = await dAppKit.signPersonalMessage(new TextEncoder().encode(message));
+      const { signature } = await dAppKit.signPersonalMessage({ message: new TextEncoder().encode(message) });
       setStatus('verifying');
       await postOnboardingVerify({ wallet, nonce, signature, connectedAccount: account?.address ?? wallet });
       setStatus('verified');

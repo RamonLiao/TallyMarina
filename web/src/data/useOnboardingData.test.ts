@@ -10,7 +10,7 @@ function deferred<T>() {
 }
 const dto = (id: string) => ({ entity: { id, displayName: id, meta: null }, sources: [], unlistedVerified: [] });
 
-beforeEach(() => vi.restoreAllMocks());
+beforeEach(() => { vi.restoreAllMocks(); });
 
 describe('useOnboardingData', () => {
   it('exposes data for the current entity only (cross-key gate)', async () => {

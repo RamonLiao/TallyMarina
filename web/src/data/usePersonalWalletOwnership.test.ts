@@ -13,7 +13,7 @@ vi.mock('../api/endpoints', () => ({
 import { usePersonalWalletOwnership } from './usePersonalWalletOwnership';
 import { postOnboardingChallenge, postOnboardingVerify } from '../api/endpoints';
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => { vi.clearAllMocks(); });
 
 describe('usePersonalWalletOwnership', () => {
   it('runs challenge → sign → verify and lands on verified', async () => {
@@ -24,7 +24,7 @@ describe('usePersonalWalletOwnership', () => {
     const { result } = renderHook(() => usePersonalWalletOwnership());
     await act(async () => { await result.current.verify('0xabc'); });
     await waitFor(() => expect(result.current.status).toBe('verified'));
-    expect(signPersonalMessage).toHaveBeenCalledWith(new TextEncoder().encode('MSG'));
+    expect(signPersonalMessage).toHaveBeenCalledWith({ message: new TextEncoder().encode('MSG') });
     expect(postOnboardingVerify).toHaveBeenCalledWith({ wallet: '0xabc', nonce: 'n', signature: 'sigb64', connectedAccount: '0xabc' });
   });
 
