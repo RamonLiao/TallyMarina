@@ -1,0 +1,78 @@
+[
+  {
+    "id": "je-evt-002-4569c0612fb05719bb57fdd612b7280cc726af6d450585cdbd749c5064921a7f",
+    "eventId": "evt-002",
+    "idempotencyKey": "4569c0612fb05719bb57fdd612b7280cc726af6d450585cdbd749c5064921a7f",
+    "leafHash": "490bd11a4a6df0b47d6105996f026a84966bf6c671d6d49e86265096be08fb95",
+    "je": {
+      "idempotencyKey": "4569c0612fb05719bb57fdd612b7280cc726af6d450585cdbd749c5064921a7f",
+      "lineageHash": "730753de5451636d975fc99653b77cb1e1570aa6c458670e0ff1d9ea89655175",
+      "lines": [
+        {
+          "account": "DigitalAssets",
+          "side": "DEBIT",
+          "amountMinor": "120",
+          "origCoinType": null,
+          "origQtyMinor": null,
+          "priceRef": "px-1",
+          "fxRef": "identity:USD",
+          "leg": "EXPENSE"
+        },
+        {
+          "account": "DigitalAssets",
+          "side": "CREDIT",
+          "amountMinor": "1200",
+          "origCoinType": "0x2::sui::SUI",
+          "origQtyMinor": "1200000000",
+          "priceRef": null,
+          "fxRef": null,
+          "leg": "DISPOSAL"
+        },
+        {
+          "account": "DigitalAssets",
+          "side": "DEBIT",
+          "amountMinor": "1080",
+          "origCoinType": null,
+          "origQtyMinor": null,
+          "priceRef": null,
+          "fxRef": null,
+          "leg": "DISPOSAL_LOSS"
+        }
+      ],
+      "reversalOf": null
+    }
+  },
+  {
+    "id": "je-evt-001-b233bd8d450e5184c5650108ce033686e4631e06a87a081eba4a2fd39e722acb",
+    "eventId": "evt-001",
+    "idempotencyKey": "b233bd8d450e5184c5650108ce033686e4631e06a87a081eba4a2fd39e722acb",
+    "leafHash": "5225a928aabe6bf50b1369c5d1d145309eb0bc1e0cf3e61ac72edf1306b3b4ce",
+    "je": {
+      "idempotencyKey": "b233bd8d450e5184c5650108ce033686e4631e06a87a081eba4a2fd39e722acb",
+      "lineageHash": "ffc663fbc8e5bd3b88b56e32927339642e7ddf0dace31e4424397015c638bfc6",
+      "lines": [
+        {
+          "account": "AccountsReceivable",
+          "side": "DEBIT",
+          "amountMinor": "500",
+          "origCoinType": "0x2::sui::SUI",
+          "origQtyMinor": "5000000000",
+          "priceRef": "px-1",
+          "fxRef": "identity:USD",
+          "leg": "ACQUISITION"
+        },
+        {
+          "account": "AccountsReceivable",
+          "side": "CREDIT",
+          "amountMinor": "500",
+          "origCoinType": null,
+          "origQtyMinor": null,
+          "priceRef": null,
+          "fxRef": null,
+          "leg": "RECEIVABLE_SETTLEMENT"
+        }
+      ],
+      "reversalOf": null
+    }
+  }
+]
