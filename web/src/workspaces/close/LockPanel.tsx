@@ -33,7 +33,7 @@ export function LockPanel({ data, entityId, onChanged }: { data: CloseCockpitRes
         {data.status === 'LOCKED' ? 'Period locked' : 'Lock the period'}
       </button>
       {!canLock && data.status === 'OPEN' && (
-        <p role="status" className="lock-blockers">Locked out by: {blockers.join(', ') || '—'}</p>
+        <p role="status" className="lock-blockers"><span aria-hidden="true" className="lock-blockers__icon">⚠</span>Locked out by: {blockers.join(', ') || '—'}</p>
       )}
       {err && <p className="lock-err" role="alert">{err}</p>}
     </div>

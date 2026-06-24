@@ -126,8 +126,34 @@
   gap: var(--s-2, 16px);
 }
 .lock-panel > * { margin: 0; }
-.lock-blockers { color: var(--debit, #b5532e); font-weight: 600; margin: 0; }
-.lock-err { color: var(--debit, #b5532e); margin: 0; }
+/* Scoped disabled treatment: the global .btn-primary:disabled drops to 0.45
+   opacity, which muddies the brass fill + navy text into an illegible grey.
+   In this blocked-lock context, show a clean, clearly-disabled-but-readable
+   button instead. Enabled state keeps the full brass primary. */
+.lock-panel .btn-primary:disabled {
+  opacity: 1;
+  background: var(--paper-card, #fbf6ea);
+  border-color: var(--paper-line, #e3d7bc);
+  color: var(--ink-soft, #3e4a6b);
+  cursor: not-allowed;
+  box-shadow: none;
+}
+/* Blocker reason is the caption explaining why the lock is disabled — a compact
+   chip, not bare floating red text. */
+.lock-blockers {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 5px 12px;
+  border-radius: var(--radius-sm, 10px);
+  background: color-mix(in srgb, var(--debit, #b5532e) 10%, transparent);
+  color: var(--debit, #b5532e);
+  font-weight: 600;
+  font-size: 13px;
+}
+.lock-blockers__icon { line-height: 1; }
+.lock-err { color: var(--debit, #b5532e); margin: 0; font-size: 13px; }
 
 /* ── ReopenDialog ── */
 .reopen-ribbon { background: color-mix(in srgb, var(--warn, #c28a1e) 14%, transparent); color: var(--warn, #c28a1e); padding: var(--s-2, 8px) var(--s-3, 12px); border-radius: var(--r-md, 12px); margin-bottom: var(--s-3, 12px); }
