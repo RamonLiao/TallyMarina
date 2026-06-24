@@ -91,7 +91,7 @@ export function previewCoaRemap(input: PreviewInput): PreviewResult {
   const beforeDebit = sum(beforeActivity, 'debitMinor'), beforeCredit = sum(beforeActivity, 'creditMinor');
   const afterDebit = sum(afterActivity, 'debitMinor'), afterCredit = sum(afterActivity, 'creditMinor');
   const conservation: Conservation = {
-    balanced: beforeDebit === afterDebit && beforeCredit === afterCredit,
+    balanced: beforeDebit === beforeCredit && afterDebit === afterCredit,
     beforeDebit: beforeDebit.toString(), beforeCredit: beforeCredit.toString(),
     afterDebit: afterDebit.toString(), afterCredit: afterCredit.toString(),
   };

@@ -44,6 +44,22 @@ describe('previewCoaRemap', () => {
     expect(r.conservation.beforeCredit).toBe(r.conservation.afterCredit);
   });
 
+  it('conservation.balanced is false for an unbalanced journal (debit 1000, credit 600)', () => {
+    // An unbalanced journal must not silently pass the invariant check.
+    // beforeDebit(1000) !== beforeCredit(600) → balanced must be false.
+    const unbalancedJe = je([
+      line('DigitalAssets', 'DEBIT', '1000', 'L1'),
+      line('AccountsReceivable', 'CREDIT', '600', 'L2'),
+    ]);
+    const r = previewCoaRemap({
+      ...base,
+      journal: [unbalancedJe],
+      nextRules: [{ eventType: 'DIGITAL_ASSET_RECEIPT', leg: 'L1', account: 'CryptoHoldings' }, baseRules[1]!],
+      nextDefault: 'Suspense',
+    });
+    expect(r.conservation.balanced).toBe(false);
+  });
+
   it('coverage: counts legs that fall to the default', () => {
     const r = previewCoaRemap({ ...base, nextRules: [], nextDefault: 'Suspense' });
     expect(r.coverage.defaulted).toBe(2);
@@ -61,11 +77,25 @@ describe('previewCoaRemap', () => {
   });
 
   it('flags REVERSAL_DIVERGENCE when an entry and its reversal would remap differently', () => {
-    const orig = je([line('DigitalAssets', 'DEBIT', '1000', 'L1')]);
-    const rev: JournalDTO = { ...je([line('DigitalAssets', 'CREDIT', '1000', 'L1')]), id: 'j2', je: { idempotencyKey: 'k2', lineageHash: 'lh2', reversalOf: 'k1', lines: [line('DigitalAssets', 'CREDIT', '1000', 'L1')] } };
-    // engineered so the rule set treats them inconsistently — assert the detector path runs
-    const r = previewCoaRemap({ ...base, journal: [orig, rev], nextRules: baseRules, nextDefault: 'Suspense' });
-    expect(Array.isArray(r.warnings)).toBe(true); // structural: reversal pairing inspected
+    // Original JE uses eventType 'DIGITAL_ASSET_RECEIPT' (e1), reversal uses 'DIGITAL_ASSET_SALE' (e2).
+    // nextRules maps DIGITAL_ASSET_RECEIPT/L1 → CryptoHoldings, DIGITAL_ASSET_SALE/L1 → Revenue.
+    // Same leg 'L1', but the two JEs resolve to different toAccounts → REVERSAL_DIVERGENCE must fire.
+    const e2: EventDTO = { id: 'e2', entityId: 'x', status: 'POSTED', normalized: {}, ai: { eventType: 'DIGITAL_ASSET_SALE', purpose: '', counterparty: null, confidence: 1, reasoning: '' }, final: { eventType: 'DIGITAL_ASSET_SALE', purpose: '' }, routing: null };
+    const origJe: JournalDTO = { id: 'j1', eventId: 'e1', idempotencyKey: 'k1', leafHash: 'h1', je: { idempotencyKey: 'k1', lineageHash: 'lh1', reversalOf: null, lines: [line('DigitalAssets', 'DEBIT', '1000', 'L1')] } };
+    const revJe: JournalDTO = { id: 'j2', eventId: 'e2', idempotencyKey: 'k2', leafHash: 'h2', je: { idempotencyKey: 'k2', lineageHash: 'lh2', reversalOf: 'k1', lines: [line('DigitalAssets', 'CREDIT', '1000', 'L1')] } };
+    const divergingRules: CoaRuleDTO[] = [
+      { eventType: 'DIGITAL_ASSET_RECEIPT', leg: 'L1', account: 'CryptoHoldings' },
+      { eventType: 'DIGITAL_ASSET_SALE', leg: 'L1', account: 'Revenue' },
+    ];
+    const r = previewCoaRemap({
+      ...base,
+      journal: [origJe, revJe],
+      events: [...events, e2],
+      nextRules: divergingRules,
+      nextDefault: 'Suspense',
+      knownAccounts: ['DigitalAssets', 'AccountsReceivable', 'CryptoHoldings', 'Revenue', 'Suspense'],
+    });
+    expect(r.warnings.some(w => w.kind === 'REVERSAL_DIVERGENCE')).toBe(true);
   });
 
   it('empty journal → empty result, no throw', () => {
