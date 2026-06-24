@@ -1,7 +1,7 @@
 import { fetchJson } from './client';
 import type {
   EntityDTO, EventDTO, JournalDTO, AnchorDTO, CopilotAdvice,
-  SnapshotDTO, PrepareDTO, InclusionProof,
+  SnapshotDTO, PrepareDTO, InclusionProof, PolicyActiveDTO,
 } from './types';
 
 const enc = encodeURIComponent;
@@ -95,4 +95,9 @@ export async function getAnchors(
 ): Promise<{ anchors: AnchorDTO[]; inclusionProof: InclusionProof | null }> {
   const q = idempotencyKey ? `?idempotencyKey=${enc(idempotencyKey)}` : '';
   return fetchJson(`/entities/${enc(entityId)}/anchors${q}`);
+}
+
+// 14. GET /policy/active
+export async function getPolicyActive(): Promise<PolicyActiveDTO> {
+  return fetchJson<PolicyActiveDTO>('/policy/active');
 }

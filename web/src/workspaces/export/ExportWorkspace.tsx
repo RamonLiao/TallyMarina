@@ -197,6 +197,7 @@ export function ExportWorkspace({ entityId }: { entityId: string }) {
   const journal = data?.journal ?? [];
   const events = data?.events ?? [];
   const anchors = data?.anchors ?? [];
+  const policySetVersion = data?.policySetVersion ?? null;
 
   const handlePreview = useCallback(async () => {
     if (!data) return;
@@ -217,6 +218,7 @@ export function ExportWorkspace({ entityId }: { entityId: string }) {
           const res = await getAnchors(entityId, idempotencyKey);
           return { anchors: res.anchors, inclusionProof: res.inclusionProof ?? null };
         },
+        policySetVersion,
       });
       setOutcome(result);
     } catch (e) {

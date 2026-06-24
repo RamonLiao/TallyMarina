@@ -33,6 +33,7 @@ import { evaluate, buildMerkle, leafHash, inclusionProof, type JournalEntry } fr
 import { buildSnapshot, InMemorySnapshotRepo } from '../deps/snapshotSvc.js';
 import { prepareAnchor, confirmAnchor, type AnchorServiceDeps } from './anchorService.js';
 import { SnapshotError } from '@subledger/snapshot-svc';
+import { DEMO_POLICY_SET, DEMO_COA_RULES, DEMO_DEFAULT_ACCOUNT } from './policyConstants.js';
 
 export interface RouteDeps {
   db: Db;
@@ -148,6 +149,13 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     reply.log.error({ err }, 'unhandled error');
     return reply.code(500).send(toEnvelope('INTERNAL', 'Internal error'));
   });
+
+  // GET /policy/active — read-only policy constants endpoint
+  app.get('/policy/active', async () => ({
+    policySet: DEMO_POLICY_SET,
+    coaMapping: { rules: DEMO_COA_RULES, defaultAccount: DEMO_DEFAULT_ACCOUNT },
+    periodId: DEFAULT_PERIOD,
+  }));
 
   // 1. GET /entities
   app.get('/entities', async () => ({

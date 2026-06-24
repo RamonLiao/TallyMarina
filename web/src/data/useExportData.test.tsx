@@ -10,17 +10,21 @@ const makeAnchors = (id = 'a1', entityId = 'e1') => [{ id, entityId, digest: 'ab
 // We import the mocked module to spy on it
 import * as endpoints from '../api/endpoints';
 
+const makePolicyActive = () => ({ policySet: { policySetVersion: 'demo-ps-1' } });
+
 beforeEach(() => {
   vi.resetAllMocks();
   vi.mocked(endpoints.getJournal).mockResolvedValue(makeJournal() as never);
   vi.mocked(endpoints.listEvents).mockResolvedValue(makeEvents() as never);
   vi.mocked(endpoints.getAnchors).mockResolvedValue({ anchors: makeAnchors(), inclusionProof: null } as never);
+  vi.mocked(endpoints.getPolicyActive).mockResolvedValue(makePolicyActive() as never);
 });
 
 vi.mock('../api/endpoints', () => ({
   getJournal: vi.fn(),
   listEvents: vi.fn(),
   getAnchors: vi.fn(),
+  getPolicyActive: vi.fn(),
 }));
 
 it('fetches all three endpoints and returns combined data', async () => {
@@ -232,6 +236,18 @@ it('sets error state when fetch fails (fail-loud)', async () => {
   await waitFor(() => expect(result.current.loading).toBe(false));
   expect(result.current.error).toBe('server error');
   expect(result.current.data).toBeUndefined();
+});
+
+it('policySetVersion in export data is sourced from getPolicyActive endpoint (spine drift guard)', async () => {
+  // WHY (§5 spine cross-check): the export bundle manifest reads policySetVersion
+  // from getPolicyActive(), NOT from a hardcoded literal. If someone refactors
+  // useExportData to hardcode the version, this test fails — catching silent drift.
+  vi.mocked(endpoints.getPolicyActive).mockResolvedValueOnce(
+    { policySet: { policySetVersion: 'sentinel-ps-xyz' } } as never
+  );
+  const { result } = renderHook(() => useExportData('e1'));
+  await waitFor(() => expect(result.current.data).toBeDefined());
+  expect(result.current.data?.policySetVersion).toBe('sentinel-ps-xyz');
 });
 
 it('loading transitions correctly', async () => {

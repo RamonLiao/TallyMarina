@@ -189,3 +189,30 @@ export interface CloseCockpitResponse {
   restatementReason: string | null;
   reasonCode: string | null;
 }
+
+// ---- Policy types ----
+
+export interface ResolvedPolicySetDTO {
+  policySetVersion: string;
+  assetPolicyVersion: string;
+  eventPolicyVersion: string;
+  ruleVersion: string;
+  parserVersion: string;
+  normalizationVersion: string;
+  costBasisMethod: 'FIFO';
+  functionalCurrency: string;
+  roundingThresholdMinor: string;
+  periodOpen: boolean;
+}
+
+export interface CoaRuleDTO {
+  eventType: string;
+  leg: string;
+  account: string;
+}
+
+export interface PolicyActiveDTO {
+  policySet: ResolvedPolicySetDTO;
+  coaMapping: { rules: CoaRuleDTO[]; defaultAccount: string };
+  periodId: string;
+}

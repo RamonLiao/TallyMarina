@@ -130,6 +130,20 @@ describe('buildBundle', () => {
     await expect(buildBundle(badDateInput)).rejects.toThrow('missing date');
   });
 
+  it('manifest carries policySetVersion when provided', async () => {
+    const result = await buildBundle({ ...draftInput, policySetVersion: 'demo-ps-1' });
+    const manifestFile = result.files.find((f) => f.name === 'manifest.json')!;
+    const manifest = JSON.parse(manifestFile.content) as Record<string, unknown>;
+    expect(manifest.policySetVersion).toBe('demo-ps-1');
+  });
+
+  it('manifest policySetVersion is null when absent', async () => {
+    const result = await buildBundle(draftInput);
+    const manifestFile = result.files.find((f) => f.name === 'manifest.json')!;
+    const manifest = JSON.parse(manifestFile.content) as Record<string, unknown>;
+    expect(manifest.policySetVersion).toBeNull();
+  });
+
   it('verified path: journal.csv debit/credit amounts are formatted by formatMinor', async () => {
     const result = await buildBundle(verifiedInput);
     const csvFile = result.files.find((f) => f.name === 'journal.csv')!;

@@ -1,26 +1,25 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { JournalDTO, EventDTO, AnchorDTO } from '../api/types';
-import { getJournal, listEvents, getAnchors, getPolicyActive } from '../api/endpoints';
+import type { JournalDTO, EventDTO, PolicyActiveDTO } from '../api/types';
+import { getJournal, listEvents, getPolicyActive } from '../api/endpoints';
 
-interface ExportValue {
+interface PolicyValue {
+  policy: PolicyActiveDTO;
   journal: JournalDTO[];
   events: EventDTO[];
-  anchors: AnchorDTO[];
-  policySetVersion: string | null;
 }
 
 interface FetchedState {
   entityId: string;
-  value?: ExportValue;
+  value?: PolicyValue;
   error?: string;
 }
 
-export function useExportData(entityId: string) {
+export function usePolicyData(entityId: string) {
   // Store fetched payload paired with the entityId it was fetched FOR.
-  // WHY: render-time gate (state.entityId === entityId) is the ONLY guarantee
-  // we need — it ensures the exposed data always belongs to the current entity,
-  // even if a prior-entity in-flight fetch resolves late. No post-commit effect
-  // can close this race; only a same-render check can.
+  // Render-time gate (state.entityId === entityId) ensures the exposed data
+  // always belongs to the current entity, even if a prior-entity in-flight fetch
+  // resolves late. No post-commit effect can close this race; only a same-render
+  // check can.
   const [state, setState] = useState<FetchedState>(() => ({ entityId }));
   const [loading, setLoading] = useState(false);
   const genRef = useRef(0);
@@ -30,24 +29,15 @@ export function useExportData(entityId: string) {
     const capturedEntityId = entityId;
     const gen = ++genRef.current;
     setLoading(true);
-    setState(prev => ({ ...prev, error: undefined }));
+    setState((prev) => ({ ...prev, error: undefined }));
     try {
-      const [journal, events, anchorsResult, policy] = await Promise.all([
+      const [policy, journal, events] = await Promise.all([
+        getPolicyActive(),
         getJournal(capturedEntityId),
         listEvents(capturedEntityId),
-        getAnchors(capturedEntityId),
-        getPolicyActive().catch(() => null),
       ]);
       if (gen === genRef.current) {
-        setState({
-          entityId: capturedEntityId,
-          value: {
-            journal,
-            events,
-            anchors: anchorsResult.anchors,
-            policySetVersion: policy?.policySet?.policySetVersion ?? null,
-          },
-        });
+        setState({ entityId: capturedEntityId, value: { policy, journal, events } });
       }
     } catch (e) {
       if (gen === genRef.current) {
@@ -58,7 +48,9 @@ export function useExportData(entityId: string) {
     }
   }, [entityId]);
 
-  useEffect(() => { void refetch(); }, [refetch]);
+  useEffect(() => {
+    void refetch();
+  }, [refetch]);
 
   // Render-time gate: expose data/error only when the stored entityId matches
   // the current entityId. This fires on every render so the moment entityId

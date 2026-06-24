@@ -30,8 +30,8 @@ it('clicking a soon workspace switches the active workspace', async () => {
 
 it('soon workspaces carry a non-color status marker (text), not color alone', () => {
   probeWrap(<SideNav />);
-  // Policy is still 'soon'; Reconciliation graduated to 'ready' in Phase 1 A-3.
-  const policy = screen.getByRole('button', { name: /Policy/ });
-  expect(policy).toHaveAttribute('data-status', 'soon');
-  expect(policy.textContent).toMatch(/soon/i);
+  // Onboarding is still 'soon'; Policy graduated to 'ready' in Task 9.
+  const onboarding = screen.getByRole('button', { name: /Onboarding/ });
+  expect(onboarding).toHaveAttribute('data-status', 'soon');
+  expect(onboarding.textContent).toMatch(/soon/i);
 });

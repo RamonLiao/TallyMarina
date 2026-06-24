@@ -17,6 +17,7 @@ import { AuditWorkspace } from './workspaces/AuditWorkspace';
 import { ReconciliationWorkspace } from './workspaces/ReconciliationWorkspace';
 import { CloseCockpit } from './workspaces/close/CloseCockpit';
 import { ExportWorkspace } from './workspaces/export/ExportWorkspace';
+import { PolicyWorkspace } from './workspaces/policy/PolicyWorkspace';
 
 function CloseWorkspace() {
   const { step, entity } = useEntityCtx();
@@ -47,6 +48,7 @@ function WorkspaceContent() {
   if (activeWorkspace === 'audit') return <AuditWorkspace />;
   if (activeWorkspace === 'reconciliation') return <ReconciliationWorkspace entityId={entity?.id ?? ''} />;
   if (activeWorkspace === 'export') return <ExportWorkspace entityId={entity?.id ?? ''} />;
+  if (activeWorkspace === 'policy') return <PolicyWorkspace />;
   const meta = WORKSPACES.find((w) => w.id === activeWorkspace);
   return (
     <EmptyState
