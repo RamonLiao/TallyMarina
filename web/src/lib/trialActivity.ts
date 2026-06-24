@@ -16,8 +16,8 @@ export function trialActivity(lines: JournalLine[]): ActivityResult {
   let totalDebit = 0n;
   let totalCredit = 0n;
   for (const l of lines) {
-    if (typeof l.amountMinor !== 'string' || l.amountMinor.trim() === '') {
-      throw new Error(`trialActivity: amountMinor must be a non-empty string, got ${JSON.stringify(l.amountMinor)} on ${l.account}`);
+    if (typeof l.amountMinor !== 'string' || !/^-?\d+$/.test(l.amountMinor)) {
+      throw new Error(`trialActivity: invalid amountMinor ${JSON.stringify(l.amountMinor)} on ${l.account}`);
     }
     const amt = BigInt(l.amountMinor);
     if (amt < 0n) throw new Error(`trialActivity: amountMinor must be non-negative, got ${l.amountMinor} on ${l.account}`);

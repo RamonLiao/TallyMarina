@@ -33,4 +33,25 @@ describe('trialActivity', () => {
     expect(() => trialActivity([L('asset', 'DEBIT', '-5'), L('ar', 'CREDIT', '-5')]))
       .toThrow(/non-negative|negative/i);
   });
+
+  // WHY: BigInt('') silently returns 0n (NOT a SyntaxError) — the guard prevents this silent-zero footgun
+  it('THROWS on empty string amountMinor (WHY: BigInt("") => 0n silently, not a throw — guard stops silent-$0 fake balance)', () => {
+    expect(() => trialActivity([L('asset', 'DEBIT', ''), L('ar', 'CREDIT', '')]))
+      .toThrow(/invalid amountMinor/);
+  });
+
+  it('THROWS on decimal amountMinor "1.5" (WHY: unified guard catches malformed values with descriptive error)', () => {
+    expect(() => trialActivity([L('asset', 'DEBIT', '1.5'), L('ar', 'CREDIT', '1.5')]))
+      .toThrow(/invalid amountMinor/);
+  });
+
+  it('THROWS on non-numeric amountMinor "abc" (WHY: unified guard catches malformed values with descriptive error)', () => {
+    expect(() => trialActivity([L('asset', 'DEBIT', 'abc'), L('ar', 'CREDIT', 'abc')]))
+      .toThrow(/invalid amountMinor/);
+  });
+
+  it('accepts valid "0" and normal integer strings', () => {
+    const r = trialActivity([L('asset', 'DEBIT', '0'), L('ar', 'CREDIT', '0')]);
+    expect(r.totalDebitMinor).toBe(0n);
+  });
 });
