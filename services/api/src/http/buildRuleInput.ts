@@ -1,16 +1,9 @@
 import type { EventRow } from '../store/eventStore.js';
 import type {
   RuleInput, NormalizedEvent, RunContext, ResolvedPolicySet, ClassificationAssessment,
-  PositionLot, PricePoint, FxRate, CoaMapping,
+  PositionLot, PricePoint, FxRate,
 } from '../deps/rulesEngine.js';
-
-const coaMapping: CoaMapping = {
-  resolve({ eventType, leg }): string | null {
-    if (eventType === 'DIGITAL_ASSET_RECEIPT') return leg === 'L1' ? 'DigitalAssets' : 'AccountsReceivable';
-    if (eventType === 'DIGITAL_ASSET_PAYMENT') return leg === 'L1' ? 'AccountsPayable' : 'DigitalAssets';
-    return 'Suspense';
-  },
-};
+import { DEMO_POLICY_SET, buildCoaMapping } from './policyConstants.js';
 
 export function buildRuleInput(event: EventRow, opts: { periodId: string }): RuleInput {
   const ne = JSON.parse(event.rawJson) as NormalizedEvent;
@@ -18,11 +11,8 @@ export function buildRuleInput(event: EventRow, opts: { periodId: string }): Rul
     runId: `run-${event.id}`, entityId: event.entityId, bookId: ne.bookId,
     periodId: opts.periodId, mode: 'POST', asOf: ne.eventTime,
   };
-  const policySet: ResolvedPolicySet = {
-    policySetVersion: 'demo-ps-1', assetPolicyVersion: 'demo-ap-1', eventPolicyVersion: 'demo-ep-1',
-    ruleVersion: 'demo-rule-1', parserVersion: 'demo-parse-1', normalizationVersion: 'demo-norm-1',
-    costBasisMethod: 'FIFO', functionalCurrency: 'USD', roundingThresholdMinor: '0', periodOpen: true,
-  };
+  const policySet: ResolvedPolicySet = DEMO_POLICY_SET;
+  const coaMapping = buildCoaMapping();
   const assetAssessment: ClassificationAssessment = {
     coinType: ne.coinType, status: 'APPROVED',
     accountingClass: 'INTANGIBLE_IAS38_COST', measurementModel: 'IAS38_COST',
