@@ -1,0 +1,18 @@
+/* web/src/workspaces/onboarding/onboarding.css */
+.ob-workspace { display: flex; flex-direction: column; gap: var(--space-4); max-width: 1200px; margin: 0 auto; }
+.ob-toolbar { display: flex; justify-content: flex-end; }
+.ob-card { background: var(--paper-card); border: 1px solid var(--paper-line); border-radius: var(--radius-md); padding: var(--space-4); }
+.ob-card-title { margin: 0 0 var(--space-1); }
+.ob-card-note { color: var(--ink-soft); font-size: 0.85em; margin: 0 0 var(--space-3); }
+.ob-defrow { display: flex; align-items: center; gap: var(--space-2); padding: 4px 0; flex-wrap: wrap; }
+.ob-defrow-label { min-width: 220px; text-transform: uppercase; font-size: 0.78em; letter-spacing: 0.04em; color: var(--ink-soft); }
+.ob-defrow-value { font-size: 0.92em; }
+.ob-table { width: 100%; border-collapse: collapse; }
+.ob-table th { text-align: left; font-size: 0.78em; text-transform: uppercase; color: var(--ink-soft); border-bottom: 1px solid var(--paper-line); padding: 6px 8px; }
+.ob-table td { padding: 6px 8px; border-bottom: 1px solid var(--paper-line); }
+.ob-badge { font-size: 0.72em; padding: 2px 8px; border-radius: 999px; border: 1px solid; }
+.ob-badge--unverified { color: var(--ink-soft); border-color: color-mix(in srgb, var(--ink-soft) 40%, transparent); }
+.ob-badge--verified { color: var(--credit); border-color: color-mix(in srgb, var(--credit) 40%, transparent); background: color-mix(in srgb, var(--credit) 10%, var(--paper-card)); }
+.ob-tag { font-size: 0.7em; color: var(--ink-soft); }
+.ob-hint { font-size: 0.8em; color: var(--ink-soft); }
+.ob-bad { color: var(--debit); }
