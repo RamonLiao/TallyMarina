@@ -216,3 +216,34 @@ export interface PolicyActiveDTO {
   coaMapping: { rules: CoaRuleDTO[]; defaultAccount: string };
   periodId: string;
 }
+
+// ---- Onboarding types ----
+
+export interface OnboardingSourceDTO {
+  wallet: string;
+  eventCount: number;
+  isDemoOwned: boolean;
+  ownership: { verified: boolean; verifiedAt?: number };
+}
+
+export interface OnboardingDTO {
+  entity: {
+    id: string;
+    displayName: string;
+    meta: { functionalCurrency: string; reportingCurrency: string; fiscalCalendar: string; timezone: string } | null;
+  };
+  sources: OnboardingSourceDTO[];
+  unlistedVerified: { wallet: string; verifiedAt: number }[];
+}
+
+export interface ChallengeDTO {
+  nonce: string;
+  message: string;
+  expiresAt: number;
+  wallet: string;
+}
+
+export interface VerifyResultDTO {
+  verdict: 'VERIFIED';
+  attestation: { wallet: string; verifiedAt: number; verifier: string; templateVersion: string };
+}

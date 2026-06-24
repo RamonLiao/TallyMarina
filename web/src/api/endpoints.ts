@@ -2,6 +2,7 @@ import { fetchJson } from './client';
 import type {
   EntityDTO, EventDTO, JournalDTO, AnchorDTO, CopilotAdvice,
   SnapshotDTO, PrepareDTO, InclusionProof, PolicyActiveDTO,
+  OnboardingDTO, ChallengeDTO, VerifyResultDTO,
 } from './types';
 
 const enc = encodeURIComponent;
@@ -100,4 +101,19 @@ export async function getAnchors(
 // 14. GET /policy/active
 export async function getPolicyActive(): Promise<PolicyActiveDTO> {
   return fetchJson<PolicyActiveDTO>('/policy/active');
+}
+
+// 15. GET /onboarding/:entityId
+export function getOnboarding(entityId: string): Promise<OnboardingDTO> {
+  return fetchJson<OnboardingDTO>(`/onboarding/${enc(entityId)}`);
+}
+
+// 16. POST /onboarding/challenge
+export function postOnboardingChallenge(wallet: string): Promise<ChallengeDTO> {
+  return fetchJson<ChallengeDTO>('/onboarding/challenge', { method: 'POST', body: JSON.stringify({ wallet }) });
+}
+
+// 17. POST /onboarding/verify
+export function postOnboardingVerify(body: { wallet: string; nonce: string; signature: string; connectedAccount: string }): Promise<VerifyResultDTO> {
+  return fetchJson<VerifyResultDTO>('/onboarding/verify', { method: 'POST', body: JSON.stringify(body) });
 }
