@@ -11,7 +11,7 @@ export interface PreviewInput {
 export interface LineDiff { jeId: string; eventId: string; eventType: string; leg: string; side: 'DEBIT' | 'CREDIT'; amountMinor: string; fromAccount: string; toAccount: string }
 export interface CoverageReport { explicit: number; defaulted: number; defaultedKeys: string[] }
 export interface Conservation { balanced: boolean; beforeDebit: string; beforeCredit: string; afterDebit: string; afterCredit: string }
-export interface Warning { kind: 'UNKNOWN_ACCOUNT' | 'ORPHANED_BALANCE' | 'CROSS_STATEMENT' | 'REVERSAL_DIVERGENCE' | 'EMPTY_ACCOUNT'; detail: string }
+export interface Warning { kind: 'UNKNOWN_ACCOUNT' | 'ORPHANED_BALANCE' | 'REVERSAL_DIVERGENCE' | 'EMPTY_ACCOUNT'; detail: string }
 export interface AccountActivityDTO { account: string; debitMinor: string; creditMinor: string }
 export interface PreviewResult { changed: LineDiff[]; coverage: CoverageReport; conservation: Conservation; warnings: Warning[]; beforeActivity: AccountActivityDTO[]; afterActivity: AccountActivityDTO[] }
 

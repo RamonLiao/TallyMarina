@@ -238,6 +238,18 @@ it('sets error state when fetch fails (fail-loud)', async () => {
   expect(result.current.data).toBeUndefined();
 });
 
+it('policySetVersion in export data is sourced from getPolicyActive endpoint (spine drift guard)', async () => {
+  // WHY (§5 spine cross-check): the export bundle manifest reads policySetVersion
+  // from getPolicyActive(), NOT from a hardcoded literal. If someone refactors
+  // useExportData to hardcode the version, this test fails — catching silent drift.
+  vi.mocked(endpoints.getPolicyActive).mockResolvedValueOnce(
+    { policySet: { policySetVersion: 'sentinel-ps-xyz' } } as never
+  );
+  const { result } = renderHook(() => useExportData('e1'));
+  await waitFor(() => expect(result.current.data).toBeDefined());
+  expect(result.current.data?.policySetVersion).toBe('sentinel-ps-xyz');
+});
+
 it('loading transitions correctly', async () => {
   let resolveAll!: (v: unknown) => void;
   vi.mocked(endpoints.getJournal).mockImplementationOnce(
