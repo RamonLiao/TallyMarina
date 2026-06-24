@@ -1,0 +1,264 @@
+/*
+ * export.css — Export workspace styles.
+ * Only what isn't already in base.css / close.css.
+ * Reuses: .austere, .card, .light--red, .aqua-link, .btn-primary, .mono, tokens.
+ * No new colour values; all colours come from tokens.css.
+ */
+
+/* ── Workspace layout ── */
+.export-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  max-width: 1200px;
+}
+
+/* ── Header ── */
+.export-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.export-purpose {
+  color: var(--ink-soft);
+  max-width: 640px;
+  margin: 0;
+}
+
+.export-entity-subhead {
+  font-weight: 600;
+  margin: 0;
+}
+
+.export-entity-id {
+  font-weight: 400;
+  color: var(--ink-soft);
+}
+
+/* ── Period display ── */
+.export-period-display {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--paper-card);
+  border: 1px solid var(--paper-line);
+  border-radius: var(--radius-md);
+  width: fit-content;
+}
+
+.export-period-label {
+  font-weight: 600;
+  color: var(--ink-soft);
+  font-size: 0.9em;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.export-period-id {
+  font-size: 1.05em;
+  color: var(--ink);
+}
+
+/* ── Status card ── */
+.export-status-card {
+  padding: var(--space-3);
+}
+
+.export-status-card__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.export-status-card__label {
+  color: var(--austere-dim, var(--ink-soft));
+  font-size: 0.9em;
+}
+
+/* Verified card overrides for austere (navy) surface */
+.export-status-card.austere .export-status-card__label {
+  color: var(--austere-dim);
+}
+
+/* ── Status badge ── */
+.export-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px;
+  border-radius: var(--radius-pill);
+  font-weight: 700;
+  font-size: 0.85em;
+  letter-spacing: 0.03em;
+}
+
+.export-status-badge--verified {
+  background: var(--aqua);
+  color: var(--on-aqua);
+}
+
+/* Draft badge: non-colour differentiation required (WCAG) */
+.export-status-badge--draft {
+  background: transparent;
+  color: var(--warn);
+  border: 1.5px solid var(--warn);
+}
+
+/* ── Merkle root row (verified card) ── */
+.export-merkle-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-bottom: var(--space-3);
+  padding: var(--space-2);
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--austere-border);
+}
+
+.export-merkle-label {
+  font-size: 0.8em;
+  color: var(--austere-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.export-merkle-hash {
+  /* overflow-wrap:anywhere ensures hash never truncates — auditor must see full value */
+  overflow-wrap: anywhere;
+  word-break: break-all;
+  color: var(--austere-mono);
+  font-size: 0.9em;
+  line-height: 1.5;
+}
+
+/* ── Draft warning inset ── */
+.export-draft-warn {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  margin-bottom: var(--space-2);
+  font-weight: 600;
+}
+
+.export-draft-note {
+  font-weight: 400;
+  margin: var(--space-1) 0 0;
+  color: inherit;
+  font-size: 0.9em;
+}
+
+.export-draft-card {
+  border-style: dashed;
+}
+
+/* ── Self-verify summary ── */
+.export-self-verify {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: var(--space-2);
+  padding: var(--space-2);
+  font-size: 0.875em;
+  font-variant-numeric: tabular-nums;
+}
+
+.export-self-verify__row {
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+}
+
+/* On austere surface, dim the checkmarks slightly */
+.austere .export-self-verify {
+  color: var(--austere-mono);
+}
+
+/* ── Imbalance card ── */
+.export-imbalance-msg {
+  margin: 0 0 var(--space-2);
+}
+
+.export-imbalance-detail {
+  padding: var(--space-2);
+  background: rgba(181, 83, 46, 0.06);
+  border-radius: var(--radius-sm);
+  font-size: 0.9em;
+  line-height: 1.8;
+}
+
+.export-imbalance-delta {
+  font-weight: 700;
+}
+
+.export-imbalance-hint {
+  margin: var(--space-2) 0 0;
+  font-size: 0.9em;
+  color: var(--ink-soft);
+}
+
+/* ── CTA row ── */
+.export-cta-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.export-filename-preview {
+  font-size: 0.85em;
+  color: var(--ink-soft);
+  word-break: break-all;
+}
+
+.export-retry-btn {
+  background: none;
+  border: 1px solid var(--paper-line);
+  border-radius: var(--radius-pill);
+  padding: 6px 16px;
+  font-size: 0.875em;
+  cursor: pointer;
+  color: var(--ink-soft);
+  transition: border-color 140ms;
+}
+
+.export-retry-btn:hover:not(:disabled) {
+  border-color: var(--ink-soft);
+}
+
+.export-retry-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ── Status messages ── */
+.export-loading {
+  color: var(--ink-soft);
+  font-style: italic;
+}
+
+.export-fetch-error {
+  max-width: 640px;
+}
+
+/* ── Dev notice ── */
+.export-fc-notice {
+  font-size: 0.8em;
+  color: var(--warn);
+  opacity: 0.7;
+  margin: var(--space-2) 0 0;
+}
+
+/* ── Card zone ── */
+.export-card-zone {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+@media (max-width: 640px) {
+  .export-cta-row { flex-direction: column; align-items: flex-start; }
+  .export-merkle-hash { font-size: 0.8em; }
+}
