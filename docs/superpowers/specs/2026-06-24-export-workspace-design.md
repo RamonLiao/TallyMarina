@@ -19,6 +19,7 @@ This is the spine pay-off of the whole project: exported numbers are **client-re
 
 In scope:
 - New `export` workspace (registry `soon` → `ready`).
+- One additive backend change: expose `periodId` + `leafCount` on the existing `AnchorDTO` snapshot join (read-only; no bundle assembly — see §3). Everything else is pure frontend.
 - A single ZIP download (see §5).
 - ERP-import CSV: **one generic General Journal format only**.
 - Verifiable audit bundle: canonical journal (CSV + JSON), per-account period activity, by-coinType quantity reconciliation, manifest with file hashes + on-chain anchor reference + **completeness assertion**, per-JE inclusion proofs, and a **client-recomputable leaf binding** (CSV/JSON → leafHash → root).
@@ -35,10 +36,12 @@ Out of scope (deferred, stated honestly in UI/bundle — see §11):
 
 ## 3. Architecture
 
-**Pure frontend. Zero new backend endpoints.** Reuses existing endpoints:
-- `GET /entities/:id/journal` → `JournalDTO[]` (each has `jeJson`, `idempotencyKey`, `leafHash`, `eventId`).
-- `GET /entities/:id/events` → events (for the **date** join; JE carries no date).
-- `GET /entities/:id/anchors?idempotencyKey=k` → **one** `InclusionProof` + the entity's `anchors[]` per call (per-JE; there is **no** bulk/period-filtered proof endpoint — see §6, §9).
+**Frontend assembles & verifies; backend never assembles the bundle.** Reuses existing read endpoints, with **one additive change** (not a new endpoint, no assembly — see note):
+- `GET /entities/:id/journal` → `JournalDTO[]` (each has `je: JournalEntryBody` (already parsed), `idempotencyKey`, `leafHash`, `eventId`).
+- `GET /entities/:id/events` → `EventDTO[]`. **No `date` field** — date is read from `normalized.eventTime` (ISO; present in fixtures), else derived from `normalized.timestampMs`, else **fail-loud** (never blank).
+- `GET /entities/:id/anchors?idempotencyKey=k` → `{ anchors: AnchorDTO[], inclusionProof: InclusionProof | null }` per call (per-JE; **no** bulk/period-filtered proof endpoint — see §6, §9).
+
+**Additive backend change (the only backend touch):** `AnchorDTO` already joins `merkleRoot` from the anchored snapshot. Extend that same join to also expose **`periodId`** and **`leafCount`** (both already on `SnapshotDTO`). This is required because the completeness assertion (§6.L3) needs the chain-committed `leafCount`, and period→anchor resolution needs `periodId` — neither is otherwise reachable via a read path (the only other source, `POST /snapshot`, freezes as a side effect and must not be called from a read-only export). The backend still does zero bundle assembly; it merely surfaces two already-joined fields. Spine intact: every number in the trust path is still client-recomputed.
 
 ```
 ExportWorkspace (landing)
