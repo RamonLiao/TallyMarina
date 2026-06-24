@@ -11,7 +11,13 @@ export interface DerivedSource {
 export function deriveSources(db: Db, entityId: string): DerivedSource[] {
   const counts = new Map<string, number>();
   for (const ev of listEvents(db, entityId)) {
-    const wallet = (JSON.parse(ev.rawJson) as { wallet?: string }).wallet;
+    let parsed: { wallet?: string };
+    try {
+      parsed = JSON.parse(ev.rawJson) as { wallet?: string };
+    } catch {
+      throw new Error(`onboarding: event ${ev.id} has malformed rawJson`);
+    }
+    const wallet = parsed.wallet;
     if (!wallet) throw new Error(`onboarding: event ${ev.id} has no wallet`);
     counts.set(wallet, (counts.get(wallet) ?? 0) + 1);
   }

@@ -27,8 +27,9 @@ export async function verifyOwnership(db: Db, input: VerifyInput, now: number): 
   let pubKey;
   try {
     pubKey = await verifyPersonalMessageSignature(bytes, input.signature);
-  } catch (e) {
-    throw new ApiError(422, 'BAD_SIGNATURE', `BAD_SIGNATURE: signature verification failed: ${(e as Error).message}`);
+  } catch {
+    // Do not leak the library's raw parse error into the client-facing body.
+    throw new ApiError(422, 'BAD_SIGNATURE', 'BAD_SIGNATURE: signature verification failed');
   }
 
   // Step 4: bind recovered address to claimed wallet — throw ADDRESS_MISMATCH; nonce NOT consumed
