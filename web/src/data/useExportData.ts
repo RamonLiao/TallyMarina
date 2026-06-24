@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { JournalDTO, EventDTO, AnchorDTO } from '../api/types';
-import { getJournal, listEvents, getAnchors } from '../api/endpoints';
+import { getJournal, listEvents, getAnchors, getPolicyActive } from '../api/endpoints';
 
 interface ExportValue {
   journal: JournalDTO[];
   events: EventDTO[];
   anchors: AnchorDTO[];
+  policySetVersion: string | null;
 }
 
 interface FetchedState {
@@ -31,13 +32,22 @@ export function useExportData(entityId: string) {
     setLoading(true);
     setState(prev => ({ ...prev, error: undefined }));
     try {
-      const [journal, events, anchorsResult] = await Promise.all([
+      const [journal, events, anchorsResult, policy] = await Promise.all([
         getJournal(capturedEntityId),
         listEvents(capturedEntityId),
         getAnchors(capturedEntityId),
+        getPolicyActive().catch(() => null),
       ]);
       if (gen === genRef.current) {
-        setState({ entityId: capturedEntityId, value: { journal, events, anchors: anchorsResult.anchors } });
+        setState({
+          entityId: capturedEntityId,
+          value: {
+            journal,
+            events,
+            anchors: anchorsResult.anchors,
+            policySetVersion: policy?.policySet?.policySetVersion ?? null,
+          },
+        });
       }
     } catch (e) {
       if (gen === genRef.current) {

@@ -10,17 +10,21 @@ const makeAnchors = (id = 'a1', entityId = 'e1') => [{ id, entityId, digest: 'ab
 // We import the mocked module to spy on it
 import * as endpoints from '../api/endpoints';
 
+const makePolicyActive = () => ({ policySet: { policySetVersion: 'demo-ps-1' } });
+
 beforeEach(() => {
   vi.resetAllMocks();
   vi.mocked(endpoints.getJournal).mockResolvedValue(makeJournal() as never);
   vi.mocked(endpoints.listEvents).mockResolvedValue(makeEvents() as never);
   vi.mocked(endpoints.getAnchors).mockResolvedValue({ anchors: makeAnchors(), inclusionProof: null } as never);
+  vi.mocked(endpoints.getPolicyActive).mockResolvedValue(makePolicyActive() as never);
 });
 
 vi.mock('../api/endpoints', () => ({
   getJournal: vi.fn(),
   listEvents: vi.fn(),
   getAnchors: vi.fn(),
+  getPolicyActive: vi.fn(),
 }));
 
 it('fetches all three endpoints and returns combined data', async () => {

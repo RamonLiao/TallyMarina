@@ -46,7 +46,7 @@ async function sha256hex(content: string): Promise<string> {
 }
 
 export async function buildBundle(input: BundleInput): Promise<BuiltBundle> {
-  const { entityId, periodId, functionalCurrency, scale, generatedAt, journal, dateByEventId, binding } = input;
+  const { entityId, periodId, functionalCurrency, scale, generatedAt, journal, dateByEventId, binding, policySetVersion } = input;
 
   // Completeness gate (verified path only)
   if (binding !== null) {
@@ -133,6 +133,7 @@ export async function buildBundle(input: BundleInput): Promise<BuiltBundle> {
     leafCodecVersion: 'JE_LEAF_BCS_V1',
     entityId,
     periodId,
+    policySetVersion: policySetVersion ?? null,
     generatedAt,
     verified,
     anchor: binding?.anchor ?? null,

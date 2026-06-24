@@ -36,8 +36,9 @@ export async function assembleExport(args: {
   events: EventDTO[];
   anchors: AnchorDTO[];
   fetchProof: (idempotencyKey: string) => Promise<{ anchors: AnchorDTO[]; inclusionProof: InclusionProof | null }>;
+  policySetVersion?: string | null;
 }): Promise<ExportOutcome> {
-  const { entityId, periodId, functionalCurrency, scale, generatedAt, journal, events, anchors, fetchProof } = args;
+  const { entityId, periodId, functionalCurrency, scale, generatedAt, journal, events, anchors, fetchProof, policySetVersion } = args;
 
   // Step 1: empty guard
   if (journal.length === 0) return { ok: false, kind: 'empty' };
@@ -140,6 +141,7 @@ export async function assembleExport(args: {
       journal,
       dateByEventId,
       binding,
+      ...(policySetVersion != null ? { policySetVersion } : {}),
     });
 
     // Step 8: zip
