@@ -59,6 +59,27 @@ describe('onboarding routes', () => {
     expect(u.some((x: { wallet: string }) => x.wallet === normalizeSuiAddress(wallet))).toBe(true);
   });
 
+  it('POST /onboarding/verify with mismatched connectedAccount → 400, no attestation written', async () => {
+    const kp = new Ed25519Keypair();
+    const wallet = kp.toSuiAddress();
+    const otherKp = new Ed25519Keypair();
+    const otherWallet = otherKp.toSuiAddress();
+    const ch = await app.inject({ method: 'POST', url: '/onboarding/challenge', payload: { wallet } });
+    const { nonce, expiresAt } = ch.json();
+    const bytes = encodeOwnershipMessage({ entityId: E, wallet, nonce, expiresAt });
+    const { signature } = await kp.signPersonalMessage(bytes);
+    const v = await app.inject({
+      method: 'POST', url: '/onboarding/verify',
+      payload: { wallet, nonce, signature, connectedAccount: otherWallet },
+    });
+    expect(v.statusCode).toBe(400);
+    expect(v.json().error.code).toBe('VALIDATION');
+    // Confirm no attestation was written — wallet not in unlistedVerified
+    const after = await app.inject({ method: 'GET', url: `/onboarding/${E}` });
+    const u = after.json().unlistedVerified;
+    expect(u.some((x: { wallet: string }) => x.wallet === normalizeSuiAddress(wallet))).toBe(false);
+  });
+
   it('GET unknown entity → 404', async () => {
     const res = await app.inject({ method: 'GET', url: '/onboarding/nope' });
     expect(res.statusCode).toBe(404);

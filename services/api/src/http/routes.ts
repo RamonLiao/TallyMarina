@@ -171,7 +171,7 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     const sourcesOut = sources.map((s) => {
       const att = latestAttestation(db, req.params.id, normalizeSuiAddress(s.wallet));
       return {
-        wallet: s.wallet, eventCount: s.eventCount, isDemoOwned: s.isDemoOwned,
+        wallet: normalizeSuiAddress(s.wallet), eventCount: s.eventCount, isDemoOwned: s.isDemoOwned,
         ownership: att ? { verified: true, verifiedAt: att.verifiedAt } : { verified: false },
       };
     });
@@ -200,9 +200,13 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     async (req) => {
       const { wallet, nonce, signature, connectedAccount } = req.body ?? {};
       if (!wallet || !nonce || !signature) throw new ApiError(400, 'VALIDATION', 'wallet, nonce, signature required');
+      const normalizedWallet = normalizeSuiAddress(wallet);
+      if (connectedAccount !== undefined && normalizeSuiAddress(connectedAccount) !== normalizedWallet) {
+        throw new ApiError(400, 'VALIDATION', 'connectedAccount must match wallet');
+      }
       const att = await verifyOwnership(
         db,
-        { entityId: cfg.entityId, wallet, nonce, signature, connectedAccount: connectedAccount ?? wallet },
+        { entityId: cfg.entityId, wallet: normalizedWallet, nonce, signature, connectedAccount: normalizedWallet },
         Date.now(),
       );
       return { verdict: 'VERIFIED', attestation: { wallet: att.wallet, verifiedAt: att.verifiedAt, verifier: att.verifier, templateVersion: att.templateVersion } };
