@@ -173,6 +173,9 @@ describe('assembleExport', () => {
       expect(result.summary.proofsVerified).toBe(1);
       expect(result.zip).toBeInstanceOf(Uint8Array);
       expect(result.zip.length).toBeGreaterThan(0);
+      // spec §7: verified result must surface merkleRoot and explorerUrl for the verified card
+      expect(result.merkleRoot).toBe(merkleRoot);
+      expect(result.explorerUrl).toBe('https://suiscan.xyz/tx/abc');
     }
   });
 

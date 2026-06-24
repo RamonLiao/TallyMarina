@@ -65,6 +65,9 @@ beforeEach(() => {
 
 // ── Verified state ─────────────────────────────────────────────────────────
 
+const TEST_MERKLE_ROOT = 'abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890';
+const TEST_EXPLORER_URL = 'https://suiscan.xyz/tx/abc123';
+
 describe('verified state', () => {
   beforeEach(() => {
     setupData();
@@ -74,6 +77,8 @@ describe('verified state', () => {
       filename: 'export-ent-1-2026-Q2.zip',
       zip: new Uint8Array([1, 2, 3]),
       summary: verifiedSummary,
+      merkleRoot: TEST_MERKLE_ROOT,
+      explorerUrl: TEST_EXPLORER_URL,
     });
   });
 
@@ -85,44 +90,25 @@ describe('verified state', () => {
   });
 
   it('renders the full merkleRoot without truncation', async () => {
-    const root = 'abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890';
-    mockAssembleExport.mockResolvedValue({
-      ok: true, verified: true,
-      filename: 'export-ent-1-2026-Q2.zip',
-      zip: new Uint8Array([]),
-      summary: { ...verifiedSummary, merkleRoot: root } as typeof verifiedSummary & { merkleRoot: string },
-    });
-    // Re-set with modified summary
-    mockAssembleExport.mockResolvedValueOnce({
-      ok: true, verified: true,
-      filename: 'export-ent-1-2026-Q2.zip',
-      zip: new Uint8Array([]),
-      summary: verifiedSummary,
-      merkleRoot: root,
-    });
-    // Use the direct approach: assert via data attribute
     render(<ExportWorkspace entityId="ent-1" />);
     fireEvent.click(screen.getByRole('button', { name: /preview/i }));
     await waitFor(() => expect(screen.getByTestId('verified-card')).toBeInTheDocument());
-    // Merkle root element must exist and not have text-overflow:ellipsis / truncation class
-    const rootEl = screen.queryByTestId('merkle-root');
-    if (rootEl) {
-      // WHY: a truncated hash cannot be visually verified by an auditor.
-      expect(rootEl.style.textOverflow).not.toBe('ellipsis');
-      expect(rootEl.style.overflow).not.toBe('hidden');
-    }
+    // WHY: a truncated hash cannot be visually verified by an auditor — full 64-char hex must appear.
+    const rootEl = screen.getByTestId('merkle-root');
+    expect(rootEl.textContent).toBe(TEST_MERKLE_ROOT);
+    expect(rootEl.style.textOverflow).not.toBe('ellipsis');
+    expect(rootEl.style.overflow).not.toBe('hidden');
   });
 
-  it('renders an explorer aqua-link', async () => {
+  it('renders an explorer aqua-link with correct href', async () => {
     render(<ExportWorkspace entityId="ent-1" />);
     fireEvent.click(screen.getByRole('button', { name: /preview/i }));
     await waitFor(() => expect(screen.getByTestId('verified-card')).toBeInTheDocument());
-    // WHY: auditors need a direct link to on-chain proof; link semantics matter.
-    const link = screen.queryByTestId('explorer-link');
-    if (link) {
-      expect(link.tagName).toBe('A');
-      expect(link.className).toContain('aqua-link');
-    }
+    // WHY: auditors need a direct link to on-chain proof; link href must point to the anchor tx.
+    const link = screen.getByTestId('explorer-link') as HTMLAnchorElement;
+    expect(link.tagName).toBe('A');
+    expect(link.className).toContain('aqua-link');
+    expect(link.getAttribute('href')).toBe(TEST_EXPLORER_URL);
   });
 
   it('shows self-verification summary with Debits = Credits and completeness', async () => {

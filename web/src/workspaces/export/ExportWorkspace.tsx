@@ -10,13 +10,12 @@ import { getAnchors } from '../../api/endpoints';
 import { EmptyState } from '../../components/chrome/EmptyState';
 import './export.css';
 
-// ── functionalCurrency / scale gap notice ─────────────────────────────────
-// EntityDTO and the web app context do not expose functionalCurrency or scale.
-// No API endpoint provides them either. The workspace uses hardcoded fallback
-// values (USD / scale=2) as a DISPLAY PLACEHOLDER — the ZIP content produced
-// by assembleExport will carry these placeholder values until the backend
-// surfaces them (e.g. via EntityDTO or a policy endpoint).
-// GAP: wire real values when the API exposes them. See task-9-report.md.
+// ── functionalCurrency / scale — demo policy constant ─────────────────────
+// These mirror the backend's demo policy constant in services/api/src/http/buildRuleInput.ts
+// (line ~24, demo-ps-1 policy): functionalCurrency='USD', scale=2 (USD minor units = cents).
+// This is intentional — EntityDTO does not carry per-entity currency config, and no policy
+// endpoint exists yet. Using USD/2 here is correct and consistent with the sole backend value.
+// Per-entity / multi-currency policy is deferred to §11 (real policy endpoint).
 const FUNCTIONAL_CURRENCY_FALLBACK = 'USD';
 const SCALE_FALLBACK = 2;
 
@@ -261,11 +260,9 @@ export function ExportWorkspace({ entityId }: { entityId: string }) {
   const isEmpty = outcome && !outcome.ok && (outcome as { kind: string }).kind === 'empty';
   const downloadEnabled = outcome?.ok === true && !isImbalance;
 
-  // Derive merkleRoot and explorerUrl from outcome for verified display
-  // (assembleExport doesn't return them directly in the result — they're in the summary binding.
-  // The verified path passes binding into buildBundle; we surface what's available in summary.)
-  const merkleRootDisplay: string | undefined = undefined; // Not in ExportResult shape; surfaced via summary
-  const explorerUrlDisplay: string | undefined = undefined;
+  // merkleRoot and explorerUrl are returned by assembleExport on verified path (spec §7).
+  const merkleRootDisplay: string | undefined = outcome?.ok ? outcome.merkleRoot : undefined;
+  const explorerUrlDisplay: string | undefined = outcome?.ok ? outcome.explorerUrl : undefined;
 
   return (
     <div className="export-workspace">
@@ -377,10 +374,10 @@ export function ExportWorkspace({ entityId }: { entityId: string }) {
         )}
       </div>
 
-      {/* ── Functional currency gap notice (visible in dev/debug) ── */}
+      {/* ── Functional currency demo-constant notice (dev only) ── */}
       {import.meta.env.DEV && (
         <p className="export-fc-notice mono">
-          ⚠ functionalCurrency={FUNCTIONAL_CURRENCY_FALLBACK} scale={SCALE_FALLBACK} (placeholder — EntityDTO gap)
+          functionalCurrency={FUNCTIONAL_CURRENCY_FALLBACK} scale={SCALE_FALLBACK} (demo policy constant, see buildRuleInput.ts)
         </p>
       )}
     </div>

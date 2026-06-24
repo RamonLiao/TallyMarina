@@ -13,6 +13,10 @@ export interface ExportResult {
   filename: string;
   zip: Uint8Array;
   summary: BundleSummary;
+  /** Present when verified=true. Full merkleRoot hex from the on-chain anchor (spec §7). */
+  merkleRoot?: string;
+  /** Present when verified=true. Explorer URL for the on-chain anchor transaction. */
+  explorerUrl?: string;
 }
 
 export type ExportFailure =
@@ -149,7 +153,17 @@ export async function assembleExport(args: {
       ? `export-${entityId}-${periodId}.zip`
       : `export-${entityId}-${periodId}-UNVERIFIED-DRAFT.zip`;
 
-    return { ok: true, verified, filename, zip, summary: built.summary };
+    return {
+      ok: true,
+      verified,
+      filename,
+      zip,
+      summary: built.summary,
+      ...(binding !== null && {
+        merkleRoot: binding.anchor.merkleRoot,
+        explorerUrl: binding.anchor.explorerUrl,
+      }),
+    };
   } catch (err) {
     if (err instanceof ImbalanceError) {
       return {
