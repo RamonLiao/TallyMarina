@@ -1,20 +1,11 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, waitFor, act } from '@testing-library/react';
 import { useExportData } from './useExportData';
 
 // Minimal DTO fixtures
-const makeJournal = () => [{ id: 'j1', entityId: 'e1', lines: [], createdAt: '' }];
-const makeEvents = () => [{ id: 'ev1', entityId: 'e1', type: 'DEBIT', amount: 100, currency: 'USD', purpose: 'TEST', status: 'RAW', createdAt: '' }];
-const makeAnchors = () => [{ id: 'a1', entityId: 'e1', digest: 'abc', seq: 1, createdAt: '' }];
-
-// Default: all three endpoints succeed immediately
-const makeDefaultMocks = () => {
-  vi.mock('../api/endpoints', () => ({
-    getJournal: vi.fn(async () => makeJournal()),
-    listEvents: vi.fn(async () => makeEvents()),
-    getAnchors: vi.fn(async () => ({ anchors: makeAnchors(), inclusionProof: null })),
-  }));
-};
+const makeJournal = (id = 'j1', entityId = 'e1') => [{ id, entityId, lines: [], createdAt: '' }];
+const makeEvents = (id = 'ev1', entityId = 'e1') => [{ id, entityId, type: 'DEBIT', amount: 100, currency: 'USD', purpose: 'TEST', status: 'RAW', createdAt: '' }];
+const makeAnchors = (id = 'a1', entityId = 'e1') => [{ id, entityId, digest: 'abc', seq: 1, createdAt: '' }];
 
 // We import the mocked module to spy on it
 import * as endpoints from '../api/endpoints';
@@ -62,7 +53,7 @@ it('exposes undefined data immediately when entityId changes (render-gate guaran
   expect(result.current.data).toBeUndefined();
 });
 
-it('in-flight prior-entity fetch resolving after entityId switch never surfaces stale data', async () => {
+it('in-flight prior-entity fetch resolving after entityId switch never surfaces stale data (e1→empty)', async () => {
   // WHY: this is the race the render-gate closes. Without it, a slow e1 fetch
   // that resolves after entityId → null (no new fetch) would write e1 payload
   // into state and expose it on the next render because state.entityId='e1'
@@ -107,35 +98,125 @@ it('in-flight prior-entity fetch resolving after entityId switch never surfaces 
 
   // The render-gate must block e1's payload from surfacing under entityId=''.
   // state.entityId will be 'e1' but current entityId is '' → gated out.
-  // (genRef check also discards it since entityId changed and gen was bumped by
-  // the empty-string rerender path, but the render-gate is the final safety net.)
   expect(result.current.data).toBeUndefined();
+});
+
+it('in-flight e1 fetch resolving after switch to e2 (non-empty) never surfaces e1 data (A→B render-gate)', async () => {
+  // WHY: the production-critical race scenario — both e1 and e2 are real entities.
+  // Without the render-gate, a late e1 response arriving after entityId='e2' would
+  // overwrite state with entityId:'e1', and since the consumer checks state.entityId
+  // === currentEntityId, it would get gated out — but ONLY because of the gate.
+  // This test proves the gate works for the non-empty→non-empty case:
+  // state.entityId ('e1') !== current entityId ('e2') → e1 data is forever blocked,
+  // even though both are valid entity strings. genRef alone cannot close this: it
+  // protects against stale async writes but the render-gate is the final render-time
+  // check. If someone removed the render-gate and just returned state.value directly,
+  // this test would fail.
+
+  // Deferred resolvers for e1's fetches (will be resolved late — after e2 switch)
+  let resolveE1Journal!: (v: unknown) => void;
+  let resolveE1Events!: (v: unknown) => void;
+  let resolveE1Anchors!: (v: unknown) => void;
+
+  // Deferred resolvers for e2's fetches
+  let resolveE2Journal!: (v: unknown) => void;
+  let resolveE2Events!: (v: unknown) => void;
+  let resolveE2Anchors!: (v: unknown) => void;
+
+  // e1 mocks — hang until manually resolved
+  vi.mocked(endpoints.getJournal).mockImplementationOnce(
+    () => new Promise(res => { resolveE1Journal = res; }) as never
+  );
+  vi.mocked(endpoints.listEvents).mockImplementationOnce(
+    () => new Promise(res => { resolveE1Events = res; }) as never
+  );
+  vi.mocked(endpoints.getAnchors).mockImplementationOnce(
+    () => new Promise(res => { resolveE1Anchors = res; }) as never
+  );
+
+  // e2 mocks — also deferred so we control order
+  vi.mocked(endpoints.getJournal).mockImplementationOnce(
+    () => new Promise(res => { resolveE2Journal = res; }) as never
+  );
+  vi.mocked(endpoints.listEvents).mockImplementationOnce(
+    () => new Promise(res => { resolveE2Events = res; }) as never
+  );
+  vi.mocked(endpoints.getAnchors).mockImplementationOnce(
+    () => new Promise(res => { resolveE2Anchors = res; }) as never
+  );
+
+  let entityId = 'e1';
+  const { result, rerender } = renderHook(() => useExportData(entityId));
+
+  // e1 fetch is pending. Switch to e2 (also non-empty — this is the production case).
+  entityId = 'e2';
+  rerender();
+
+  // Render-gate fires immediately: state.entityId ('e1') !== 'e2' → data undefined.
+  expect(result.current.data).toBeUndefined();
+
+  // Resolve e1's fetch LATE (simulating slow network / out-of-order response).
+  await act(async () => {
+    resolveE1Journal(makeJournal('j-e1-stale', 'e1'));
+    resolveE1Events(makeEvents('ev-e1-stale', 'e1'));
+    resolveE1Anchors({ anchors: makeAnchors('a-e1-stale', 'e1'), inclusionProof: null });
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  // THE CRITICAL ASSERTION: e1's data must never surface while entityId='e2'.
+  // render-gate: state.entityId ('e1') !== current entityId ('e2') → blocked.
+  // If useExportData were changed to return state.value directly (no gate), this
+  // would expose e1's journal — and this test would fail. That's what makes it real.
+  expect(result.current.data).toBeUndefined();
+  // Also confirm it's not accidentally exposing e1's journal id
+  expect(result.current.data?.journal?.[0]?.id).not.toBe('j-e1-stale');
+
+  // Now resolve e2's fetch — confirms the hook still works correctly after e1 noise.
+  await act(async () => {
+    resolveE2Journal(makeJournal('j-e2', 'e2'));
+    resolveE2Events(makeEvents('ev-e2', 'e2'));
+    resolveE2Anchors({ anchors: makeAnchors('a-e2', 'e2'), inclusionProof: null });
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  await waitFor(() => expect(result.current.data).toBeDefined());
+  // e2's data must surface correctly
+  expect(result.current.data?.journal?.[0]?.id).toBe('j-e2');
 });
 
 it('error is also gated — prior entity error does not bleed to new entityId', async () => {
   // WHY: an error from e1's fetch must not appear when entityId has moved to e2.
-  let rejectFetches!: (err: Error) => void;
+  // All three e1 endpoints reject; only getJournal's rejector is needed since
+  // Promise.all rejects on the first failure — but we wire all three correctly
+  // so this test truly rejects what it claims to reject.
+  let rejectE1Journal!: (err: Error) => void;
+  let rejectE1Events!: (err: Error) => void;
+  let rejectE1Anchors!: (err: Error) => void;
 
   vi.mocked(endpoints.getJournal).mockImplementationOnce(
-    () => new Promise((_res, rej) => { rejectFetches = rej; }) as never
+    () => new Promise((_res, rej) => { rejectE1Journal = rej; }) as never
   );
   vi.mocked(endpoints.listEvents).mockImplementationOnce(
-    () => new Promise((_res, rej) => { /* same reject handle */ rej; }) as never
+    () => new Promise((_res, rej) => { rejectE1Events = rej; }) as never
   );
   vi.mocked(endpoints.getAnchors).mockImplementationOnce(
-    () => new Promise((_res, rej) => { rej; }) as never
+    () => new Promise((_res, rej) => { rejectE1Anchors = rej; }) as never
   );
 
   let entityId = 'e1';
   const { result, rerender } = renderHook(() => useExportData(entityId));
 
   entityId = 'e2';
-  // e2 endpoints succeed (beforeEach mocks)
+  // e2 endpoints succeed (beforeEach mocks provide resolved values)
   rerender();
 
-  // Reject the e1 fetch.
+  // Reject ALL e1 fetches — wired correctly, not dead references.
   await act(async () => {
-    rejectFetches(new Error('e1 network error'));
+    rejectE1Journal(new Error('e1 network error'));
+    rejectE1Events(new Error('e1 network error'));
+    rejectE1Anchors(new Error('e1 network error'));
     await Promise.resolve();
     await Promise.resolve();
   });
