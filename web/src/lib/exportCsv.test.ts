@@ -23,10 +23,18 @@ describe('exportCsv', () => {
     // Guard applied to original value, not stripped (the ' is before the original string)
     expect(csvField('  +SUM()')).toBe(`"'  +SUM()"`);
   });
+  it('guards "-2+cmd" and "-100": dash is an injection trigger, not stripped (WHY: Excel evaluates "-number" as formula)', () => {
+    // '-' is in INJECTION set; strip only whitespace/control, NOT '-'
+    expect(csvField('-2+cmd')).toBe(`"'-2+cmd"`);
+    expect(csvField('-100')).toBe(`"'-100"`);
+  });
   it('formats minor units at scale with no thousands separator', () => {
     expect(formatMinor('123456', 2)).toBe('1234.56');
     expect(formatMinor('5', 2)).toBe('0.05');
     expect(formatMinor('0', 2)).toBe('0.00');
+  });
+  it('formatMinor at scale=0 returns integer string unchanged (WHY: scale=0 means no fractional part)', () => {
+    expect(formatMinor('123', 0)).toBe('123');
   });
   it('joins header + rows with \\n', () => {
     expect(csvRows(['a', 'b'], [['1', '2']])).toBe('a,b\n1,2');
@@ -48,5 +56,11 @@ describe('exportCsv', () => {
     // CR+LF stripped to single space
     const result3 = headerBlock({ entity: 'ok\r\nbad' });
     expect(result3).toBe('# entity: ok bad');
+  });
+  it('headerBlock sanitises key containing \\n to prevent new-row injection via key (WHY: defense-in-depth for keys from dynamic sources)', () => {
+    // key '\n=cmd()' → newline stripped to space → '# ' + ' =cmd()' + ': val'
+    // The key is not injection-guarded (no formula prefix added to key), just CR/LF removed
+    const result = headerBlock({ '\n=cmd()': 'val' });
+    expect(result).toBe('# ' + ' =cmd(): val');
   });
 });
