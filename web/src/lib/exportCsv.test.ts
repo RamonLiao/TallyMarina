@@ -64,3 +64,150 @@ describe('exportCsv', () => {
     expect(result).toBe('# ' + ' =cmd(): val');
   });
 });
+
+describe('csvField monkey / extreme inputs', () => {
+  /**
+   * Table-driven fuzz regression for csvField.
+   * Each entry: [label, input, expected, why]
+   * All assertions are non-trivial — they encode WHY each result is correct.
+   */
+  const cases: [string, string, string, string][] = [
+    // ── Empty / clean values (must NOT be over-guarded) ──────────────────────
+    [
+      'empty string → empty string',
+      '',
+      '',
+      'WHY: empty is a valid CSV cell; adding quotes/prefix breaks downstream parsers',
+    ],
+    [
+      'plain text → unchanged',
+      'plain',
+      'plain',
+      'WHY: clean strings must pass through verbatim to avoid corrupt exports',
+    ],
+    [
+      'SUI address-like token → unchanged',
+      '0x2::sui::SUI',
+      '0x2::sui::SUI',
+      'WHY: colon/hex chars are common in blockchain data; must not be misidentified as injection',
+    ],
+    [
+      'hyphenated ID starting with alpha → unchanged',
+      'acct-100',
+      'acct-100',
+      'WHY: the hyphen is only dangerous as the FIRST char; interior hyphens are safe',
+    ],
+
+    // ── Control-char extremes ─────────────────────────────────────────────────
+    [
+      'null + control chars only → stable output (no crash)',
+      '\x00\x01\x1f',
+      '\x00\x01\x1f',
+      'WHY: no injection prefix after stripping; must not throw and must round-trip stably',
+    ],
+
+    // ── CR / LF variants ─────────────────────────────────────────────────────
+    [
+      'a\\r\\nb → quoted (contains CR+LF)',
+      'a\r\nb',
+      '"a\r\nb"',
+      'WHY: newline inside a field MUST be quoted to prevent the CSV parser from splitting rows',
+    ],
+    [
+      '\\n\\n=cmd → injection guard because \\n stripped reveals = as first real char',
+      '\n\n=cmd',
+      '"\'\n\n=cmd"',
+      'WHY: Excel/Sheets strip leading newlines; the remaining =cmd would execute as formula without the guard',
+    ],
+
+    // ── Leading whitespace + injection prefix combos (bypass regression) ─────
+    [
+      'space + = → guarded',
+      ' =cmd',
+      "\"' =cmd\"",
+      'WHY: a leading space before = is the classic Excel injection bypass; must be blocked',
+    ],
+    [
+      'tab + = → guarded',
+      '\t=cmd',
+      '"\'\t=cmd"',
+      'WHY: tab is also stripped by spreadsheet apps before formula evaluation',
+    ],
+    [
+      'CR + = → guarded',
+      '\r=cmd',
+      '"\'\r=cmd"',
+      'WHY: carriage-return is a control char stripped during normalisation',
+    ],
+    [
+      'null byte + = → guarded',
+      '\x00=cmd',
+      '"\'\x00=cmd"',
+      'WHY: \\x00 is in the stripped control-char range; = after it must still trigger guard',
+    ],
+    [
+      'space + + → guarded',
+      ' +SUM()',
+      '"\' +SUM()"',
+      'WHY: + is an injection trigger; leading space bypass must be blocked',
+    ],
+    [
+      'tab + - → guarded',
+      '\t-1',
+      '"\'\t-1"',
+      'WHY: - is an injection trigger; tab-prefixed must be blocked',
+    ],
+    [
+      'space + @ → guarded',
+      ' @user',
+      "\"' @user\"",
+      'WHY: @ triggers DDE in older Excel; space-prefix bypass must be blocked',
+    ],
+    [
+      '\\x00 + - → guarded',
+      '\x00-1',
+      '"\'\x00-1"',
+      'WHY: null-byte prefix before - must not bypass the injection guard',
+    ],
+
+    // ── Quote + injection prefix ──────────────────────────────────────────────
+    [
+      '="quote" → guard + double-escaped inner quote',
+      '="quote"',
+      '"\'=""quote"""',
+      'WHY: injection prefix inside a quoted field must still be guarded AND inner quotes double-escaped',
+    ],
+    [
+      '@a"b → guard + double-escaped quote',
+      '@a"b',
+      '"\'@a""b"',
+      'WHY: @ is injection trigger; the embedded quote must also be double-escaped per RFC 4180',
+    ],
+
+    // ── Negative numbers (- is always an injection trigger) ──────────────────
+    [
+      '-100 → guarded (- is injection trigger)',
+      '-100',
+      '"\'-100"',
+      'WHY: Excel can interpret -number cells as a formula prefix; must guard even pure negatives',
+    ],
+    [
+      '-2+cmd → guarded',
+      '-2+cmd',
+      '"\'-2+cmd"',
+      'WHY: starts with -, which is in INJECTION set; no exception for numeric-looking strings',
+    ],
+
+    // ── Extremely long strings ────────────────────────────────────────────────
+    [
+      '= + 10 000 "a" chars → guarded, no crash',
+      '=' + 'a'.repeat(10000),
+      '"\'=' + 'a'.repeat(10000) + '"',
+      'WHY: large payloads must not cause stack overflow or silent truncation; guard must still apply',
+    ],
+  ];
+
+  it.each(cases)('%s', (_label, input, expected, _why) => {
+    expect(csvField(input)).toBe(expected);
+  });
+});
