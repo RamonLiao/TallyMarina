@@ -51,22 +51,6 @@ function makeAnchor(overrides: Partial<AnchorDTO> = {}): AnchorDTO {
   };
 }
 
-/** Build a minimal valid single-sibling InclusionProof that produces merkleRoot */
-async function buildProof(lHash: string, merkleRoot: string): Promise<InclusionProof> {
-  // For a single-leaf tree the Merkle root IS the leaf hash (no siblings needed).
-  // But we want to exercise the sibling-fold path, so we construct a synthetic
-  // sibling such that nodeHash(leafHash, sib) == merkleRoot.
-  //
-  // Simpler: use 0 siblings. The "root" produced by recomputeRoot with no siblings
-  // is just the leaf hash itself. So we set merkleRoot = lHash for single-leaf tests.
-  return {
-    idempotencyKey: 'idem-single',
-    leafIndex: 0,
-    siblings: [],
-    merkleRoot: lHash,
-  };
-}
-
 // ── pre-computed leaf hashes ───────────────────────────────────────────────────
 
 let HASH_A = '';

@@ -86,7 +86,12 @@ export async function assembleExport(args: {
           );
         }
 
-        // Resolve proof state — must be verified-onchain against the resolved anchor
+        // Resolve proof state — must be verified-onchain against the resolved anchor.
+        //
+        // Backend-trust seam（不可消除）：resolveProofState 使用的是每條 JE 個別 fetch
+        // 回來的 fetched.anchors；cross-check 比對的是 args.anchors 裡的 period-level anchor。
+        // 若後端同時回傳一致的偽造 anchors，這個 cross-check 會變成 vacuous（兩邊都是假的）。
+        // 前端無法消除這個信任縫——真正的防竄改保證來自 L2 leaf hash 重算 + 鏈上 merkleRoot 驗證。
         const state = await resolveProofState({
           leafHash: row.leafHash,
           proof: fetched.inclusionProof,
