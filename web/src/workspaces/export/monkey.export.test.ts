@@ -566,13 +566,14 @@ describe('quantityRecon — single-side null leg', () => {
 // the structured error path renders inline in export-card-zone.
 // We verify the rendered text exists in ExportWorkspace.test.tsx imbalance/error tests.
 
-describe('ExportWorkspace assembleError state — render coverage', () => {
-  it('WHY: if assembleExport throws unexpectedly, the UI must surface the error so the user knows export failed (not silent empty)', async () => {
-    // We can't render React here without jsdom setup — but we verify the assembleError
-    // code path exists in ExportWorkspace.tsx by checking the assembleExport error path:
-    // any throw from assembleExport flows to setAssembleError → rendered in export-fetch-error div.
-    // This is covered by ExportWorkspace.test.tsx which mocks assembleExport to return error outcomes.
-    // Structural smoke: verify assembleExport returns kind:'error' on unexpected input rather than throwing through.
+describe('assembleExport structural smoke — missing-date input returns kind:error (not throw-through)', () => {
+  it('WHY: assembleExport must return a structured kind:error rather than throwing when input lacks a usable date; UI error-card path is tested in ExportWorkspace.test.tsx', async () => {
+    // This test does NOT render React/ExportWorkspace (no jsdom setup here).
+    // It only verifies the assembleExport contract: unexpected/incomplete input
+    // (journal entry with no matching event → no usable date) resolves to
+    // { ok:false, kind:'error' } rather than an unhandled exception.
+    // The rendered error card path (assembleError state → export-fetch-error div)
+    // is covered by ExportWorkspace.test.tsx imbalance/error tests.
     const result = await assembleExport({
       ...BASE_ARGS,
       journal: [{ id: 'jr-x', eventId: 'evt-x', idempotencyKey: 'x', leafHash: 'zz'.repeat(32), je: makeJe('x') }],

@@ -15,9 +15,10 @@ import './export.css';
 // (line ~24, demo-ps-1 policy): functionalCurrency='USD', scale=2 (USD minor units = cents).
 // This is intentional — EntityDTO does not carry per-entity currency config, and no policy
 // endpoint exists yet. Using USD/2 here is correct and consistent with the sole backend value.
+// Named DEMO_* to be explicit: these are not runtime fallbacks but hardcoded demo constants.
 // Per-entity / multi-currency policy is deferred to §11 (real policy endpoint).
-const FUNCTIONAL_CURRENCY_FALLBACK = 'USD';
-const SCALE_FALLBACK = 2;
+const DEMO_FUNCTIONAL_CURRENCY = 'USD';
+const DEMO_SCALE = 2;
 
 // ── Period selector ───────────────────────────────────────────────────────
 // The app currently hard-codes a single period ('2026-Q2' from EntityContext).
@@ -206,8 +207,8 @@ export function ExportWorkspace({ entityId }: { entityId: string }) {
       const result = await assembleExport({
         entityId,
         periodId,
-        functionalCurrency: FUNCTIONAL_CURRENCY_FALLBACK,
-        scale: SCALE_FALLBACK,
+        functionalCurrency: DEMO_FUNCTIONAL_CURRENCY,
+        scale: DEMO_SCALE,
         generatedAt: new Date().toISOString(),
         journal,
         events,
@@ -377,7 +378,7 @@ export function ExportWorkspace({ entityId }: { entityId: string }) {
       {/* ── Functional currency demo-constant notice (dev only) ── */}
       {import.meta.env.DEV && (
         <p className="export-fc-notice mono">
-          functionalCurrency={FUNCTIONAL_CURRENCY_FALLBACK} scale={SCALE_FALLBACK} (demo policy constant, see buildRuleInput.ts)
+          functionalCurrency={DEMO_FUNCTIONAL_CURRENCY} scale={DEMO_SCALE} (demo policy constant, see buildRuleInput.ts)
         </p>
       )}
     </div>
