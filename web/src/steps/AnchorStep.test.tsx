@@ -25,7 +25,7 @@ it('snapshot → prepare → wallet sign(txKind) → confirm(digest, expectedSeq
   // Track call order for m3
   const callSequence: string[] = [];
   signAndExecute.mockImplementation(async () => { callSequence.push('signAndExecute'); return { digest: '0xDIGEST' }; });
-  vi.spyOn(endpoints, 'confirmAnchor').mockImplementation(async () => { callSequence.push('confirm'); return { id: 'a1', snapshotId: 's1', seq: 4, link: '0xLINK', digest: '0xDIGEST', explorerUrl: 'https://suiscan.xyz/testnet/tx/0xDIGEST', anchoredAt: '2026-06-22T00:00:00Z', merkleRoot: null }; });
+  vi.spyOn(endpoints, 'confirmAnchor').mockImplementation(async () => { callSequence.push('confirm'); return { id: 'a1', snapshotId: 's1', seq: 4, link: '0xLINK', digest: '0xDIGEST', explorerUrl: 'https://suiscan.xyz/testnet/tx/0xDIGEST', anchoredAt: '2026-06-22T00:00:00Z', merkleRoot: null, periodId: '', leafCount: 0 }; });
   vi.spyOn(endpoints, 'getAnchors').mockResolvedValue({ anchors: [], inclusionProof: null });
 
   render(wrap(<AnchorStep />));
@@ -63,8 +63,8 @@ it('hash-chain renders seq blocks from useAnchors', async () => {
   vi.spyOn(endpoints, 'getJournal').mockResolvedValue([]);
   vi.spyOn(endpoints, 'getAnchors').mockResolvedValue({
     anchors: [
-      { id: 'a0', snapshotId: 's0', seq: 1, link: '0xLINK1', digest: '0xDIG1', explorerUrl: 'https://suiscan.xyz/testnet/tx/0xDIG1', anchoredAt: '2026-06-01T00:00:00Z', merkleRoot: null },
-      { id: 'a1', snapshotId: 's1', seq: 2, link: '0xLINK2', digest: '0xDIG2', explorerUrl: 'https://suiscan.xyz/testnet/tx/0xDIG2', anchoredAt: '2026-06-02T00:00:00Z', merkleRoot: null },
+      { id: 'a0', snapshotId: 's0', seq: 1, link: '0xLINK1', digest: '0xDIG1', explorerUrl: 'https://suiscan.xyz/testnet/tx/0xDIG1', anchoredAt: '2026-06-01T00:00:00Z', merkleRoot: null, periodId: '', leafCount: 0 },
+      { id: 'a1', snapshotId: 's1', seq: 2, link: '0xLINK2', digest: '0xDIG2', explorerUrl: 'https://suiscan.xyz/testnet/tx/0xDIG2', anchoredAt: '2026-06-02T00:00:00Z', merkleRoot: null, periodId: '', leafCount: 0 },
     ],
     inclusionProof: null,
   });
@@ -79,7 +79,7 @@ it('HashChain panel has no Mascot', async () => {
   vi.spyOn(endpoints, 'snapshot').mockResolvedValue({ id: 's1', periodId: '2026-Q2', manifestHash: '0xMH', merkleRoot: '0xMR', leafCount: 3, supersedesSeq: null, status: 'FROZEN' });
   vi.spyOn(endpoints, 'getJournal').mockResolvedValue([]);
   vi.spyOn(endpoints, 'getAnchors').mockResolvedValue({
-    anchors: [{ id: 'a0', snapshotId: 's0', seq: 1, link: '0xLINK1', digest: '0xDIG1', explorerUrl: 'https://suiscan.xyz/testnet/tx/0xDIG1', anchoredAt: '2026-06-01T00:00:00Z', merkleRoot: null }],
+    anchors: [{ id: 'a0', snapshotId: 's0', seq: 1, link: '0xLINK1', digest: '0xDIG1', explorerUrl: 'https://suiscan.xyz/testnet/tx/0xDIG1', anchoredAt: '2026-06-01T00:00:00Z', merkleRoot: null, periodId: '', leafCount: 0 }],
     inclusionProof: null,
   });
 
@@ -100,7 +100,7 @@ it('renders inclusion proof block when useAnchors returns non-null proof (C2)', 
     { id: 'je1', eventId: 'ev1', idempotencyKey: 'ikey-abc', leafHash: '0xLH', je: { idempotencyKey: 'ikey-abc', lineageHash: '0xLIN', reversalOf: null, lines: [] } },
   ]);
   const anchorsSpy = vi.spyOn(endpoints, 'getAnchors').mockResolvedValue({
-    anchors: [{ id: 'a0', snapshotId: 's0', seq: 1, link: '0xLINK1', digest: '0xDIG1', explorerUrl: 'https://suiscan.xyz/testnet/tx/0xDIG1', anchoredAt: '2026-06-01T00:00:00Z', merkleRoot: null }],
+    anchors: [{ id: 'a0', snapshotId: 's0', seq: 1, link: '0xLINK1', digest: '0xDIG1', explorerUrl: 'https://suiscan.xyz/testnet/tx/0xDIG1', anchoredAt: '2026-06-01T00:00:00Z', merkleRoot: null, periodId: '', leafCount: 0 }],
     inclusionProof: {
       idempotencyKey: 'ikey-abc',
       leafIndex: 2,

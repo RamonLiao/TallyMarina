@@ -72,6 +72,8 @@ export interface AnchorDTO {
   explorerUrl: string;
   anchoredAt: string;
   merkleRoot: string | null; // joined from the anchored snapshot (Task 1)
+  periodId: string;   // joined from the anchored snapshot (Task 1, export)
+  leafCount: number;  // joined from the anchored snapshot (Task 1, export)
 }
 
 export interface CopilotDraftLine {

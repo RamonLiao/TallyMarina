@@ -39,6 +39,30 @@
 
 .light-card__cta {
   margin-top: var(--s-2, 16px);
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 13px;
+  padding: 6px 14px;
+  color: var(--ink, #1e2a4a);
+  background: transparent;
+  border: 1px solid var(--brass, #b68a2e);
+  border-radius: var(--radius-pill, 999px);
+  cursor: pointer;
+  transition: background .15s ease;
+}
+.light-card__cta:hover {
+  background: color-mix(in srgb, var(--brass-fill, #c9a24b) 16%, transparent);
+}
+.light-card__cta:active {
+  background: color-mix(in srgb, var(--brass-fill, #c9a24b) 28%, transparent);
+}
+.light-card__cta:focus-visible {
+  outline: 2px solid var(--brass, #b68a2e);
+  outline-offset: 2px;
 }
 
 /* ── State colours ── */
@@ -89,9 +113,21 @@
 }
 
 /* ── LockPanel ── */
-.lock-panel { position: sticky; bottom: 0; background: var(--paper, #f4ecd8); padding: var(--s-3, 12px) 0; }
-.lock-blockers { color: var(--debit, #b5532e); font-weight: 600; }
-.lock-err { color: var(--debit, #b5532e); }
+.lock-panel {
+  position: sticky;
+  bottom: 0;
+  background: var(--paper, #f4ecd8);
+  padding: var(--s-3, 24px) 0;
+  margin-top: var(--s-3, 24px);
+  border-top: 1px solid var(--paper-line, #e3d7bc);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s-2, 16px);
+}
+.lock-panel > * { margin: 0; }
+.lock-blockers { color: var(--debit, #b5532e); font-weight: 600; margin: 0; }
+.lock-err { color: var(--debit, #b5532e); margin: 0; }
 
 /* ── ReopenDialog ── */
 .reopen-ribbon { background: color-mix(in srgb, var(--warn, #c28a1e) 14%, transparent); color: var(--warn, #c28a1e); padding: var(--s-2, 8px) var(--s-3, 12px); border-radius: var(--r-md, 12px); margin-bottom: var(--s-3, 12px); }

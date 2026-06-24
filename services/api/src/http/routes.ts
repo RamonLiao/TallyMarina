@@ -548,11 +548,16 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
   // 13. GET /entities/:id/anchors
   app.get<{ Params: { id: string }; Querystring: { idempotencyKey?: string } }>('/entities/:id/anchors', async (req) => {
     requireEntity(db, req.params.id);
-    const anchors = listAnchors(db, req.params.id).map((r) => ({
-      id: r.id, snapshotId: r.snapshotId, seq: r.seq, link: r.link,
-      digest: r.digest, explorerUrl: r.explorerUrl, anchoredAt: r.anchoredAt,
-      merkleRoot: getSnapshot(db, r.snapshotId)?.merkleRoot ?? null,
-    }));
+    const anchors = listAnchors(db, req.params.id).map((r) => {
+      const snap = getSnapshot(db, r.snapshotId);
+      return {
+        id: r.id, snapshotId: r.snapshotId, seq: r.seq, link: r.link,
+        digest: r.digest, explorerUrl: r.explorerUrl, anchoredAt: r.anchoredAt,
+        merkleRoot: snap?.merkleRoot ?? null,
+        periodId: snap?.periodId ?? '',
+        leafCount: snap?.leafCount ?? 0,
+      };
+    });
     let proof = null;
     const key = req.query.idempotencyKey;
     if (key) {
