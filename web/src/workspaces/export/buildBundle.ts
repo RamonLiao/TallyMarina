@@ -154,7 +154,7 @@ export async function buildBundle(input: BundleInput): Promise<BuiltBundle> {
     verified,
     bundledJeCount: journal.length,
     anchoredLeafCount: binding?.anchor.leafCount ?? undefined,
-    completenessOk: verified ? true : undefined,
+    completenessOk: verified ? (binding!.anchor.leafCount === journal.length) : undefined,
     ...(verified
       ? {
           merkleRootMatches: true,

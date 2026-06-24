@@ -127,6 +127,26 @@ describe('buildBundle', () => {
 
   it('missing date for eventId throws', async () => {
     const badDateInput: BundleInput = { ...draftInput, dateByEventId: {} };
-    await expect(buildBundle(badDateInput)).rejects.toThrow();
+    await expect(buildBundle(badDateInput)).rejects.toThrow('missing date');
+  });
+
+  it('verified path: journal.csv debit/credit amounts are formatted by formatMinor', async () => {
+    const result = await buildBundle(verifiedInput);
+    const csvFile = result.files.find((f) => f.name === 'journal.csv')!;
+    // Strip header block lines (lines starting with '#') to get to the CSV data
+    const allLines = csvFile.content.split('\n');
+    const csvLines = allLines.filter((l) => !l.startsWith('#') && l.trim() !== '');
+    // csvLines[0] = header row
+    const headerCols = csvLines[0]!.split(',');
+    const debitIdx = headerCols.indexOf('debit');
+    const creditIdx = headerCols.indexOf('credit');
+    expect(debitIdx).toBeGreaterThanOrEqual(0);
+    // fixture: amountMinor='10000', scale=2 → formatMinor → '100.00'
+    // first data row is je1/line[0] = Cash DEBIT 10000 → debit='100.00', credit=''
+    const firstDataRow = csvLines[1]!.split(',');
+    expect(firstDataRow[debitIdx]).toBe('100.00');
+    // second data row is je1/line[1] = Revenue CREDIT 10000 → debit='', credit='100.00'
+    const secondDataRow = csvLines[2]!.split(',');
+    expect(secondDataRow[creditIdx]).toBe('100.00');
   });
 });
