@@ -14,7 +14,7 @@
   align-items: center;
   gap: 5px;
   font-family: var(--font-body);
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-weight: 600;
   letter-spacing: 0.03em;
   text-transform: uppercase;
