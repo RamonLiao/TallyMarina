@@ -36,6 +36,19 @@ describe('SourceTable wallet-ownership guard', () => {
     expect(hook.verify).not.toHaveBeenCalled();
   });
 
+  it('clears the mismatch message the same frame when the connected account changes to match', () => {
+    // WHY: the message is render-derived (not stored state), so switching the connected wallet to
+    // the matching one removes the stale "≠ this source" without a click or post-commit effect.
+    hook.account = { address: '0x00000000000000000000000000000000000000000000000000000000deadbeef' };
+    const { rerender } = render(<SourceTable data={data} onVerified={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Verify ownership' }));
+    expect(screen.getByText('Connected wallet ≠ this source')).toBeInTheDocument();
+
+    hook.account = { address: '0xacmeTreasury' }; // user reconnects the matching wallet
+    rerender(<SourceTable data={data} onVerified={vi.fn()} />);
+    expect(screen.queryByText('Connected wallet ≠ this source')).not.toBeInTheDocument();
+  });
+
   it('proceeds to verify when the connected wallet matches the source row', async () => {
     hook.account = { address: '0xacmeTreasury' };
     render(<SourceTable data={data} onVerified={vi.fn()} />);
