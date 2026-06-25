@@ -15,7 +15,7 @@ export function CopilotDock({
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)', marginBottom: 'var(--s-3)' }}>
         <Mascot pose={loading ? 'thinking' : pose} size={40} />
-        <strong className="font-display" style={{ fontSize: 'var(--text-lg)' }}>Copilot</strong>
+        <strong className="font-display" style={{ fontSize: 'var(--text-lg)', lineHeight: 'var(--leading-tight)' }}>Copilot</strong>
       </div>
 
       {loading && <p className="font-body" style={{ color: 'var(--ink-soft)', marginTop: 'var(--s-3)' }}>Reading the transaction…</p>}

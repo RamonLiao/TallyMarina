@@ -42,7 +42,7 @@ export function EmptyState({
         <span className="es-mascot">
           <Mascot pose="celebrate" size={112} />
         </span>
-        <h2 className="es-title" style={{ margin: 0, fontSize: 'var(--text-2xl)', color: 'var(--ink)' }}>
+        <h2 className="es-title" style={{ margin: 0, fontSize: 'var(--text-2xl)', lineHeight: 'var(--leading-tight)', color: 'var(--ink)' }}>
           {title ?? 'Clear seas · 0 exceptions blocking close'}
         </h2>
         <p
@@ -94,7 +94,7 @@ export function EmptyState({
       }}
     >
       <Mascot pose="sailing" size={96} />
-      <h2 style={{ margin: 0, fontSize: 'var(--text-2xl)' }}>{resolvedTitle}</h2>
+      <h2 style={{ margin: 0, fontSize: 'var(--text-2xl)', lineHeight: 'var(--leading-tight)' }}>{resolvedTitle}</h2>
       <p className="font-body" style={{ maxWidth: 460, color: 'var(--ink-soft)', margin: 0 }}>
         {resolvedBody}
       </p>

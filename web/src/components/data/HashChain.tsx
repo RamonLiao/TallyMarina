@@ -14,7 +14,7 @@ export function HashChain({ anchors, inclusionProof }: { anchors: AnchorDTO[]; i
   const sorted = [...anchors].sort((a, b) => a.seq - b.seq);
   return (
     <div className="austere" style={{ padding: 'var(--s-6)' }}>
-      <h3 className="mono" style={{ margin: '0 0 var(--s-4)', color: 'var(--austere-mono)', fontSize: 'var(--text-lg)' }}>On-chain anchor chain</h3>
+      <h3 className="mono" style={{ margin: '0 0 var(--s-4)', color: 'var(--austere-mono)', fontSize: 'var(--text-lg)', lineHeight: 'var(--leading-tight)' }}>On-chain anchor chain</h3>
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-3)', flexWrap: 'wrap' }}>
         {sorted.length === 0 && <span className="mono" style={{ color: 'var(--austere-dim)' }}>No anchors yet.</span>}
         {sorted.map((a, i) => (

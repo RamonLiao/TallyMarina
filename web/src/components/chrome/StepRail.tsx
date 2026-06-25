@@ -68,6 +68,7 @@ export function StepRail({ current }: { current: StepId }) {
               style={{
                 fontFamily: 'var(--font-display)',
                 fontSize: 'var(--text-lg)',
+                lineHeight: 'var(--leading-tight)',
                 fontWeight: active ? 600 : 400,
                 color: active ? 'var(--ink)' : 'var(--ink-soft)',
               }}
