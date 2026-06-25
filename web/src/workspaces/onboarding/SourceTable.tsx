@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { normalizeSuiAddress } from '@mysten/sui/utils';
 import type { OnboardingDTO } from '../../api/types';
 import { usePersonalWalletOwnership } from '../../data/usePersonalWalletOwnership';
 
@@ -22,8 +23,16 @@ export function SourceTable({ data, onVerified }: { data: OnboardingDTO; onVerif
   const { account, status, errorCode, verify } = usePersonalWalletOwnership();
   const [activeWallet, setActiveWallet] = useState<string | null>(null);
 
+  // Mirror the backend route guard (connectedAccount must match wallet) client-side so the most
+  // common slip — wallet A connected, Verify clicked on wallet B's row — surfaces the clear
+  // "Connected wallet ≠ this source" instead of a generic round-trip failure.
+  function isMismatch(wallet: string): boolean {
+    return !!account && normalizeSuiAddress(account.address) !== normalizeSuiAddress(wallet);
+  }
+
   async function onVerify(wallet: string) {
     setActiveWallet(wallet);
+    if (isMismatch(wallet)) return; // mismatch surfaced via render-derived state below
     const ok = await verify(wallet);
     if (ok) onVerified();
   }
@@ -41,7 +50,11 @@ export function SourceTable({ data, onVerified }: { data: OnboardingDTO; onVerif
       <tbody>
         {data.sources.map((s) => {
           const busy = activeWallet === s.wallet && (status === 'awaiting-signature' || status === 'verifying');
-          const rowErr = activeWallet === s.wallet && status === 'error';
+          // Render-derived (no stored error state): isMismatch recomputes when the connected
+          // account changes, so a stale "≠ this source" message clears the same frame.
+          const shownErr = activeWallet === s.wallet
+            ? (isMismatch(s.wallet) ? errMsg('ADDRESS_MISMATCH') : (status === 'error' ? errMsg(errorCode) : null))
+            : null;
           return (
             <tr key={s.wallet}>
               <td
@@ -63,7 +76,7 @@ export function SourceTable({ data, onVerified }: { data: OnboardingDTO; onVerif
                     ? <button className="btn-primary" disabled={busy} onClick={() => { void onVerify(s.wallet); }}>{busy ? 'Signing…' : 'Verify ownership'}</button>
                     : <span className="ob-hint">Connect wallet to verify</span>
                 )}
-                {rowErr && <span className="ob-bad"> {errMsg(errorCode)}</span>}
+                {shownErr && <span className="ob-bad"> {shownErr}</span>}
               </td>
             </tr>
           );
