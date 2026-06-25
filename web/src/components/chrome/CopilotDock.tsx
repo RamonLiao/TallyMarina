@@ -15,13 +15,13 @@ export function CopilotDock({
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)', marginBottom: 'var(--s-3)' }}>
         <Mascot pose={loading ? 'thinking' : pose} size={40} />
-        <strong className="font-display" style={{ fontSize: 18 }}>Copilot</strong>
+        <strong className="font-display" style={{ fontSize: 'var(--text-lg)' }}>Copilot</strong>
       </div>
 
       {loading && <p className="font-body" style={{ color: 'var(--ink-soft)', marginTop: 'var(--s-3)' }}>Reading the transaction…</p>}
 
       {!advice && !loading && (
-        <p className="font-body" style={{ color: 'var(--ink-soft)', marginTop: 'var(--s-3)', fontSize: 14 }}>
+        <p className="font-body" style={{ color: 'var(--ink-soft)', marginTop: 'var(--s-3)', fontSize: 'var(--text-sm)' }}>
           Select an event and click "Ask copilot" to get AI analysis.
         </p>
       )}
@@ -29,22 +29,22 @@ export function CopilotDock({
       {advice && !loading && (
         <div style={{ display: 'grid', gap: 'var(--s-4)', marginTop: 'var(--s-3)' }}>
           <section>
-            <h3 style={{ margin: '0 0 var(--s-1)', fontSize: 14, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--ink-soft)' }}>Explanation</h3>
-            <p className="font-body" style={{ margin: 0, fontSize: 15 }}>{advice.explanation}</p>
+            <h3 style={{ margin: '0 0 var(--s-1)', fontSize: 'var(--text-sm)', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--ink-soft)' }}>Explanation</h3>
+            <p className="font-body" style={{ margin: 0, fontSize: 'var(--text-base)' }}>{advice.explanation}</p>
           </section>
           {advice.redFlags.length > 0 && (
             <section>
-              <h3 style={{ margin: '0 0 var(--s-1)', fontSize: 14, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--debit)' }}>Red Flags</h3>
+              <h3 style={{ margin: '0 0 var(--s-1)', fontSize: 'var(--text-sm)', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--debit)' }}>Red Flags</h3>
               {/* DATA — no mascot */}
               <ul style={{ margin: 0, paddingLeft: 'var(--s-4)' }}>
-                {advice.redFlags.map((f, i) => <li key={i} className="font-body" style={{ fontSize: 15, color: 'var(--debit)' }}>{f}</li>)}
+                {advice.redFlags.map((f, i) => <li key={i} className="font-body" style={{ fontSize: 'var(--text-base)', color: 'var(--debit)' }}>{f}</li>)}
               </ul>
             </section>
           )}
           {advice.suggestedEntry && (
             <section>
-              <h3 style={{ margin: '0 0 var(--s-1)', fontSize: 14, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--ink-soft)' }}>Suggested Entry (draft)</h3>
-              <table className="mono" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+              <h3 style={{ margin: '0 0 var(--s-1)', fontSize: 'var(--text-sm)', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--ink-soft)' }}>Suggested Entry (draft)</h3>
+              <table className="mono" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--text-sm)' }}>
                 <tbody>
                   {advice.suggestedEntry.lines.map((l, i) => (
                     <tr key={i}>
@@ -59,9 +59,9 @@ export function CopilotDock({
           )}
           {advice.citations.length > 0 && (
             <section>
-              <h3 style={{ margin: '0 0 var(--s-1)', fontSize: 14, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--ink-soft)' }}>Citations</h3>
+              <h3 style={{ margin: '0 0 var(--s-1)', fontSize: 'var(--text-sm)', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--ink-soft)' }}>Citations</h3>
               <ul style={{ margin: 0, paddingLeft: 'var(--s-4)' }}>
-                {advice.citations.map((c, i) => <li key={i} className="mono" style={{ fontSize: 13, color: 'var(--ink-soft)' }}>{c}</li>)}
+                {advice.citations.map((c, i) => <li key={i} className="mono" style={{ fontSize: 'var(--text-sm)', color: 'var(--ink-soft)' }}>{c}</li>)}
               </ul>
             </section>
           )}

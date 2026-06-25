@@ -28,18 +28,18 @@ export function SideNav() {
               background: active ? 'var(--brass-fill)' : 'transparent',
               color: 'var(--ink)',
               fontFamily: 'var(--font-display)',
-              fontSize: 15,
+              fontSize: 'var(--text-base)',
               fontWeight: active ? 600 : 400,
               textAlign: 'left',
               cursor: 'pointer',
             }}
           >
-            <span aria-hidden style={{ fontSize: 16 }}>{w.icon}</span>
+            <span aria-hidden style={{ fontSize: 16 /* icon */ }}>{w.icon}</span>
             <span style={{ flex: 1 }}>{w.label}</span>
             {w.status === 'soon' && (
               <span
                 style={{
-                  fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em',
+                  fontSize: 'var(--text-xs)', textTransform: 'uppercase', letterSpacing: '0.05em',
                   color: 'var(--ink-soft)', fontFamily: 'var(--font-mono)',
                 }}
               >

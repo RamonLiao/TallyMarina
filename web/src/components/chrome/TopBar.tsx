@@ -27,7 +27,7 @@ export function TopBar() {
           <Mascot pose="sailing" size={32} />
           <span
             style={{
-              fontFamily: 'var(--font-display)', fontSize: 22, color: 'var(--paper)',
+              fontFamily: 'var(--font-display)', fontSize: 'var(--text-xl)', color: 'var(--paper)',
               fontWeight: 560, letterSpacing: '-0.02em',
             }}
           >

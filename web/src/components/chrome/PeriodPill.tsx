@@ -12,7 +12,7 @@ export function PeriodPill() {
         borderRadius: 'var(--radius-pill)',
         padding: 'var(--space-1) var(--space-3)',
         fontFamily: 'var(--font-mono)',
-        fontSize: 13,
+        fontSize: 'var(--text-sm)',
       }}
     >
       {periodId}

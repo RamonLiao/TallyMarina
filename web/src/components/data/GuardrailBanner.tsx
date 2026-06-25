@@ -8,7 +8,7 @@ export function GuardrailBanner() {
         display: 'inline-flex',
         alignItems: 'center',
         gap: 'var(--space-1)',
-        fontSize: 13,
+        fontSize: 'var(--text-sm)',
         color: 'var(--ink-soft)',
         borderBottom: '1px solid var(--brass)',
         paddingBottom: 2,
