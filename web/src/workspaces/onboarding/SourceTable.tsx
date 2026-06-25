@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { normalizeSuiAddress } from '@mysten/sui/utils';
 import type { OnboardingDTO } from '../../api/types';
 import { usePersonalWalletOwnership } from '../../data/usePersonalWalletOwnership';
 
@@ -21,9 +22,18 @@ function errMsg(code?: string): string {
 export function SourceTable({ data, onVerified }: { data: OnboardingDTO; onVerified(): void }) {
   const { account, status, errorCode, verify } = usePersonalWalletOwnership();
   const [activeWallet, setActiveWallet] = useState<string | null>(null);
+  const [localErr, setLocalErr] = useState<string | null>(null);
 
   async function onVerify(wallet: string) {
     setActiveWallet(wallet);
+    setLocalErr(null);
+    // Mirror the backend route guard (connectedAccount must match wallet) client-side so
+    // the most common slip — wallet A connected, Verify clicked on wallet B's row — surfaces
+    // the clear "Connected wallet ≠ this source" instead of a generic round-trip failure.
+    if (account && normalizeSuiAddress(account.address) !== normalizeSuiAddress(wallet)) {
+      setLocalErr(errMsg('ADDRESS_MISMATCH'));
+      return;
+    }
     const ok = await verify(wallet);
     if (ok) onVerified();
   }
@@ -41,7 +51,9 @@ export function SourceTable({ data, onVerified }: { data: OnboardingDTO; onVerif
       <tbody>
         {data.sources.map((s) => {
           const busy = activeWallet === s.wallet && (status === 'awaiting-signature' || status === 'verifying');
-          const rowErr = activeWallet === s.wallet && status === 'error';
+          const shownErr = activeWallet === s.wallet
+            ? (localErr ?? (status === 'error' ? errMsg(errorCode) : null))
+            : null;
           return (
             <tr key={s.wallet}>
               <td
@@ -63,7 +75,7 @@ export function SourceTable({ data, onVerified }: { data: OnboardingDTO; onVerif
                     ? <button className="btn-primary" disabled={busy} onClick={() => { void onVerify(s.wallet); }}>{busy ? 'Signing…' : 'Verify ownership'}</button>
                     : <span className="ob-hint">Connect wallet to verify</span>
                 )}
-                {rowErr && <span className="ob-bad"> {errMsg(errorCode)}</span>}
+                {shownErr && <span className="ob-bad"> {shownErr}</span>}
               </td>
             </tr>
           );
