@@ -30,12 +30,12 @@ export function IngestStep() {
             {ingest.isPending ? 'Ingesting…' : 'Ingest fixture'}
           </button>
           {ingest.isSuccess && (
-            <p className="mono" style={{ fontSize: 15 }}>
+            <p className="mono" style={{ fontSize: 'var(--text-base)' }}>
               Ingested {ingest.data.ingested} events →
             </p>
           )}
           {ingest.isError && (
-            <p className="mono" style={{ fontSize: 14, color: 'var(--debit)' }}>
+            <p className="mono" style={{ fontSize: 'var(--text-sm)', color: 'var(--debit)' }}>
               {(ingest.error as Error).message}
             </p>
           )}

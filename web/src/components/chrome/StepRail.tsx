@@ -57,7 +57,7 @@ export function StepRail({ current }: { current: StepId }) {
                 background: done ? 'var(--credit)' : active ? 'var(--brass-fill)' : 'transparent',
                 color: done ? 'var(--paper)' : 'var(--ink)',
                 border: `1px solid ${active || done ? 'transparent' : 'var(--paper-line)'}`,
-                fontSize: 14,
+                fontSize: 'var(--text-sm)',
                 fontWeight: 600,
                 fontFamily: 'var(--font-mono)',
               }}
@@ -67,7 +67,8 @@ export function StepRail({ current }: { current: StepId }) {
             <span
               style={{
                 fontFamily: 'var(--font-display)',
-                fontSize: 16,
+                fontSize: 'var(--text-lg)',
+                lineHeight: 'var(--leading-tight)',
                 fontWeight: active ? 600 : 400,
                 color: active ? 'var(--ink)' : 'var(--ink-soft)',
               }}

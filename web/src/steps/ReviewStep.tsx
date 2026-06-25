@@ -51,7 +51,7 @@ export function ReviewStep() {
     <div className="review-layout" style={{ display: 'flex', gap: 'var(--s-6)', alignItems: 'flex-start', flexWrap: 'wrap' }}>
       <div className="card" style={{ padding: 'var(--s-6)', flex: '1 1 320px' }}>
         <h2 style={{ marginTop: 0 }}>Review</h2>
-        <p className="mono" style={{ fontSize: 15 }}>{current!.id}</p>
+        <p className="mono" style={{ fontSize: 'var(--text-base)' }}>{current!.id}</p>
         <div style={{ display: 'flex', gap: 'var(--s-3)', margin: 'var(--s-3) 0 var(--s-6)' }}>
           <button
             className="btn-primary"

@@ -32,7 +32,7 @@ export function EntitySwitcher() {
         borderRadius: 'var(--radius-pill)',
         padding: 'var(--space-1) calc(var(--space-3) + 16px) var(--space-1) var(--space-3)',
         fontFamily: 'var(--font-display)',
-        fontSize: 14,
+        fontSize: 'var(--text-sm)',
         // Shrink before wrapping so the 768–1050px range doesn't force a doubled-height TopBar.
         minWidth: 0,
         maxWidth: 180,

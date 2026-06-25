@@ -15,7 +15,7 @@ export function DecideForm({
   const [purpose, setPurpose] = useState(event.ai?.purpose ?? '');
 
   const input: React.CSSProperties = {
-    fontFamily: 'var(--font-mono)', fontSize: 15, padding: 'var(--s-2) var(--s-3)',
+    fontFamily: 'var(--font-mono)', fontSize: 'var(--text-base)', padding: 'var(--s-2) var(--s-3)',
     border: '1px solid var(--paper-line)', borderRadius: 'var(--r-sm)', background: 'var(--paper-card)',
     width: '100%', boxSizing: 'border-box',
   };
@@ -30,11 +30,11 @@ export function DecideForm({
       onSubmit={(e) => { e.preventDefault(); onDecide(eventType, purpose); }}
       style={{ display: 'grid', gap: 'var(--s-3)', maxWidth: 420 }}
     >
-      <label style={{ display: 'grid', gap: 'var(--s-1)', fontSize: 14, color: 'var(--ink-soft)' }}>
+      <label style={{ display: 'grid', gap: 'var(--s-1)', fontSize: 'var(--text-sm)', color: 'var(--ink-soft)' }}>
         Final event type
         <input style={input} value={eventType} onChange={(e) => setEventType(e.target.value)} required />
       </label>
-      <label style={{ display: 'grid', gap: 'var(--s-1)', fontSize: 14, color: 'var(--ink-soft)' }}>
+      <label style={{ display: 'grid', gap: 'var(--s-1)', fontSize: 'var(--text-sm)', color: 'var(--ink-soft)' }}>
         Final purpose
         <input style={input} value={purpose} onChange={(e) => setPurpose(e.target.value)} required />
       </label>
@@ -42,7 +42,7 @@ export function DecideForm({
         <button
           type="button"
           onClick={adoptDraft}
-          style={{ fontSize: 13, color: 'var(--ink-soft)', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', padding: 0 }}
+          style={{ fontSize: 'var(--text-sm)', color: 'var(--ink-soft)', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', padding: 0 }}
         >
           ↓ Adopt AI draft (pre-fills form only — you decide)
         </button>

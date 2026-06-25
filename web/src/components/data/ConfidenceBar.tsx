@@ -71,7 +71,7 @@ export function ConfidenceBar({
           }}
         />
       </div>
-      <span className="mono" style={{ fontSize: 15, minWidth: compact ? 0 : 92, textAlign: 'right' }}>
+      <span className="mono" style={{ fontSize: 'var(--text-base)', minWidth: compact ? 0 : 92, textAlign: 'right' }}>
         {confidence == null || Number.isNaN(confidence) ? '—' : confidence.toFixed(2)}
         {routing === 'AUTO' && <span style={{ color: 'var(--credit)' }}> AUTO</span>}
         {routing === 'NEEDS_REVIEW' && <span style={{ color: 'var(--warn)' }}> REVIEW</span>}

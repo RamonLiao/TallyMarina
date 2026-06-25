@@ -14,7 +14,7 @@ export function HashChain({ anchors, inclusionProof }: { anchors: AnchorDTO[]; i
   const sorted = [...anchors].sort((a, b) => a.seq - b.seq);
   return (
     <div className="austere" style={{ padding: 'var(--s-6)' }}>
-      <h3 className="mono" style={{ margin: '0 0 var(--s-4)', color: 'var(--austere-mono)', fontSize: 16 }}>On-chain anchor chain</h3>
+      <h3 className="mono" style={{ margin: '0 0 var(--s-4)', color: 'var(--austere-mono)', fontSize: 'var(--text-lg)', lineHeight: 'var(--leading-tight)' }}>On-chain anchor chain</h3>
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-3)', flexWrap: 'wrap' }}>
         {sorted.length === 0 && <span className="mono" style={{ color: 'var(--austere-dim)' }}>No anchors yet.</span>}
         {sorted.map((a, i) => (
@@ -25,9 +25,9 @@ export function HashChain({ anchors, inclusionProof }: { anchors: AnchorDTO[]; i
                 minWidth: 180, animation: i === sorted.length - 1 ? 'block-in 800ms ease-out' : undefined,
               }}
             >
-              <div className="mono" style={{ fontSize: 13, color: 'var(--austere-dim)' }}>seq #{a.seq}</div>
-              <div className="mono" style={{ fontSize: 14, color: 'var(--austere-mono)' }}>{short(a.link)}</div>
-              <a className="aqua-link mono" style={{ fontSize: 13 }} href={explorerHref(a)} target="_blank" rel="noreferrer">
+              <div className="mono" style={{ fontSize: 'var(--text-sm)', color: 'var(--austere-dim)' }}>seq #{a.seq}</div>
+              <div className="mono" style={{ fontSize: 'var(--text-sm)', color: 'var(--austere-mono)' }}>{short(a.link)}</div>
+              <a className="aqua-link mono" style={{ fontSize: 'var(--text-sm)' }} href={explorerHref(a)} target="_blank" rel="noreferrer">
                 {short(a.digest)} ↗
               </a>
             </div>
@@ -37,7 +37,7 @@ export function HashChain({ anchors, inclusionProof }: { anchors: AnchorDTO[]; i
       </div>
 
       {inclusionProof && (
-        <p className="mono" style={{ marginTop: 'var(--s-4)', fontSize: 13, color: 'var(--austere-dim)' }}>
+        <p className="mono" style={{ marginTop: 'var(--s-4)', fontSize: 'var(--text-sm)', color: 'var(--austere-dim)' }}>
           Inclusion proof · leaf #{inclusionProof.leafIndex} · {inclusionProof.siblings.length} siblings · root {short(inclusionProof.merkleRoot)}
         </p>
       )}

@@ -23,7 +23,7 @@ const ghostStyle: React.CSSProperties = {
   padding: 'var(--s-2) var(--s-4)',
   cursor: 'pointer',
   fontFamily: 'var(--font-mono)',
-  fontSize: 14,
+  fontSize: 'var(--text-sm)',
 };
 
 const panelStyle: React.CSSProperties = {
@@ -38,7 +38,7 @@ const panelStyle: React.CSSProperties = {
 const selectStyle: React.CSSProperties = {
   width: '100%',
   fontFamily: 'var(--font-mono)',
-  fontSize: 14,
+  fontSize: 'var(--text-sm)',
   padding: 'var(--s-1) var(--s-2)',
   border: '1px solid var(--paper-line)',
   borderRadius: 'var(--r-sm)',
@@ -55,7 +55,7 @@ function ReasonSelect({
   onChange: (v: ReasonCode | '') => void;
 }) {
   return (
-    <label style={{ fontSize: 13, color: 'var(--ink-soft)', display: 'grid', gap: 'var(--s-1)' }}>
+    <label style={{ fontSize: 'var(--text-sm)', color: 'var(--ink-soft)', display: 'grid', gap: 'var(--s-1)' }}>
       Reason (required)
       <select
         value={value}
@@ -87,7 +87,7 @@ export function DispositionControls({
 
   if (exception.anchoredReadOnly) {
     return (
-      <p className="font-body" style={{ color: 'var(--ink-soft)', fontSize: 13, margin: 0 }}>
+      <p className="font-body" style={{ color: 'var(--ink-soft)', fontSize: 'var(--text-sm)', margin: 0 }}>
         ⚓ Period anchored — exceptions are informational (read-only).
       </p>
     );
@@ -96,7 +96,7 @@ export function DispositionControls({
   const valid = LEGAL[cur];
   if (valid.length === 0) {
     return (
-      <p className="font-body" style={{ color: 'var(--ink-soft)', fontSize: 13, margin: 0 }}>
+      <p className="font-body" style={{ color: 'var(--ink-soft)', fontSize: 'var(--text-sm)', margin: 0 }}>
         Disposition: <b>{cur}</b> (terminal — no further actions).
       </p>
     );
@@ -130,7 +130,7 @@ export function DispositionControls({
       onChange={(e) => setNote(e.target.value)}
       style={{
         fontFamily: 'var(--font-mono)',
-        fontSize: 13,
+        fontSize: 'var(--text-sm)',
         padding: 'var(--s-1) var(--s-2)',
         border: '1px solid var(--paper-line)',
         borderRadius: 'var(--r-sm)',
@@ -212,7 +212,7 @@ export function DispositionControls({
           {noteInput}
           <p
             className="mono"
-            style={{ fontSize: 11, color: 'var(--ink-soft)', margin: 0 }}
+            style={{ fontSize: 'var(--text-xs)', color: 'var(--ink-soft)', margin: 0 }}
           >
             will record: demo-controller · {new Date().toISOString().slice(0, 10)}
           </p>

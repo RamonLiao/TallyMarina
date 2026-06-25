@@ -21,7 +21,7 @@ export function ProofBadge({ leafHash, idempotencyKey, lineageHash, entityId }: 
   }, [data, leafHash]);
 
   return (
-    <div className="mono" style={{ fontSize: 13, color: 'var(--austere-mono)', marginTop: 'var(--s-3)' }}>
+    <div className="mono" style={{ fontSize: 'var(--text-sm)', color: 'var(--austere-mono)', marginTop: 'var(--s-3)' }}>
       <div style={{ color: 'var(--austere-dim)' }}>lineageHash {shortHex(lineageHash)}</div>
       <div style={{ color: 'var(--austere-dim)' }}>leafHash {shortHex(leafHash)}</div>
       {state === null && <div style={{ color: 'var(--austere-dim)' }}>verifying proof in browser…</div>}

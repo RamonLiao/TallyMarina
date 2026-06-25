@@ -7,11 +7,11 @@
 .recon-row { cursor: pointer; }
 .recon-row.is-selected { background: var(--paper-2, #f3efe6); }
 .recon-row--material { box-shadow: inset 3px 0 var(--debit, #b5532e); }
-.brk sup, .recon-table sup { color: var(--ink-soft, #8a8175); font-size: 0.7em; }
+.brk sup, .recon-table sup { color: var(--ink-soft, #8a8175); font-size: var(--text-xs); }
 .brk--material { background: var(--debit, #b5532e); color: #fff; font-weight: 700; padding: 1px 6px; border-radius: var(--radius-pill, 999px); }
 .brk--immaterial { border: 1px solid var(--warn, #c28a1e); padding: 1px 6px; border-radius: var(--radius-pill, 999px); }
 .brk--ok { color: var(--credit, #2f7a5a); }
-.brk em { color: var(--ink-soft, #8a8175); font-style: normal; font-size: 0.85em; }
+.brk em { color: var(--ink-soft, #8a8175); font-style: normal; font-size: var(--text-sm); }
 .prov--live, .prov--live sup { color: var(--aqua, #2e9fbc); }  /* aqua = on-chain ONLY */
 .prov--na { color: var(--ink-soft, #8a8175); }
 .prov--unavailable { color: var(--warn, #c28a1e); }
@@ -27,7 +27,7 @@
   .recon-table, .recon-table tbody, .recon-table tr, .recon-table td { display: block; width: 100%; }
   .recon-table tr { border: 1px solid var(--line, #e0d9cc); border-radius: var(--radius, 12px); margin-bottom: 10px; padding: 6px 10px; }
   .recon-table td { text-align: right; border: none; padding: 4px 0; }
-  .recon-table td::before { content: attr(data-label); float: left; color: var(--ink-soft, #8a8175); font-size: 0.8em; }
+  .recon-table td::before { content: attr(data-label); float: left; color: var(--ink-soft, #8a8175); font-size: var(--text-xs); }
   .recon-table td:nth-child(2), .recon-table td:nth-child(3) { display: block; } /* show all in card */
 }
 
@@ -37,7 +37,7 @@
 .recon-eq td { padding: 4px 8px; }
 .recon-eq td:last-child { text-align: right; }
 .recon-eq-rule td { border-top: 1px solid var(--brass, #b08d57); font-weight: 600; }
-.recon-eq-note td { color: var(--ink-soft, #8a8175); font-size: 0.85em; }
+.recon-eq-note td { color: var(--ink-soft, #8a8175); font-size: var(--text-sm); }
 .prov--unavail { color: var(--warn, #c79a3a); }
 .recon-disp { margin-top: 14px; display: flex; flex-direction: column; gap: 8px; }
 .recon-disp-actions { display: flex; gap: 8px; }

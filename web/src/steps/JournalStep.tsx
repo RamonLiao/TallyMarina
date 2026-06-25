@@ -32,7 +32,7 @@ export function JournalStep() {
       </div>
 
       {runRules.isSuccess && (
-        <p className="mono" style={{ fontSize: 15 }}>
+        <p className="mono" style={{ fontSize: 'var(--text-base)' }}>
           Posted {runRules.data.posted} · skipped {runRules.data.skipped}
         </p>
       )}

@@ -54,7 +54,7 @@ export function AuditWorkspace() {
           <button
             className="exceptions-back-btn"
             onClick={() => { setSelectedId(null); setCompareIds([]); }}
-            style={{ marginBottom: 'var(--s-3)', background: 'none', border: 'none', color: 'var(--brass)', fontWeight: 600, fontSize: 14, cursor: 'pointer', padding: '4px 0' }}
+            style={{ marginBottom: 'var(--s-3)', background: 'none', border: 'none', color: 'var(--brass)', fontWeight: 600, fontSize: 'var(--text-sm)', cursor: 'pointer', padding: '4px 0' }}
           >
             ‹ Events · {list.length}
           </button>

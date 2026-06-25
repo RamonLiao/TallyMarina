@@ -30,8 +30,8 @@ body {
   margin: 0;
   font-family: var(--font-body);
   color: var(--ink);
-  font-size: 16px;
-  line-height: 1.5;
+  font-size: var(--text-base);
+  line-height: var(--leading-base);
   background-color: var(--paper);
   /*
    * Faint SVG paper-grain ~3% opacity over the flat paper bg (§8.3).
@@ -100,7 +100,7 @@ p {
   gap: var(--space-1);
   font-family: var(--font-body);
   font-weight: 600;
-  font-size: 15px;
+  font-size: var(--text-base);
   padding: 10px 22px;
   border-radius: var(--radius-pill);
   border: 1px solid var(--brass);
@@ -183,10 +183,6 @@ p {
   .review-layout { flex-wrap: wrap; }
   .copilot-dock { width: 100% !important; }
   .card { padding: var(--space-3); }
-}
-
-@media (max-width: 480px) {
-  body { font-size: 15px; }
 }
 
 /* ── Exceptions workspace RWD: stack-push below 768px ──

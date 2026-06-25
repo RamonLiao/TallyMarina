@@ -28,12 +28,12 @@
 }
 
 .light-card__glyph {
-  font-size: 1.1em;
+  font-size: var(--text-lg);
 }
 
 .light-card__label {
   color: var(--ink-soft, #3e4a6b);
-  font-size: 0.9em;
+  font-size: var(--text-sm);
   margin-top: var(--s-1, 8px);
 }
 
@@ -45,7 +45,7 @@
   gap: 6px;
   font-family: var(--font-body);
   font-weight: 600;
-  font-size: 13px;
+  font-size: var(--text-sm);
   padding: 6px 14px;
   color: var(--ink, #1e2a4a);
   background: transparent;
@@ -104,7 +104,7 @@
 .status-chip { padding: 2px 10px; border-radius: 999px; font-weight: 700; }
 .status-chip--open { background: var(--brass, #b08d57); color: #fff; }
 .status-chip--locked { background: var(--ink, #1d2733); color: var(--paper, #f4ecd8); border: 1px solid var(--brass, #b08d57); }
-.reopen-badge { color: var(--ink-soft, #8a8175); font-size: .85em; }
+.reopen-badge { color: var(--ink-soft, #8a8175); font-size: var(--text-sm); }
 .stale-anchor-warn { color: var(--warn, #c28a1e); font-weight: 600; }
 .cockpit-verdict { font-weight: 600; }
 @media (prefers-reduced-motion: reduce) { .period-ribbon { transition: none; } }
@@ -150,10 +150,10 @@
   background: color-mix(in srgb, var(--debit, #b5532e) 10%, transparent);
   color: var(--debit, #b5532e);
   font-weight: 600;
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 .lock-blockers__icon { line-height: 1; }
-.lock-err { color: var(--debit, #b5532e); margin: 0; font-size: 13px; }
+.lock-err { color: var(--debit, #b5532e); margin: 0; font-size: var(--text-sm); }
 
 /* ── ReopenDialog ── */
 .reopen-ribbon { background: color-mix(in srgb, var(--warn, #c28a1e) 14%, transparent); color: var(--warn, #c28a1e); padding: var(--s-2, 8px) var(--s-3, 12px); border-radius: var(--r-md, 12px); margin-bottom: var(--s-3, 12px); }
