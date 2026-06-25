@@ -36,7 +36,7 @@
 
   /* ── Type scale ── (rem, root 16px; modular ~1.2 for display tiers,
      anchored at --text-base = body 15px. Single source of truth — change a
-     size here, not at call sites. See specs/2026-06-25-type-scale-design.md) */
+     size here, not at call sites. See docs/superpowers/specs/2026-06-25-type-scale-design.md) */
   --text-xs:   0.75rem;    /* 12px — caption, badge, mono-meta, eyebrow label */
   --text-sm:   0.8125rem;  /* 13px — dense table body, secondary meta */
   --text-base: 0.9375rem;  /* 15px — default body, paragraphs, links */
