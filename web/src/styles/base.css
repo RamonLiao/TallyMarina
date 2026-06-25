@@ -185,10 +185,6 @@ p {
   .card { padding: var(--space-3); }
 }
 
-@media (max-width: 480px) {
-  body { font-size: var(--text-base); }
-}
-
 /* ── Exceptions workspace RWD: stack-push below 768px ──
    The list card has inline style flex:'0 0 320px'; !important is required to
    override it (same pattern as .shell-sidenav above). */
