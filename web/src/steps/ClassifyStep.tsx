@@ -36,13 +36,13 @@ export function ClassifyStep() {
             }}
           >
             <div>
-              <span className="mono" style={{ fontSize: 15 }}>{e.id}</span>
+              <span className="mono" style={{ fontSize: 'var(--text-base)' }}>{e.id}</span>
               {/* Safe normalized field access — carry from Task 7 */}
-              <span className="mono" style={{ fontSize: 13, color: 'var(--ink-soft)', marginLeft: 'var(--s-3)' }}>
+              <span className="mono" style={{ fontSize: 'var(--text-sm)', color: 'var(--ink-soft)', marginLeft: 'var(--s-3)' }}>
                 {String(e.normalized?.eventTime ?? '—')}
               </span>
               {(e.normalized?.amount != null || e.normalized?.coinType != null) && (
-                <span className="mono" style={{ fontSize: 13, color: 'var(--ink-soft)', marginLeft: 'var(--s-3)' }}>
+                <span className="mono" style={{ fontSize: 'var(--text-sm)', color: 'var(--ink-soft)', marginLeft: 'var(--s-3)' }}>
                   {String(e.normalized?.amount ?? '—')} {String(e.normalized?.coinType ?? '—')}
                 </span>
               )}

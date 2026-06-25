@@ -73,7 +73,7 @@ export function AnchorStep() {
 
         {snap.isSuccess && snapshotId && (
           <div style={{ display: 'grid', gap: 'var(--s-3)', marginTop: 'var(--s-3)' }}>
-            <p className="mono" style={{ fontSize: 15 }}>
+            <p className="mono" style={{ fontSize: 'var(--text-base)' }}>
               merkleRoot {snap.data.merkleRoot.slice(0, 14)}… · {snap.data.leafCount} leaves · FROZEN
             </p>
             {!wallet.address && <p className="font-body" style={{ color: 'var(--warn)' }}>Connect a wallet to anchor.</p>}
@@ -86,7 +86,7 @@ export function AnchorStep() {
                 <span className="mono" style={{ color: 'var(--austere-mono)' }}>Awaiting wallet signature…</span>
               </div>
             )}
-            {err && <p className="mono" style={{ color: 'var(--debit)', fontSize: 14 }}>{err}</p>}
+            {err && <p className="mono" style={{ color: 'var(--debit)', fontSize: 'var(--text-sm)' }}>{err}</p>}
           </div>
         )}
       </div>

@@ -23,7 +23,7 @@ export function ExceptionsWorkspace() {
         className="card exceptions-list-pane"
         style={{ flex: '0 0 320px', padding: 0, overflow: 'hidden' }}
       >
-        <div style={{ padding: 'var(--s-3)', fontSize: 13 }}>
+        <div style={{ padding: 'var(--s-3)', fontSize: 'var(--text-sm)' }}>
           {data?.summary.open ?? 0} open · {data?.summary.blocking ?? 0} blocking close
         </div>
         <ExceptionList
@@ -44,7 +44,7 @@ export function ExceptionsWorkspace() {
               border: 'none',
               color: 'var(--brass)',
               fontWeight: 600,
-              fontSize: 14,
+              fontSize: 'var(--text-sm)',
               cursor: 'pointer',
               padding: '4px 0',
             }}
