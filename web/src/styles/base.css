@@ -224,6 +224,12 @@ p {
    (inline styles otherwise beat stylesheet rules). */
 @media (max-width: 768px) {
   .shell-body { flex-direction: column; }
+  /* In the column shell, min-width:0 only frees the main (vertical) axis; on the
+     cross (horizontal) axis a flex item stretches to its subtree's min-content,
+     so a wide table (e.g. the COA / recon grids) pushes <main> past the viewport
+     even with scroll wrappers. A definite width:100% resolves width top-down so
+     the inner overflow-x:auto wrappers can finally clip and scroll. */
+  .shell-body > main { width: 100%; min-width: 0; }
   .shell-sidenav {
     position: static !important;
     width: 100%;

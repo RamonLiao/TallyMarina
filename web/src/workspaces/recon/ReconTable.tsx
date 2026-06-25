@@ -37,6 +37,7 @@ export function ReconTable({
   clientMovements?: Record<string, bigint>;
 }) {
   return (
+    <div className="recon-tablewrap">
     <table className="recon-table">
       <thead>
         <tr>
@@ -87,5 +88,6 @@ export function ReconTable({
         })}
       </tbody>
     </table>
+    </div>
   );
 }

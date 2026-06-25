@@ -1,5 +1,6 @@
 /* web/src/workspaces/recon/recon.css */
 .recon-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.recon-tablewrap { overflow-x: auto; }
 .recon-table th, .recon-table td { padding: 8px 10px; text-align: right; white-space: nowrap; }
 .recon-table th:first-child, .recon-table td:first-child { text-align: left; }
 .td--mono { font-family: var(--font-mono, monospace); }

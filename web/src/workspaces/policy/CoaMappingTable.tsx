@@ -17,6 +17,7 @@ export function CoaMappingTable({ rules, defaultAccount, title, editable, onChan
   return (
     <section className="card policy-coa">
       <h3 className="policy-card-title">{title}</h3>
+      <div className="policy-coa-scroll">
       <table className="policy-coa-table">
         <thead>
           <tr>
@@ -49,6 +50,7 @@ export function CoaMappingTable({ rules, defaultAccount, title, editable, onChan
           </tr>
         </tbody>
       </table>
+      </div>
     </section>
   );
 }

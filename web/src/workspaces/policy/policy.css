@@ -13,6 +13,7 @@
 .policy-defrow-value { font-size: 0.92em; }
 .policy-chip-deferred { padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; background: color-mix(in srgb, var(--warn) 12%, transparent); color: var(--warn); }
 .policy-coa-table { width: 100%; border-collapse: collapse; }
+.policy-coa-scroll { overflow-x: auto; }
 .policy-coa-table th { text-align: left; font-size: 0.78em; text-transform: uppercase; color: var(--ink-soft); border-bottom: 1px solid var(--paper-line); padding: 6px 8px; }
 .policy-coa-table td { padding: 6px 8px; border-bottom: 1px solid var(--paper-line); }
 .policy-coa-default td { color: var(--ink-soft); font-style: italic; }
@@ -33,3 +34,8 @@
 .policy-credit { color: var(--credit); }
 .policy-tb-split { display: flex; gap: var(--space-4); align-items: flex-start; margin-top: var(--space-3); }
 .policy-tb-col { flex: 1 1 0; }
+
+@media (max-width: 640px) {
+  .policy-defrow-label { min-width: 0; }
+  .policy-preview-head { flex-wrap: wrap; }
+}
