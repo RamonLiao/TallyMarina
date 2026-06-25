@@ -45,7 +45,7 @@ export function ExceptionDetail({
         className="card"
         style={{ padding: 'var(--s-6)', background: 'var(--paper-card)' }}
       >
-        <p className="mono" style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 0, marginBottom: 'var(--s-2)' }}>
+        <p className="mono" style={{ fontSize: 'var(--text-xs)', color: 'var(--ink-soft)', marginTop: 0, marginBottom: 'var(--s-2)' }}>
           {exception.exceptionId}
         </p>
         <p className="font-body" style={{ margin: '0 0 var(--s-2)' }}>
@@ -55,7 +55,7 @@ export function ExceptionDetail({
           <ConfidenceBar confidence={exception.ai.confidence} />
         )}
         {exception.amount != null && (
-          <p className="mono" style={{ fontSize: 13, color: 'var(--ink-soft)', marginTop: 'var(--s-2)', marginBottom: 0 }}>
+          <p className="mono" style={{ fontSize: 'var(--text-sm)', color: 'var(--ink-soft)', marginTop: 'var(--s-2)', marginBottom: 0 }}>
             Amount: {exception.amount}
           </p>
         )}

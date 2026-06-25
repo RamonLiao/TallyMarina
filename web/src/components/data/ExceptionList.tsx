@@ -28,17 +28,17 @@ function Row({ e, selected, onSelect }: { e: ExceptionDTO; selected: boolean; on
         cursor: 'pointer',
       }}
     >
-      <span aria-hidden style={{ fontSize: 18 }}>{m.glyph}</span>
+      <span aria-hidden style={{ fontSize: 18 /* icon */ }}>{m.glyph}</span>
       <span>
-        <span style={{ fontSize: 12, fontWeight: blocker ? 700 : 500, color: 'var(--ink)' }}>{m.label}</span>
+        <span style={{ fontSize: 'var(--text-xs)', fontWeight: blocker ? 700 : 500, color: 'var(--ink)' }}>{m.label}</span>
         <span
           className="mono"
-          style={{ display: 'block', fontSize: 12, color: 'var(--ink-soft)' }}
+          style={{ display: 'block', fontSize: 'var(--text-xs)', color: 'var(--ink-soft)' }}
         >
           {e.eventId}
         </span>
       </span>
-      <span className="mono" style={{ fontSize: 12, color: 'var(--ink-soft)' }}>
+      <span className="mono" style={{ fontSize: 'var(--text-xs)', color: 'var(--ink-soft)' }}>
         {e.disposition ? e.disposition.state : 'open'}
       </span>
     </button>
@@ -63,7 +63,7 @@ export function ExceptionList({
         <div
           style={{
             padding: 'var(--s-2) var(--s-3)',
-            fontSize: 11,
+            fontSize: 'var(--text-xs)',
             letterSpacing: '0.08em',
             color: 'var(--ink-soft)',
             textTransform: 'uppercase',

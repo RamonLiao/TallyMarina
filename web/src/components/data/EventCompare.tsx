@@ -11,7 +11,7 @@ export function EventCompare({ events, journal, onOpenLineage }: {
 
   return (
     <div className="card" style={{ overflowX: 'auto' }}>
-      <div className="mono" style={{ fontSize: 13, color: 'var(--ink-soft)', marginBottom: 'var(--s-3)' }}>
+      <div className="mono" style={{ fontSize: 'var(--text-sm)', color: 'var(--ink-soft)', marginBottom: 'var(--s-3)' }}>
         Comparing {m.shown.length}{m.truncated > 0 ? ` of ${m.shown.length + m.truncated}` : ''} selected
         {m.truncated > 0 && (
           <span style={{ marginLeft: 'var(--s-2)', padding: '1px 7px', borderRadius: 'var(--r-pill)', background: 'var(--brass-fill)' }}>
@@ -19,7 +19,7 @@ export function EventCompare({ events, journal, onOpenLineage }: {
           </span>
         )}
       </div>
-      <table className="mono" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+      <table className="mono" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--text-sm)' }}>
         <thead>
           <tr>
             <th style={{ textAlign: 'left', padding: 'var(--s-2)', color: 'var(--ink-soft)' }}>Dimension</th>

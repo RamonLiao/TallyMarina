@@ -31,7 +31,7 @@ function Row({
         onChange={() => onToggleCompare(e.id)}
         style={{ cursor: 'pointer' }}
       />
-      <span aria-hidden style={{ fontSize: 16, color: pending ? 'var(--ink-soft)' : 'var(--ink)' }}>
+      <span aria-hidden style={{ fontSize: 16 /* icon */, color: pending ? 'var(--ink-soft)' : 'var(--ink)' }}>
         {STATUS_GLYPH[e.status] ?? '◌'}
       </span>
       <button
@@ -39,10 +39,10 @@ function Row({
         aria-current={selected ? 'true' : undefined}
         style={{ display: 'block', textAlign: 'left', border: 'none', background: 'none', cursor: 'pointer', padding: 0 }}
       >
-        <span style={{ fontSize: 12, fontWeight: selected ? 700 : 500, color: 'var(--ink)' }}>{type}</span>
-        <span className="mono" style={{ display: 'block', fontSize: 12, color: 'var(--ink-soft)' }}>{e.id}</span>
+        <span style={{ fontSize: 'var(--text-xs)', fontWeight: selected ? 700 : 500, color: 'var(--ink)' }}>{type}</span>
+        <span className="mono" style={{ display: 'block', fontSize: 'var(--text-xs)', color: 'var(--ink-soft)' }}>{e.id}</span>
       </button>
-      <span className="mono" style={{ fontSize: 11, color: 'var(--ink-soft)' }}>
+      <span className="mono" style={{ fontSize: 'var(--text-xs)', color: 'var(--ink-soft)' }}>
         {pending ? 'pending' : e.status.toLowerCase()}
       </span>
     </div>
@@ -72,7 +72,7 @@ export function EventList({
             aria-pressed={statusFilter === f}
             onClick={() => onStatusFilter(f)}
             style={{
-              fontSize: 11, padding: '2px 8px', borderRadius: '999px',
+              fontSize: 'var(--text-xs)', padding: '2px 8px', borderRadius: '999px',
               border: '1px solid var(--paper-line)', cursor: 'pointer',
               background: statusFilter === f ? 'var(--brass-fill)' : 'transparent',
               color: 'var(--ink)', fontWeight: statusFilter === f ? 600 : 400,

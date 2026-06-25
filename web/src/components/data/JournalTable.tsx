@@ -30,7 +30,7 @@ export function JournalTable({ journal }: { journal: JournalDTO[] }) {
     >
       <table
         className="mono"
-        style={{ width: '100%', borderCollapse: 'collapse', fontSize: 15, fontVariantNumeric: 'tabular-nums' }}
+        style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--text-base)', fontVariantNumeric: 'tabular-nums' }}
       >
         <thead>
           <tr style={{ background: 'var(--navy-deep)', color: 'var(--austere-ink)' }}>
@@ -78,7 +78,7 @@ export function JournalTable({ journal }: { journal: JournalDTO[] }) {
                       <span
                         title="balanced"
                         aria-label="balanced"
-                        style={{ color: 'var(--credit)', fontSize: 16 }}
+                        style={{ color: 'var(--credit)', fontSize: 16 /* icon */ }}
                       >
                         ✓
                       </span>
@@ -86,7 +86,7 @@ export function JournalTable({ journal }: { journal: JournalDTO[] }) {
                       <span
                         title="unbalanced"
                         aria-label="unbalanced"
-                        style={{ color: 'var(--debit)', fontSize: 16 }}
+                        style={{ color: 'var(--debit)', fontSize: 16 /* icon */ }}
                       >
                         ✗
                       </span>

@@ -11,7 +11,7 @@ class JeErrorBoundary extends Component<{ children: ReactNode }, { error: boolea
   static getDerivedStateFromError() { return { error: true }; }
   render() {
     if (this.state.error) {
-      return <div className="mono" style={{ fontSize: 13, color: 'var(--debit)', fontWeight: 600 }}>⚠ malformed amount — cannot compute balance</div>;
+      return <div className="mono" style={{ fontSize: 'var(--text-sm)', color: 'var(--debit)', fontWeight: 600 }}>⚠ malformed amount — cannot compute balance</div>;
     }
     return this.props.children;
   }
@@ -22,7 +22,7 @@ const ARROW = '→'; // mirrors HashChain's mono arrow (rotates to ↓ via CSS o
 function StageCard({ n, title, children }: { n: string; title: string; children: React.ReactNode }) {
   return (
     <div className="card audit-stage" style={{ flex: 1, minWidth: 0 }}>
-      <div className="mono" style={{ fontSize: 11, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{n}</div>
+      <div className="mono" style={{ fontSize: 'var(--text-xs)', color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{n}</div>
       <h4 style={{ margin: '2px 0 var(--s-3)' }}>{title}</h4>
       {children}
     </div>
@@ -30,13 +30,13 @@ function StageCard({ n, title, children }: { n: string; title: string; children:
 }
 
 function Pending({ label }: { label: string }) {
-  return <div className="mono" style={{ fontSize: 13, color: 'var(--ink-soft)' }}>◌ {label}</div>;
+  return <div className="mono" style={{ fontSize: 'var(--text-sm)', color: 'var(--ink-soft)' }}>◌ {label}</div>;
 }
 
 function RefRow({ label, value }: { label: string; value: string | null }) {
   if (!value) return null;
   return (
-    <div className="mono" style={{ fontSize: 12, color: 'var(--ink-soft)' }}>
+    <div className="mono" style={{ fontSize: 'var(--text-xs)', color: 'var(--ink-soft)' }}>
       {label} <span style={{ color: 'var(--ink)' }}>{value}</span> · <em>unresolved pointer</em>
     </div>
   );
@@ -65,7 +65,7 @@ function BalanceFooter({ lines }: { lines: JournalLine[] }) {
       <span style={{ color: 'var(--debit)', fontWeight: 600 }}>⚠ malformed amount — cannot compute balance</span>
     );
   }
-  return <div className="mono" style={{ fontSize: 13, marginTop: 'var(--s-2)' }}>{content}</div>;
+  return <div className="mono" style={{ fontSize: 'var(--text-sm)', marginTop: 'var(--s-2)' }}>{content}</div>;
 }
 
 export function EventLineage({ event, entityId, journal }: { event: EventDTO; entityId: string; journal: JournalDTO[] }) {
@@ -77,7 +77,7 @@ export function EventLineage({ event, entityId, journal }: { event: EventDTO; en
     <div className="audit-lineage" style={{ display: 'flex', gap: 'var(--s-4)', alignItems: 'stretch' }}>
       {/* ① RAW */}
       <StageCard n="①" title="Raw event">
-        <pre className="mono" style={{ fontSize: 12, whiteSpace: 'pre-wrap', wordBreak: 'break-all', margin: 0 }}>
+        <pre className="mono" style={{ fontSize: 'var(--text-xs)', whiteSpace: 'pre-wrap', wordBreak: 'break-all', margin: 0 }}>
           {JSON.stringify(event.normalized, null, 2)}
         </pre>
       </StageCard>
@@ -89,10 +89,10 @@ export function EventLineage({ event, entityId, journal }: { event: EventDTO; en
           <Pending label="awaiting classification" />
         ) : (
           <>
-            <div style={{ fontSize: 13 }}>{event.ai.eventType} · {event.ai.purpose}</div>
+            <div style={{ fontSize: 'var(--text-sm)' }}>{event.ai.eventType} · {event.ai.purpose}</div>
             <div style={{ margin: 'var(--s-2) 0' }}><ConfidenceBar confidence={event.ai.confidence} compact /></div>
-            <div className="mono" style={{ fontSize: 11, color: 'var(--ink-soft)' }}>AI opinion — backend assertion, not evidence</div>
-            <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: 'var(--s-2)' }}>{event.ai.reasoning}</div>
+            <div className="mono" style={{ fontSize: 'var(--text-xs)', color: 'var(--ink-soft)' }}>AI opinion — backend assertion, not evidence</div>
+            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--ink-soft)', marginTop: 'var(--s-2)' }}>{event.ai.reasoning}</div>
           </>
         )}
       </StageCard>
@@ -106,10 +106,10 @@ export function EventLineage({ event, entityId, journal }: { event: EventDTO; en
           jes.map((j) => (
             <div key={j.id} style={{ marginBottom: 'var(--s-3)' }}>
               {j.je.reversalOf && (
-                <div style={{ fontSize: 11, color: 'var(--brass)', fontWeight: 600 }}>REVERSAL OF → {j.je.reversalOf}</div>
+                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--brass)', fontWeight: 600 }}>REVERSAL OF → {j.je.reversalOf}</div>
               )}
               {reversedBy(j.idempotencyKey) && (
-                <div style={{ fontSize: 11, color: 'var(--brass)', fontWeight: 600 }}>REVERSED BY ← {reversedBy(j.idempotencyKey)!.idempotencyKey}</div>
+                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--brass)', fontWeight: 600 }}>REVERSED BY ← {reversedBy(j.idempotencyKey)!.idempotencyKey}</div>
               )}
               <JeErrorBoundary>
                 <JournalTable journal={[j]} />
@@ -121,7 +121,7 @@ export function EventLineage({ event, entityId, journal }: { event: EventDTO; en
                   <RefRow label="fxRef" value={l.fxRef} />
                 </div>
               ))}
-              <div className="mono" style={{ fontSize: 11, color: 'var(--ink-soft)' }}>rule version not retained in journal (deferred §11)</div>
+              <div className="mono" style={{ fontSize: 'var(--text-xs)', color: 'var(--ink-soft)' }}>rule version not retained in journal (deferred §11)</div>
             </div>
           ))
         )}
@@ -130,10 +130,10 @@ export function EventLineage({ event, entityId, journal }: { event: EventDTO; en
 
       {/* ④ CHAIN (austere) */}
       <div className="austere audit-stage" style={{ flex: 1, minWidth: 0, padding: 'var(--s-4)' }}>
-        <div className="mono" style={{ fontSize: 11, color: 'var(--austere-dim)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>④</div>
+        <div className="mono" style={{ fontSize: 'var(--text-xs)', color: 'var(--austere-dim)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>④</div>
         <h4 className="mono" style={{ margin: '2px 0 var(--s-3)', color: 'var(--austere-mono)' }}>On-chain anchor</h4>
         {jes.length === 0 ? (
-          <div className="mono" style={{ fontSize: 13, color: 'var(--austere-dim)' }}>◌ not yet anchored</div>
+          <div className="mono" style={{ fontSize: 'var(--text-sm)', color: 'var(--austere-dim)' }}>◌ not yet anchored</div>
         ) : (
           jes.map((j) => (
             <ProofBadge key={j.id} leafHash={j.leafHash} idempotencyKey={j.idempotencyKey} lineageHash={j.je.lineageHash} entityId={entityId} />
