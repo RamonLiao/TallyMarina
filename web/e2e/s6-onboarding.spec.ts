@@ -69,8 +69,19 @@ test('S6 — VERIFIED badge has .ob-badge--verified class and non-black green co
     if (route.request().method() === 'POST' && route.request().url().includes('/verify')) {
       void route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true }) });
     } else if (route.request().method() === 'GET') {
+      // Shape must match the real GET /onboarding/:id contract:
+      // { entity: { id, displayName, meta }, sources, unlistedVerified }.
       const verifiedDto = {
-        entityId: 'acme:pilot-001',
+        entity: {
+          id: 'acme:pilot-001',
+          displayName: 'Acme Pilot 001',
+          meta: {
+            functionalCurrency: 'USD',
+            reportingCurrency: 'USD',
+            fiscalCalendar: 'Jan–Dec (calendar year)',
+            timezone: 'America/New_York',
+          },
+        },
         sources: [
           {
             wallet: DEMO_WALLET,
@@ -83,12 +94,7 @@ test('S6 — VERIFIED badge has .ob-badge--verified class and non-black green co
             },
           },
         ],
-        meta: {
-          functionalCurrency: 'USD',
-          reportingCurrency: 'USD',
-          fiscalCalendar: 'Jan–Dec (calendar year)',
-          timezone: 'America/New_York',
-        },
+        unlistedVerified: [],
       };
       void route.fulfill({
         status: 200,
@@ -129,36 +135,19 @@ test('S6 — VERIFIED badge has .ob-badge--verified class and non-black green co
 // shows ADDRESS_MISMATCH inline without a round-trip.
 
 test('S6 — connected wallet ≠ source row shows .ob-bad error in red', async ({ page }) => {
-  // Connect with a wallet address that does NOT match DEMO_WALLET
-  await installMockWallet(page, { address: OTHER_WALLET, signResult: 'success' });
+  // Connect with a wallet address that does NOT match DEMO_WALLET.
+  // autoConnect seeds dapp-kit localStorage so the account is connected on
+  // load — bypassing the fragile headless connect dialog.
+  await installMockWallet(page, { address: OTHER_WALLET, signResult: 'success', autoConnect: true });
 
   await goToOnboarding(page);
 
-  // Click ConnectButton to connect the mock wallet (dapp-kit requires explicit connect)
-  const connectBtn = page.locator('button', { hasText: /connect wallet|connect/i }).first();
-  const hasConnectBtn = await connectBtn.isVisible({ timeout: 3_000 }).catch(() => false);
-  if (hasConnectBtn) {
-    await connectBtn.click();
-    // Look for the mock wallet option in the connect dialog
-    const mockWalletOption = page.locator('button, [role="button"]', { hasText: /mock wallet/i }).first();
-    const hasMockOption = await mockWalletOption.isVisible({ timeout: 2_000 }).catch(() => false);
-    if (hasMockOption) {
-      await mockWalletOption.click();
-      await page.waitForTimeout(500);
-    }
-  }
-
-  // Wait for Verify button (visible because account is connected, but wallet ≠ source)
+  // Verify button is visible because an account is connected, but the connected
+  // wallet ≠ the DEMO_WALLET source row → client-side mismatch guard fires.
   const verifyBtn = page
     .locator('button.btn-primary', { hasText: /verify ownership/i })
     .first();
-  const hasBtn = await verifyBtn.isVisible({ timeout: 5_000 }).catch(() => false);
-
-  test.skip(
-    !hasBtn,
-    'Verify button not visible after connecting — mock wallet connect dialog flow may differ, ' +
-      'or no UNVERIFIED sources returned. Mismatch error path covered by SourceTable.test.tsx unit tests.',
-  );
+  await expect(verifyBtn).toBeVisible({ timeout: 10_000 });
 
   await verifyBtn.click();
 
