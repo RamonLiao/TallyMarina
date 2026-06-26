@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "gen-assets": "tsx scripts/gen-assets.ts"
+    "gen-assets": "tsx scripts/gen-assets.ts",
+    "e2e": "playwright test"
   },
   "dependencies": {
     "@fontsource/mona-sans": "^5.2.8",
@@ -23,6 +24,7 @@
   },
   "devDependencies": {
     "@google/genai": "^0.3.0",
+    "@playwright/test": "^1.61.1",
     "@testing-library/jest-dom": "^6.4.0",
     "@testing-library/react": "^16.0.0",
     "@testing-library/user-event": "^14.5.0",
