@@ -52,16 +52,7 @@ test('S1 — anchor CTA (known gap: unreachable without seeded LOCKED+anchored s
   await expect(lockBtn).toBeVisible();
 
   const anchorVisible = await anchorBtn.isVisible().catch(() => false);
-  if (anchorVisible) {
-    await expectBrassPill(anchorBtn);
-  } else {
-    // Known gap: fresh entity has open blockers; anchor CTA only appears after
-    // period is LOCKED. CAP_NOT_OWNED_BY_WALLET error path is covered by Layer-2.
-    // SKIP — not a test failure.
-    test.info().annotations.push({
-      type: 'known-gap',
-      description:
-        'Anchor CTA not reachable from fresh load — requires LOCKED period. Covered by Layer-2.',
-    });
-  }
+  test.skip(!anchorVisible, 'anchor CTA needs a LOCKED period — CAP_NOT_OWNED flow covered by Layer-2 S1');
+
+  await expectBrassPill(anchorBtn);
 });

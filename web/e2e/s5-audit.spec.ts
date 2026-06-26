@@ -48,9 +48,7 @@ test('S5 — navigate to Audit workspace via SideNav', async ({ page }) => {
   const auditLayoutVisible = await auditLayout.isVisible().catch(() => false);
 
   // At least one of: audit layout appeared, or close cockpit disappeared
-  expect(closePanelVisible || auditLayoutVisible, 'Audit workspace did not render').not.toBe(
-    closePanelVisible && !auditLayoutVisible,
-  );
+  expect(auditLayoutVisible || !closePanelVisible, 'Audit workspace did not render').toBe(true);
 });
 
 test('S5 — ProofBadge color matches CSS token (when event selected)', async ({ page }) => {
@@ -65,16 +63,7 @@ test('S5 — ProofBadge color matches CSS token (when event selected)', async ({
   const firstEvent = page.locator('.event-list .event-row, [data-testid="event-row"]').first();
   const hasEvents = await firstEvent.isVisible().catch(() => false);
 
-  if (!hasEvents) {
-    // Known gap: fresh entity with no events — ProofBadge not reachable from UI.
-    // Covered by ProofBadge unit tests + Layer-2 API tests.
-    test.info().annotations.push({
-      type: 'known-gap',
-      description:
-        'No events available in fresh entity — ProofBadge not reachable from UI. Covered by unit tests.',
-    });
-    return;
-  }
+  test.skip(!hasEvents, 'no events in fresh seed — ProofBadge verified states covered by Layer-2 S5 + proofVerify unit tests');
 
   await firstEvent.click();
   await page.waitForTimeout(500);
@@ -125,13 +114,7 @@ test('S5 — ProofBadge color matches CSS token (when event selected)', async ({
     break;
   }
 
-  if (!foundBadge) {
-    test.info().annotations.push({
-      type: 'known-gap',
-      description:
-        'ProofBadge text not found — may require anchored/snapshotted event state. Covered by unit tests.',
-    });
-  }
+  expect(foundBadge, 'ProofBadge element not rendered for any reachable state').toBe(true);
 });
 
 test('S5 — ProofBadge loading state color is --austere-dim', async ({ page }) => {
@@ -143,28 +126,21 @@ test('S5 — ProofBadge loading state color is --austere-dim', async ({ page }) 
 
   const firstEvent = page.locator('.event-list .event-row, [data-testid="event-row"]').first();
   const hasEvents = await firstEvent.isVisible().catch(() => false);
-  if (!hasEvents) {
-    test.info().annotations.push({
-      type: 'known-gap',
-      description: 'No events in fresh entity — skipping loading-state badge check.',
-    });
-    return;
-  }
+  test.skip(!hasEvents, 'no events in fresh seed — loading state covered by proofVerify unit tests');
 
   await firstEvent.click();
 
   // Immediately after click, the badge may be in loading state "verifying proof in browser…"
   const loadingEl = page.locator('div', { hasText: 'verifying proof in browser' }).last();
   const visible = await loadingEl.isVisible().catch(() => false);
-  if (visible) {
-    const austere = await resolveToken(page, '--austere-dim');
-    const color = await badgeColor(loadingEl);
-    expect(color).not.toBe('');
-    if (austere) {
-      // The token resolved — compare in a browser-friendly way (both may be rgb or hex)
-      // Just assert it's not default black
-      expect(color).not.toBe('rgb(0, 0, 0)');
-    }
+
+  // Loading state is transient — skip rather than silently pass if we missed it
+  test.skip(!visible, 'loading state transient — covered by proofVerify unit tests');
+
+  const austere = await resolveToken(page, '--austere-dim');
+  const color = await badgeColor(loadingEl);
+  expect(color).not.toBe('');
+  if (austere) {
+    expect(color).not.toBe('rgb(0, 0, 0)');
   }
-  // Loading state is transient; not finding it is OK — proof may have resolved already
 });
