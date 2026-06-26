@@ -2,3 +2,9 @@ node_modules
 dist
 .env
 *.local
+# Playwright artifacts
+test-results/
+playwright-report/
+blob-report/
+e2e/__screenshots__/
+.cache/
