@@ -50,8 +50,8 @@ export function ReconciliationWorkspace({ entityId }: { entityId: string }) {
     <div className={`recon-workspace${selected ? ' has-selection' : ''}`}>
       <header className="recon-summary">
         {data.summary.openMaterial > 0
-          ? <span className="brk--material">material breaks: {data.summary.openMaterial}</span>
-          : <span>all reconciled</span>}
+          ? <span className="recon-summary__badge recon-summary__badge--material">⛔ {data.summary.openMaterial} material break{data.summary.openMaterial === 1 ? '' : 's'} block close</span>
+          : <span className="recon-summary__badge recon-summary__badge--ok">✓ All accounts reconciled</span>}
       </header>
       <ReconTable rows={data.rows} selectedKey={selectedKey} onSelect={setSelectedKey} clientMovements={clientMovements} />
       {selected && (

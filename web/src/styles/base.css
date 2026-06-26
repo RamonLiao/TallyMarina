@@ -238,15 +238,26 @@ p {
     overflow-x: auto;
     min-width: 0 !important;
   }
+  /* As a vertical list each tab is generously padded; in a horizontal strip that
+     same padding makes a 116px-tall band. Tighten it (!important beats SideNav's
+     inline `padding: var(--space-2) var(--space-3)`). */
+  .shell-sidenav nav {
+    padding: var(--space-1) var(--space-2) !important;
+    gap: 0 !important;
+  }
   .shell-sidenav nav > button {
     flex: 0 0 auto;
+    padding: 8px 14px !important;
   }
-  /* In the horizontal scroll strip the brass fill reads weakly; add an
-     underline on the active tab. !important overrides SideNav's inline
-     `border: 1px solid transparent` (inline beats stylesheet otherwise). */
+  /* Single-signal active state: a brass underline + brass ink, no fill. The solid
+     brass fill + underline + rounded-top was triple-emphasis and read as a heavy
+     floating block. !important overrides SideNav's inline background/border. */
   .shell-sidenav nav > button[aria-current="page"] {
+    background: transparent !important;
+    border: 1px solid transparent !important;
     border-bottom: 2px solid var(--brass) !important;
-    border-radius: var(--radius-md) var(--radius-md) 0 0 !important;
+    border-radius: 0 !important;
+    color: var(--brass) !important;
   }
 }
 
