@@ -44,8 +44,8 @@ GEMINI_API_KEY=<your-gemini-api-key>
 
 # All must be set (check they're already in .env)
 SUI_NETWORK=testnet
-SUI_GRPC_URL=https://grpc.testnet.sui.io
-ENTITY_DEMO_WALLET=0x0000000000000000000000000000000000000000000000000000000000000abc
+SUI_GRPC_URL=https://fullnode.testnet.sui.io:443
+ONBOARDING_DEMO_WALLET=0x0000000000000000000000000000000000000000000000000000000000000abc
 ```
 
 **Verify these are set:**
