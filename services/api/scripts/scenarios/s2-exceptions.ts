@@ -39,16 +39,7 @@ export async function run(): Promise<void> {
   // ── Step 3: Lock attempt must be blocked ──
   const blocked = await inject(app, 'POST', `/entities/${entity}/period/lock`, { periodId });
   // Lock uses cockpit; when classification light is red it throws LIGHTS_NOT_GREEN
-  assert(
-    blocked.status === 409,
-    `expected 409, got ${blocked.status} ${JSON.stringify(blocked.body)}`,
-  );
-  // The code may be LIGHTS_NOT_GREEN (cockpit gate) — both represent the blocking state
-  const blockedCode: string = blocked.body?.error?.code ?? '';
-  assert(
-    blockedCode === 'LIGHTS_NOT_GREEN' || blockedCode === 'EXCEPTIONS_BLOCKING',
-    `expected LIGHTS_NOT_GREEN or EXCEPTIONS_BLOCKING, got ${blockedCode}`,
-  );
+  expectErr(blocked, 409, 'LIGHTS_NOT_GREEN');
 
   // ── Step 4: Dispose the blocking exception (dismiss) ──
   const dispRes = await inject(
