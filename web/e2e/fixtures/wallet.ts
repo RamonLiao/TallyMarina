@@ -10,6 +10,13 @@ export interface MockWalletOptions {
    * - 'hang'     → never resolves (simulates busy/timeout)
    */
   signResult?: 'success' | 'garbage' | 'hang';
+  /**
+   * When true, seed dapp-kit's selected-wallet localStorage key so it
+   * auto-reconnects to the mock wallet on load — bypassing the connect
+   * dialog (which is fragile/unreliable headless). dapp-kit's autoConnect
+   * defaults to true and restores `${walletId}:${address}`.
+   */
+  autoConnect?: boolean;
 }
 
 /**
@@ -22,10 +29,22 @@ export interface MockWalletOptions {
  */
 export async function installMockWallet(
   page: Page,
-  { address, signResult = 'success' }: MockWalletOptions,
+  { address, signResult = 'success', autoConnect = false }: MockWalletOptions,
 ): Promise<void> {
   await page.addInitScript(
-    ({ addr, sigMode }: { addr: string; sigMode: string }) => {
+    ({ addr, sigMode, auto }: { addr: string; sigMode: string; auto: boolean }) => {
+      // dapp-kit reconnects to `${walletId}:${address}` on load (autoConnect
+      // defaults to true). walletId falls back to the wallet name ("Mock Wallet").
+      if (auto) {
+        try {
+          window.localStorage.setItem(
+            'mysten-dapp-kit:selected-wallet-and-address',
+            `Mock Wallet:${addr}`,
+          );
+        } catch {
+          // localStorage unavailable — connect dialog fallback still applies
+        }
+      }
       // ── Wallet Standard mock ──────────────────────────────────────────────
       const accounts = [
         {
@@ -108,7 +127,7 @@ export async function installMockWallet(
         },
       };
 
-      // Register via Wallet Standard event
+      // Register via Wallet Standard event (for any listener already present)
       window.dispatchEvent(
         new CustomEvent('wallet-standard:register-wallet', {
           detail: (api: { register: (w: typeof wallet) => void }) => {
@@ -119,9 +138,25 @@ export async function installMockWallet(
         }),
       );
 
+      // This init script runs BEFORE the app mounts, so the register-wallet
+      // event above has no listener yet and is lost. The Wallet Standard
+      // contract: when the app initializes it dispatches `app-ready` with a
+      // register callback — respond to it so the mock is (re)registered and
+      // becomes connectable / auto-connectable.
+      window.addEventListener(
+        'wallet-standard:app-ready',
+        (e: Event) => {
+          const detail = (e as CustomEvent).detail as
+            | { register?: (w: typeof wallet) => void }
+            | undefined;
+          detail?.register?.(wallet);
+        },
+        false,
+      );
+
       // Also attach to window for frameworks that poll window on mount
       (window as unknown as Record<string, unknown>).__mockWallet__ = wallet;
     },
-    { addr: address, sigMode: signResult },
+    { addr: address, sigMode: signResult, auto: autoConnect },
   );
 }

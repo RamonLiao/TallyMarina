@@ -16,6 +16,7 @@ function Row({
   const type = e.final?.eventType ?? e.ai?.eventType ?? '—';
   return (
     <div
+      data-testid="event-row"
       style={{
         display: 'grid', gridTemplateColumns: 'auto auto 1fr auto', gap: 'var(--s-3)',
         alignItems: 'center', padding: 'var(--s-3)',

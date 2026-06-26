@@ -11,6 +11,9 @@ export default defineConfig({
   plugins: [react()],
   test: {
     globals: true,
+    // Unit tests live under src/. e2e/*.spec.ts are Playwright specs and must
+    // not be collected by vitest (Playwright's test() throws under vitest).
+    include: ['src/**/*.{test,spec}.{ts,tsx}'],
     environment: 'jsdom',
     setupFiles: ['./vitest.setup.ts'],
     css: false,
