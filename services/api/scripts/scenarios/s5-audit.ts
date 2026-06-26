@@ -16,6 +16,7 @@ export async function run(): Promise<void> {
   const rows = listJournal(db, cfg.entityId);
   assert(rows.length > 0, 'no journal entries found after pipeline');
   const row = rows[0];
+  assert(row, 'no journal entry found after pipeline');
 
   // ── Fetch inclusion proof from /anchors ──
   const res = await inject(

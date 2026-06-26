@@ -84,7 +84,7 @@ export async function run(): Promise<void> {
   const result = await grpc!.grpc.signAndExecuteTransaction({
     transaction: Transaction.from(prep.body.txKind), signer: keypair,
   });
-  const digest = (result as { digest: string }).digest;
+  const digest = (result as unknown as { digest: string }).digest;
   assert(digest, 'no digest from sign+execute');
 
   const conf = await inject(app, 'POST', `/entities/${entity}/anchor/confirm`, {

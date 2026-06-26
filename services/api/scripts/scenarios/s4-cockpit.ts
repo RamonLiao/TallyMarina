@@ -125,6 +125,7 @@ export async function run(): Promise<void> {
     const anchors: Array<{ seq: number; staleAnchor?: boolean }> = anchorsRes.body.anchors ?? anchorsRes.body ?? [];
     if (anchors.length > 0) {
       const latest = anchors[anchors.length - 1];
+      assert(latest, 'no anchor entry found');
       assert(
         latest.staleAnchor === true,
         `expected staleAnchor=true after reopen of anchored period, got ${JSON.stringify(latest)}`,
