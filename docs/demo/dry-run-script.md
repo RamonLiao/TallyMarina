@@ -164,7 +164,7 @@ Each step below shows the **Action** (what to click/do), **Expected functional r
 - Click the brass **"Journal"** CTA button.
 
 **Expected functional result:**
-- Backend `POST /entities/{entityId}/period/{breakId}/disposition` is called once per exception with `disposition: "dismissed"`.
+- Backend `POST /exceptions/{exceptionId}/disposition` is called once per exception (recon breaks use `POST /recon-breaks/{breakId}/disposition`) with `state: "dismissed"`.
 - Each 200 response stores the disposition.
 - No exceptions remain `open` = green light for lock.
 
@@ -379,7 +379,7 @@ If you also want to test the **Onboarding Workspace**, here's the flow:
 
 **Step C: Click Verify**
 - Click the **"Verify"** button for any source row.
-- Backend `POST /onboarding/{entityId}/challenge` generates a nonce and returns a challenge message.
+- Backend `POST /onboarding/challenge` (entity comes from server config) generates a nonce and returns a challenge message.
 - Expected: a modal pops up showing:
   - Challenge text: "Sign this message to verify wallet ownership: nonce=`abcd1234…`"
   - A brass **"Sign"** button.
@@ -388,7 +388,7 @@ If you also want to test the **Onboarding Workspace**, here's the flow:
 - Click the brass **"Sign"** button.
 - Your wallet extension shows "Sign Personal Message" dialog.
 - Sign it.
-- Browser calls `POST /onboarding/{entityId}/verify` with the signature.
+- Browser calls `POST /onboarding/verify` with the signature.
 - Backend verifies the signature against your wallet address using `verifyPersonalMessageSignature` (Sui SDK).
 - If valid, returns 200 with an attestation record.
 - If invalid (wrong address, bad signature), returns 422 with:
