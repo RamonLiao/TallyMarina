@@ -1,3 +1,5 @@
+import { Button } from '../components/ui/Button';
+
 const PROBLEMS = [
   'Balances live in silos — wallets, CEXs, custodians, ERPs — and never tie out.',
   'On-chain events carry no business context: a transfer isn\'t a "vendor payment".',
@@ -84,7 +86,7 @@ export function CtaSection({ onLaunch }: { onLaunch: () => void }) {
     <section className="landing-section landing-cta" aria-labelledby="cta-h">
       <hr className="landing-rule" />
       <h2 id="cta-h" className="landing-section__title">Close the books on on-chain chaos.</h2>
-      <button className="btn btn--primary btn--lg" onClick={onLaunch}>Launch App</button>
+      <Button variant="primary" size="lg" onClick={onLaunch}>Launch App</Button>
       <p className="landing-foot">Read-only access · no private keys · single-entity today</p>
     </section>
   );
