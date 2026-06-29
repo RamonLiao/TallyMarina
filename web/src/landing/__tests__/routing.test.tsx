@@ -15,7 +15,7 @@ describe('landing → app routing', () => {
       </MemoryRouter>,
     );
     expect(screen.queryByText('DASHBOARD_MARKER')).toBeNull();
-    expect(screen.getByRole('button', { name: /launch app/i })).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /launch app/i }).length).toBeGreaterThan(0);
   });
 
   it('navigates to the dashboard when Launch App is clicked', async () => {
@@ -25,7 +25,8 @@ describe('landing → app routing', () => {
         <AppRoutes />
       </MemoryRouter>,
     );
-    await user.click(screen.getByRole('button', { name: /launch app/i }));
+    const buttons = screen.getAllByRole('button', { name: /launch app/i });
+    await user.click(buttons[0]!);
     expect(screen.getByText('DASHBOARD_MARKER')).toBeInTheDocument();
   });
 
