@@ -104,6 +104,9 @@ function Shell() {
 export default function App() {
   return (
     <EntityProvider>
+      {/* NOTE: workspace state is intentionally NON-URL (Context, not routes).
+          Browser back from /app returns to the "/" landing and unmounts these
+          providers — that's by design, not a bug. */}
       <WorkspaceProvider>
         <AppBackground />
         <Shell />

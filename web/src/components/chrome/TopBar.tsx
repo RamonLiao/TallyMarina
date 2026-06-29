@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import { ConnectButton } from '@mysten/dapp-kit-react/ui';
 import { Mascot } from './Mascot';
 import { EntitySwitcher } from './EntitySwitcher';
@@ -23,7 +24,7 @@ export function TopBar() {
           flexWrap: 'wrap',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-1)' }}>
+        <Link to="/" style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-1)', textDecoration: 'none' }}>
           <Mascot pose="sailing" size={32} />
           <span
             style={{
@@ -33,7 +34,7 @@ export function TopBar() {
           >
             TallyMarina
           </span>
-        </div>
+        </Link>
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           <EntitySwitcher />
           <PeriodPill />
