@@ -195,6 +195,11 @@ p {
 @media (max-width: 768px) {
   .exceptions-layout { flex-direction: column !important; }
   .exceptions-layout > .card { flex: 1 1 auto !important; width: 100% !important; }
+  /* The detail pane is not a .card and the layout uses align-items:flex-start (no
+     cross-axis stretch), so a column-stacked pane shrinks to content — and with the
+     audit pane's `container-type: inline-size` (content-independent width) that
+     collapses to 0. A definite width:100% resolves the pane width top-down. */
+  .exceptions-layout > .exceptions-detail-pane { width: 100% !important; }
   /* When an exception is selected, hide the list and show detail full-width */
   .exceptions-layout.has-selection > .exceptions-list-pane { display: none !important; }
   .exceptions-layout.has-selection > .exceptions-detail-pane { display: block !important; }
@@ -261,17 +266,22 @@ p {
   }
 }
 
-/* ── Audit workspace lineage RWD (spec §7) ──
-   Lineage is a flex row of 4 stage cards + arrows at ≥1280px.
-   Below that, collapse to 2×2 then to a vertical accordion. The panes reuse
-   .exceptions-layout so the <768px stack-push (list→full-width detail) is inherited. */
-@media (max-width: 1280px) {
-  .audit-lineage { flex-wrap: wrap !important; }
-  .audit-lineage > .audit-stage { flex: 1 1 calc(50% - var(--s-4)) !important; }
-  /* arrows between columns become horizontal separators on wrap */
-  .audit-lineage > .audit-arrow { display: none; }
-}
-@media (max-width: 960px) {
+/* ── Audit workspace lineage layout (spec §7) ──
+   The 4-stage forensic walkthrough (raw → AI → JE → chain) needs real width per
+   stage to stay readable. The 1200px shell cap + 320px master list leave the detail
+   pane only ~510px, so a 4-across (or even 2×2) layout crams each stage into a tall
+   narrow strip where JSON wraps per word. Instead: when an event is selected, hide
+   the list (back button returns) and let the lineage take the full content width,
+   stacked vertically — the pipeline reads top-to-bottom and every stage gets the
+   whole width. 4-across only survives if the container is genuinely wide (>1100px,
+   e.g. shell cap removed or an ultrawide split). */
+.audit-layout.has-selection > .exceptions-list-pane { display: none; }
+.audit-layout.has-selection > .exceptions-detail-pane { flex: 1 1 auto; }
+.audit-layout .exceptions-back-btn { display: inline-flex; }
+
+@container (max-width: 1100px) {
   .audit-lineage { flex-direction: column !important; }
   .audit-lineage > .audit-stage { flex: 1 1 auto !important; width: 100%; }
+  /* arrows are horizontal connectors; drop them in the vertical stack */
+  .audit-lineage > .audit-arrow { display: none; }
 }

@@ -35,7 +35,7 @@ export function AuditWorkspace() {
 
   return (
     <div
-      className={`exceptions-layout${hasSel ? ' has-selection' : ''}`}
+      className={`exceptions-layout audit-layout${hasSel ? ' has-selection' : ''}`}
       style={{ display: 'flex', gap: 'var(--s-6)', alignItems: 'flex-start' }}
     >
       <div className="card exceptions-list-pane" style={{ flex: '0 0 320px', padding: 0, overflow: 'hidden' }}>
@@ -49,7 +49,7 @@ export function AuditWorkspace() {
           onStatusFilter={setStatusFilter}
         />
       </div>
-      <div className="exceptions-detail-pane" style={{ flex: '1 1 360px', minWidth: 0 }}>
+      <div className="exceptions-detail-pane" style={{ flex: '1 1 360px', minWidth: 0, containerType: 'inline-size' }}>
         {hasSel && (
           <button
             className="exceptions-back-btn"

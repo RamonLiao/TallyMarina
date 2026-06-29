@@ -18,7 +18,7 @@ function Row({
     <div
       data-testid="event-row"
       style={{
-        display: 'grid', gridTemplateColumns: 'auto auto 1fr auto', gap: 'var(--s-3)',
+        display: 'grid', gridTemplateColumns: 'auto auto minmax(0, 1fr) auto', gap: 'var(--s-3)',
         alignItems: 'center', padding: 'var(--s-3)',
         borderLeft: inCompare ? '3px solid var(--brass)' : '3px solid transparent',
         borderBottom: '1px solid var(--paper-line)',
@@ -38,9 +38,9 @@ function Row({
       <button
         onClick={() => onSelect(e.id)}
         aria-current={selected ? 'true' : undefined}
-        style={{ display: 'block', textAlign: 'left', border: 'none', background: 'none', cursor: 'pointer', padding: 0 }}
+        style={{ display: 'block', textAlign: 'left', border: 'none', background: 'none', cursor: 'pointer', padding: 0, minWidth: 0 }}
       >
-        <span style={{ fontSize: 'var(--text-xs)', fontWeight: selected ? 700 : 500, color: 'var(--ink)' }}>{type}</span>
+        <span style={{ display: 'block', fontSize: 'var(--text-xs)', fontWeight: selected ? 700 : 500, color: 'var(--ink)', overflowWrap: 'anywhere' }}>{type}</span>
         <span className="mono" style={{ display: 'block', fontSize: 'var(--text-xs)', color: 'var(--ink-soft)' }}>{e.id}</span>
       </button>
       <span className="mono" style={{ fontSize: 'var(--text-xs)', color: 'var(--ink-soft)' }}>

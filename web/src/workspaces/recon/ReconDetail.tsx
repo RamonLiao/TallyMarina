@@ -101,7 +101,7 @@ export function ReconDetail({
             <input placeholder="note (required)" value={reasonNote} onChange={(e) => setReasonNote(e.target.value)} />
           )}
           <div className="recon-disp-actions">
-            <button disabled={busy || (reasonCode === 'OTHER' && !reasonNote)} onClick={() => dispose('resolved')}>Resolve</button>
+            <button className="btn-primary" disabled={busy || (reasonCode === 'OTHER' && !reasonNote)} onClick={() => dispose('resolved')}>Resolve</button>
             <button disabled={busy} onClick={() => dispose('deferred')}>Defer</button>
             <button disabled={busy || (reasonCode === 'OTHER' && !reasonNote)} onClick={() => dispose('dismissed')}>Dismiss</button>
           </div>

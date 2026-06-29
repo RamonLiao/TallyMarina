@@ -54,5 +54,34 @@
 .recon-eq-note td { color: var(--ink-soft, #8a8175); font-size: var(--text-sm); }
 .prov--unavail { color: var(--warn, #c79a3a); }
 .recon-disp { margin-top: 14px; display: flex; flex-direction: column; gap: 8px; }
+.recon-disp label { font-size: var(--text-sm); color: var(--ink-soft); }
+/* Theme the disposition select/input to match the app (mono fields on paper-card)
+   instead of native OS widgets — mirrors DispositionControls' selectStyle. */
+.recon-disp select,
+.recon-disp input {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  padding: var(--s-1) var(--s-2);
+  border: 1px solid var(--paper-line);
+  border-radius: var(--r-sm);
+  background: var(--paper-card);
+  color: var(--ink);
+}
 .recon-disp-actions { display: flex; gap: 8px; }
+/* Resolve carries .btn-primary (brass pill); Defer/Dismiss are ghost pills,
+   mirroring the Exceptions DispositionControls ghostStyle. */
+.recon-disp-actions button:not(.btn-primary) {
+  background: none;
+  border: 1px solid var(--paper-line);
+  border-radius: var(--radius-pill);
+  padding: var(--s-2) var(--s-4);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--ink);
+}
+.recon-disp-actions button:not(.btn-primary):hover:not(:disabled) {
+  background: color-mix(in srgb, var(--paper-card) 60%, transparent);
+}
+.recon-disp-actions button:disabled { cursor: not-allowed; opacity: 0.45; }
 .recon-err { color: var(--debit, #b5532e); }
