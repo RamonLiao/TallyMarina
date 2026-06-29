@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import userEvent from '@testing-library/user-event';
 import { vi } from 'vitest';
 import { AppProviders } from '../providers/AppProviders';
@@ -28,7 +29,7 @@ vi.mock('../app/workspaces', () => ({
 }));
 
 function renderApp() {
-  return render(<AppProviders><App /></AppProviders>);
+  return render(<AppProviders><MemoryRouter><App /></MemoryRouter></AppProviders>);
 }
 
 it('starts in the Close workspace showing the step rail', () => {

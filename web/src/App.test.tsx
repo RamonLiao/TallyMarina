@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import userEvent from '@testing-library/user-event';
 import { vi } from 'vitest';
 import { AppProviders } from './providers/AppProviders';
@@ -13,7 +14,9 @@ vi.mock('@mysten/dapp-kit-react/ui', () => ({
 function renderApp() {
   return render(
     <AppProviders>
-      <App />
+      <MemoryRouter>
+        <App />
+      </MemoryRouter>
     </AppProviders>
   );
 }
