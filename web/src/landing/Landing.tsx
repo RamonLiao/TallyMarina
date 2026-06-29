@@ -24,6 +24,7 @@ export default function Landing() {
         <Button variant="primary" onClick={launch}>Launch App</Button>
       </header>
 
+      <main>
       <section className="landing-hero">
         <div className="landing-hero__copy">
           <p className="landing-hero__eyebrow">Digital-asset subledger</p>
@@ -48,6 +49,7 @@ export default function Landing() {
       <HowItWorksSection />
       <GovernanceSection />
       <CtaSection onLaunch={launch} />
+      </main>
     </div>
   );
 }

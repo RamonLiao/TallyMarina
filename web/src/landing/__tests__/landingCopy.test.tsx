@@ -30,11 +30,13 @@ describe('landing copy guardrails (accountant review)', () => {
   });
 
   it('presents Walrus as optional, not the audit headline', () => {
+    // Walrus MUST be present (the snapshot/audit story references it) AND framed
+    // as optional — a non-conditional assertion so deleting the Walrus line fails
+    // here instead of silently passing (anti-vacuous, per lessons.md).
     renderLanding();
     const text = document.body.textContent ?? '';
-    if (/walrus/i.test(text)) {
-      expect(text).toMatch(/optional[^.]*walrus|walrus[^.]*optional/i);
-    }
+    expect(text).toMatch(/walrus/i);
+    expect(text).toMatch(/optional[^.]*walrus|walrus[^.]*optional/i);
   });
 
   it('keeps a working Launch App CTA', () => {
