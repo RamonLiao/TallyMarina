@@ -14,6 +14,8 @@ import './landing.css';
 export default function Landing() {
   const navigate = useNavigate();
   const launch = () => navigate('/app');
+  const seeCloseFlow = () =>
+    document.getElementById('how-h')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   return (
     <div className="landing">
       <header className="landing-nav">
@@ -35,7 +37,7 @@ export default function Landing() {
           </p>
           <div className="landing-hero__cta">
             <Button variant="primary" onClick={launch}>Launch App</Button>
-            <Button variant="ghost" onClick={launch}>See the close flow</Button>
+            <Button variant="ghost" onClick={seeCloseFlow}>See the close flow</Button>
           </div>
           <code className="landing-hero__chip">⛓ Built on Sui</code>
         </div>
