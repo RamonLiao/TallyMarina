@@ -8,6 +8,7 @@
  * path is wired correctly before any real on-chain or backend call.
  */
 import { render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import App from '../App';
@@ -52,7 +53,9 @@ it('drives ingest → classify → review → journal → anchor end-to-end', as
   const qc = freshQC();
   render(
     <QueryClientProvider client={qc}>
-      <App />
+      <MemoryRouter>
+        <App />
+      </MemoryRouter>
     </QueryClientProvider>
   );
   // Step 1→2: Ingest fixture

@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { vi } from 'vitest';
 import { EntityProvider } from '../../app/EntityContext';
 
@@ -17,7 +18,7 @@ vi.mock('../../api/hooks', () => ({
 import { TopBar } from './TopBar';
 
 function renderTopBar() {
-  return render(<EntityProvider><TopBar /></EntityProvider>);
+  return render(<MemoryRouter><EntityProvider><TopBar /></EntityProvider></MemoryRouter>);
 }
 
 it('renders the brand name and the connect button', () => {

@@ -2,6 +2,7 @@
 // StepRail is secondary. This test proves CloseCockpit renders as the primary
 // landing when activeWorkspace === 'close' (the default).
 import { render, screen } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { vi } from 'vitest';
 import { AppProviders } from './providers/AppProviders';
 import App from './App';
@@ -31,7 +32,9 @@ vi.mock('./data/useCloseCockpit', () => ({
 function renderApp() {
   return render(
     <AppProviders>
-      <App />
+      <MemoryRouter>
+        <App />
+      </MemoryRouter>
     </AppProviders>
   );
 }
