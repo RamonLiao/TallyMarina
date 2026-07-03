@@ -18,6 +18,10 @@ use sui::event;
 use sui::bcs;
 use std::hash;
 
+/// Module version (PAT-VM-1). Bump on every incompatible package upgrade;
+/// state-modifying functions reject objects whose `version` differs, so a
+/// stale package version can never write mixed-version state after an upgrade.
+const VERSION: u64 = 1;
 /// Fixed length (bytes) of every hash field on the chain.
 const HASH_LEN: u64 = 32;
 /// Maximum length (bytes) of opaque off-chain identifiers carried on-chain.
@@ -36,10 +40,16 @@ const EBadHashLen: vector<u8> = b"manifest_hash / merkle_root must be exactly 32
 const ERefTooLong: vector<u8> = b"entity_ref / period_id exceeds 64 bytes";
 #[error]
 const ELinkMismatch: vector<u8> = b"prev_link does not match chain.latest_link (append-only violation)";
+#[error]
+const EWrongVersion: vector<u8> = b"chain.version does not match this package VERSION; run migrate first";
+#[error]
+const ENotOlderVersion: vector<u8> = b"chain.version is not older than this package VERSION; nothing to migrate";
 
 /// Per-entity chain head. Shared; constant size.
 public struct EntityAnchorChain has key {
     id: UID,
+    /// PAT-VM-1: object version; writes assert `version == VERSION`.
+    version: u64,
     /// Opaque off-chain entity id (≤ 64 bytes).
     entity_ref: vector<u8>,
     /// Latest chain link (32 bytes); genesis = [0u8; 32].
@@ -80,6 +90,22 @@ public struct CapRotated has copy, drop {
     new_owner: address,
 }
 
+/// Emitted on chain creation so indexers can discover chains and resolve
+/// entity_ref → chain_id from the event stream alone (S3 fix: previously the
+/// binding existed only in object state).
+public struct ChainCreated has copy, drop {
+    chain_id: ID,
+    entity_ref: vector<u8>,
+    creator: address,
+}
+
+/// Emitted when a chain object is migrated to the current package VERSION.
+public struct ChainMigrated has copy, drop {
+    chain_id: ID,
+    old_version: u64,
+    new_version: u64,
+}
+
 /// Create a new per-entity chain. Shares the chain and hands the genesis
 /// AnchorCap (epoch 0) to the caller.
 #[allow(lint(self_transfer))]
@@ -88,6 +114,7 @@ public fun create_chain(entity_ref: vector<u8>, ctx: &mut TxContext) {
 
     let chain = EntityAnchorChain {
         id: object::new(ctx),
+        version: VERSION,
         entity_ref,
         latest_link: GENESIS_LINK,
         seq: 0,
@@ -99,6 +126,11 @@ public fun create_chain(entity_ref: vector<u8>, ctx: &mut TxContext) {
         chain_id: object::id(&chain),
         epoch: 0,
     };
+    event::emit(ChainCreated {
+        chain_id: object::id(&chain),
+        entity_ref: chain.entity_ref,
+        creator: ctx.sender(),
+    });
     transfer::transfer(cap, ctx.sender());
     transfer::share_object(chain);
 }
@@ -118,6 +150,9 @@ public fun anchor_snapshot(
     prev_link: vector<u8>,
     supersedes_seq: u64,
 ) {
+    // PAT-VM-1: refuse writes from a package whose VERSION doesn't match the object.
+    assert!(chain.version == VERSION, EWrongVersion);
+
     // Authorization: bound cap + current epoch (F1).
     assert!(cap.chain_id == object::id(chain), EWrongChain);
     assert!(cap.epoch == chain.cap_epoch, EStaleCap);
@@ -165,6 +200,9 @@ public fun rotate_cap(
     new_owner: address,
     ctx: &mut TxContext,
 ) {
+    // PAT-VM-1: same version gate as anchor_snapshot.
+    assert!(chain.version == VERSION, EWrongVersion);
+
     assert!(old_cap.chain_id == object::id(chain), EWrongChain);
     assert!(old_cap.epoch == chain.cap_epoch, EStaleCap);
 
@@ -187,8 +225,28 @@ public fun rotate_cap(
     });
 }
 
+/// PAT-VM-1: migrate a chain object created by an older package version to the
+/// current VERSION. Gated by the chain's own current AnchorCap — the module's
+/// single write authority — rather than a package-wide AdminCap, so no new
+/// trust root is introduced and only the entity's cap holder can migrate.
+public fun migrate(chain: &mut EntityAnchorChain, cap: &AnchorCap) {
+    assert!(cap.chain_id == object::id(chain), EWrongChain);
+    assert!(cap.epoch == chain.cap_epoch, EStaleCap);
+    assert!(chain.version < VERSION, ENotOlderVersion);
+
+    let old_version = chain.version;
+    chain.version = VERSION;
+
+    event::emit(ChainMigrated {
+        chain_id: object::id(chain),
+        old_version,
+        new_version: VERSION,
+    });
+}
+
 // === Read-only accessors (for tests / off-chain) ===
 
+public fun version(chain: &EntityAnchorChain): u64 { chain.version }
 public fun latest_link(chain: &EntityAnchorChain): vector<u8> { chain.latest_link }
 public fun seq(chain: &EntityAnchorChain): u64 { chain.seq }
 public fun cap_epoch(chain: &EntityAnchorChain): u64 { chain.cap_epoch }
@@ -222,6 +280,13 @@ fun h32(tag: u8): vector<u8> {
 /// the (otherwise consumption-protected) stale-cap condition for F1 testing.
 public fun bump_epoch_for_test(chain: &mut EntityAnchorChain) {
     chain.cap_epoch = chain.cap_epoch + 1;
+}
+
+#[test_only]
+/// Simulate an object created by an older package version (create_chain always
+/// stamps the current VERSION, so tests need a back-door to age an object).
+public fun set_version_for_test(chain: &mut EntityAnchorChain, v: u64) {
+    chain.version = v;
 }
 
 #[test]
@@ -369,6 +434,158 @@ fun test_rotate_cap_mints_fresh_and_invalidates_epoch() {
 
     ts::return_to_sender(&sc, new_cap);
     ts::return_shared(chain);
+    sc.end();
+}
+
+#[test]
+/// Known-answer test (TST-CV-1): pins the exact preimage layout
+/// prev_link || manifest_hash || merkle_root || period_id || bcs(seq).
+/// Expected digest computed independently (python hashlib) for
+/// prev=32x00, manifest=h32(1), merkle=h32(2), period="2026-Q1", seq=1.
+/// Any reordering or dropped component of the preimage fails this test —
+/// the `link != prev` assertions elsewhere cannot catch that.
+fun test_known_answer_link_derivation() {
+    let mut sc = ts::begin(ADMIN);
+    create_chain(b"entity-1", sc.ctx());
+    sc.next_tx(ADMIN);
+    let mut chain = sc.take_shared<EntityAnchorChain>();
+    let cap = sc.take_from_sender<AnchorCap>();
+
+    anchor_snapshot(&mut chain, &cap, h32(1), h32(2), b"2026-Q1", genesis_link(), 0);
+    let expected = x"613b233b56499430f4871741504ec4a8a7b2a378609f1481041ff62d02451725";
+    assert!(latest_link(&chain) == expected, 0);
+
+    ts::return_to_sender(&sc, cap);
+    ts::return_shared(chain);
+    sc.end();
+}
+
+#[test, expected_failure(abort_code = EWrongVersion)]
+/// PAT-VM-1: a chain stamped with an older version must reject writes until migrated.
+fun test_version_gate_rejects_old_object() {
+    let mut sc = ts::begin(ADMIN);
+    create_chain(b"entity-1", sc.ctx());
+    sc.next_tx(ADMIN);
+    let mut chain = sc.take_shared<EntityAnchorChain>();
+    let cap = sc.take_from_sender<AnchorCap>();
+
+    set_version_for_test(&mut chain, 0);
+    anchor_snapshot(&mut chain, &cap, h32(1), h32(2), b"2026-Q1", genesis_link(), 0);
+
+    ts::return_to_sender(&sc, cap);
+    ts::return_shared(chain);
+    sc.end();
+}
+
+#[test]
+/// PAT-VM-1: migrate lifts an old object to VERSION, after which writes succeed.
+fun test_migrate_then_anchor_succeeds() {
+    let mut sc = ts::begin(ADMIN);
+    create_chain(b"entity-1", sc.ctx());
+    sc.next_tx(ADMIN);
+    let mut chain = sc.take_shared<EntityAnchorChain>();
+    let cap = sc.take_from_sender<AnchorCap>();
+
+    set_version_for_test(&mut chain, 0);
+    migrate(&mut chain, &cap);
+    assert!(version(&chain) == 1, 0);
+    anchor_snapshot(&mut chain, &cap, h32(1), h32(2), b"2026-Q1", genesis_link(), 0);
+    assert!(seq(&chain) == 1, 1);
+
+    ts::return_to_sender(&sc, cap);
+    ts::return_shared(chain);
+    // ChainMigrated + SnapshotAnchored must both have been emitted in this tx.
+    let effects = sc.next_tx(ADMIN);
+    assert!(ts::num_user_events(&effects) == 2, 2);
+    sc.end();
+}
+
+#[test, expected_failure(abort_code = EWrongVersion)]
+/// rotate_cap carries the same version gate as anchor_snapshot — deleting
+/// either assert must fail a test.
+fun test_version_gate_rejects_old_object_on_rotate() {
+    let mut sc = ts::begin(ADMIN);
+    create_chain(b"entity-1", sc.ctx());
+    sc.next_tx(ADMIN);
+    let mut chain = sc.take_shared<EntityAnchorChain>();
+    let cap = sc.take_from_sender<AnchorCap>();
+
+    set_version_for_test(&mut chain, 0);
+    rotate_cap(&mut chain, cap, NEW_OWNER, sc.ctx());
+
+    ts::return_shared(chain);
+    sc.end();
+}
+
+#[test, expected_failure(abort_code = EWrongChain)]
+/// migrate must reject a cap bound to a different chain (same guard as
+/// anchor_snapshot / rotate_cap; previously only the epoch branch was tested).
+fun test_migrate_rejects_foreign_cap() {
+    let mut sc = ts::begin(ADMIN);
+    create_chain(b"entity-A", sc.ctx());
+    sc.next_tx(ADMIN);
+    create_chain(b"entity-B", sc.ctx());
+    sc.next_tx(ADMIN);
+
+    let ids = ts::ids_for_sender<AnchorCap>(&sc);
+    let cap_a = ts::take_from_sender_by_id<AnchorCap>(&sc, *ids.borrow(0));
+    let cap_b = ts::take_from_sender_by_id<AnchorCap>(&sc, *ids.borrow(1));
+    let mut chain = ts::take_shared<EntityAnchorChain>(&sc);
+
+    let a_is_owner = cap_a.chain_id == object::id(&chain);
+    let (foreign, owned) = if (a_is_owner) (cap_b, cap_a) else (cap_a, cap_b);
+
+    set_version_for_test(&mut chain, 0);
+    migrate(&mut chain, &foreign);
+
+    ts::return_to_sender(&sc, foreign);
+    ts::return_to_sender(&sc, owned);
+    ts::return_shared(chain);
+    sc.end();
+}
+
+#[test, expected_failure(abort_code = ENotOlderVersion)]
+/// migrate on a current-version chain is a no-op refused loudly.
+fun test_migrate_rejects_current_version() {
+    let mut sc = ts::begin(ADMIN);
+    create_chain(b"entity-1", sc.ctx());
+    sc.next_tx(ADMIN);
+    let mut chain = sc.take_shared<EntityAnchorChain>();
+    let cap = sc.take_from_sender<AnchorCap>();
+
+    migrate(&mut chain, &cap);
+
+    ts::return_to_sender(&sc, cap);
+    ts::return_shared(chain);
+    sc.end();
+}
+
+#[test, expected_failure(abort_code = EStaleCap)]
+/// migrate carries the same cap authorization as every other write.
+fun test_migrate_rejects_stale_cap() {
+    let mut sc = ts::begin(ADMIN);
+    create_chain(b"entity-1", sc.ctx());
+    sc.next_tx(ADMIN);
+    let mut chain = sc.take_shared<EntityAnchorChain>();
+    let cap = sc.take_from_sender<AnchorCap>();
+
+    set_version_for_test(&mut chain, 0);
+    bump_epoch_for_test(&mut chain);
+    migrate(&mut chain, &cap);
+
+    ts::return_to_sender(&sc, cap);
+    ts::return_shared(chain);
+    sc.end();
+}
+
+#[test]
+/// S3: create_chain emits ChainCreated so indexers can discover chains from
+/// the event stream alone (previously the binding lived only in object state).
+fun test_create_chain_emits_event() {
+    let mut sc = ts::begin(ADMIN);
+    create_chain(b"entity-1", sc.ctx());
+    let effects = sc.next_tx(ADMIN);
+    assert!(ts::num_user_events(&effects) == 1, 0);
     sc.end();
 }
 
