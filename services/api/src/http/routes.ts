@@ -465,6 +465,7 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
         entityId: ev.entityId, category, eventId,
         to: b.state as DispositionState, reasonCode: b.reasonCode as never,
         reasonNote: b.reasonNote ?? null, decidedBy: 'demo-controller', now: Date.now(),
+        source: 'HUMAN',
       });
       return { disposition: row };
     } catch (err) {

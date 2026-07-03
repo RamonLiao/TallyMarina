@@ -1,6 +1,6 @@
 // AUDIT OVERLAY ONLY. No journal writes permitted — disposition is triage metadata only.
 import type { Db } from '../store/db.js';
-import type { DispositionState, ReasonCode } from './types.js';
+import type { DispositionState, DispositionSource, ReasonCode } from './types.js';
 import { getDisposition, upsertDisposition, appendDispositionLog, type DispositionRow } from '../store/dispositionStore.js';
 
 const LEGAL: Record<DispositionState, DispositionState[]> = {
@@ -20,6 +20,7 @@ export interface ApplyArgs {
   entityId: string; category: string; eventId: string;
   to: DispositionState; reasonCode: ReasonCode; reasonNote?: string | null;
   decidedBy: string; now: number;
+  source?: DispositionSource; proposalId?: number | null;
 }
 
 export function applyDisposition(db: Db, args: ApplyArgs): DispositionRow {
@@ -38,6 +39,8 @@ export function applyDisposition(db: Db, args: ApplyArgs): DispositionRow {
       reasonNote: args.reasonNote ?? null,
       decidedBy: args.decidedBy,
       decidedAt: args.now,
+      source: args.source ?? 'HUMAN',
+      proposalId: args.proposalId ?? null,
     };
     upsertDisposition(db, row);
     appendDispositionLog(db, row);

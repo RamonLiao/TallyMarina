@@ -52,6 +52,8 @@ CREATE TABLE IF NOT EXISTS exception_disposition (
   reason_note TEXT,
   decided_by  TEXT NOT NULL,
   decided_at  INTEGER NOT NULL,
+  source      TEXT NOT NULL DEFAULT 'HUMAN',
+  proposal_id INTEGER,
   PRIMARY KEY (category, event_id)
 );
 CREATE TABLE IF NOT EXISTS exception_disposition_log (
@@ -63,7 +65,9 @@ CREATE TABLE IF NOT EXISTS exception_disposition_log (
   reason_code TEXT NOT NULL,
   reason_note TEXT,
   decided_by  TEXT NOT NULL,
-  decided_at  INTEGER NOT NULL
+  decided_at  INTEGER NOT NULL,
+  source      TEXT NOT NULL DEFAULT 'HUMAN',
+  proposal_id INTEGER
 );
 CREATE TABLE IF NOT EXISTS recon_break_disposition (
   entity_id   TEXT NOT NULL REFERENCES entities(id),

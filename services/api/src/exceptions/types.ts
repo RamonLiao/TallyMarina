@@ -1,6 +1,7 @@
 // services/api/src/exceptions/types.ts
 export type ExceptionCategory = 'RULES_FAILED' | 'CLASSIFY_REVIEW' | 'LOW_CONFIDENCE_AUTO';
 export type DispositionState = 'open' | 'resolved' | 'dismissed' | 'deferred';
+export type DispositionSource = 'HUMAN' | 'AGENT_PROPOSAL';
 export type ReasonCode =
   | 'MAPPING_ADDED' | 'RECLASSIFIED' | 'DUPLICATE_CONFIRMED'
   | 'IMMATERIAL_WAIVED' | 'PENDING_DOC' | 'CARRIED_FORWARD' | 'OTHER';
