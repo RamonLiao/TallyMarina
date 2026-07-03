@@ -62,11 +62,28 @@ describe('validateProposal (deterministic fail-closed)', () => {
     ['IMMATERIAL_WAIVED above threshold', { ...good, reasonCode: 'IMMATERIAL_WAIVED' }, '5000'],
     ['dismissed with unknown amount (fail-closed)', { ...good, action: 'dismissed', reasonCode: 'DUPLICATE_CONFIRMED' }, null],
     ['dismissed with non-numeric amount (fail-closed)', { ...good, action: 'dismissed', reasonCode: 'DUPLICATE_CONFIRMED' }, 'lots'],
+    // sign-blind bypass (security): negative material amount must not slip through abs-less compare.
+    ['dismissed with negative material amount (sign bypass)', { ...good, action: 'dismissed', reasonCode: 'DUPLICATE_CONFIRMED' }, '-50000'],
+    // Number('') === 0 bypass (security): empty/whitespace string must not fail-open to 0.
+    ['dismissed with empty-string amount (fail-open bypass)', { ...good, action: 'dismissed', reasonCode: 'DUPLICATE_CONFIRMED' }, ''],
+    ['dismissed with whitespace-only amount (fail-open bypass)', { ...good, action: 'dismissed', reasonCode: 'DUPLICATE_CONFIRMED' }, '   '],
+    // exotic Number() coercions must not pass via loose parsing.
+    ['dismissed with hex-string amount', { ...good, action: 'dismissed', reasonCode: 'DUPLICATE_CONFIRMED' }, '0x10'],
+    ['dismissed with exponential-overflow amount', { ...good, action: 'dismissed', reasonCode: 'DUPLICATE_CONFIRMED' }, '1e999'],
   ])('materiality gate (CPA F5): rejects %s', (_l, raw, amount) => {
     expect(validateProposal(ex({ amount }), raw, T).ok).toBe(false);
   });
   it('materiality gate allows small dismissed', () => {
     expect(validateProposal(ex({ amount: '5' }), { ...good, action: 'dismissed', reasonCode: 'DUPLICATE_CONFIRMED' }, T).ok).toBe(true);
+  });
+  it('materiality gate allows small negative dismissed (abs within threshold)', () => {
+    expect(validateProposal(ex({ amount: '-5' }), { ...good, action: 'dismissed', reasonCode: 'DUPLICATE_CONFIRMED' }, T).ok).toBe(true);
+  });
+  it('rejects whitespace-only rationale (trimmed required)', () => {
+    expect(validateProposal(ex(), { ...good, rationale: ' ' }, T).ok).toBe(false);
+  });
+  it('rejects OTHER with whitespace-only reasonNote (trimmed required)', () => {
+    expect(validateProposal(ex(), { ...good, reasonCode: 'OTHER', reasonNote: ' ' }, T).ok).toBe(false);
   });
 });
 

@@ -40,6 +40,10 @@ const TRIAGE_SCHEMA: GeminiSchema = {
   required: ['action', 'reasonCode', 'rationale', 'confidence'],
 };
 
+// Strict decimal literal: optional leading '-', digits, optional '.digits'. Rejects '', whitespace,
+// '0x10', '1e999' and any other Number()-coercible-but-not-affirmatively-numeric string.
+const STRICT_DECIMAL = /^-?\d+(\.\d+)?$/;
+
 /** Deterministic fail-closed gate. Anything not affirmatively valid is discarded. */
 export function validateProposal(
   ex: Exception, raw: unknown, materialityThreshold: number,
@@ -49,17 +53,21 @@ export function validateProposal(
   const action = r.action as ProposalAction;
   if (typeof r.reasonCode !== 'string' || !REASON_CODES.includes(r.reasonCode as ReasonCode)) return { ok: false, reason: 'BAD_REASON_CODE' };
   const reasonCode = r.reasonCode as ReasonCode;
-  const reasonNote = typeof r.reasonNote === 'string' && r.reasonNote.length > 0 ? r.reasonNote : null;
+  const reasonNote = typeof r.reasonNote === 'string' && r.reasonNote.trim().length > 0 ? r.reasonNote : null;
   if (reasonCode === 'OTHER' && !reasonNote) return { ok: false, reason: 'OTHER_REQUIRES_NOTE' };
   if (reasonNote !== null && reasonNote.length > 500) return { ok: false, reason: 'NOTE_TOO_LONG' };
-  if (typeof r.rationale !== 'string' || r.rationale.length === 0 || r.rationale.length > 2000) return { ok: false, reason: 'BAD_RATIONALE' };
+  if (typeof r.rationale !== 'string' || r.rationale.trim().length === 0 || r.rationale.length > 2000) return { ok: false, reason: 'BAD_RATIONALE' };
   if (typeof r.confidence !== 'number' || !Number.isFinite(r.confidence) || r.confidence < 0 || r.confidence > 1) return { ok: false, reason: 'BAD_CONFIDENCE' };
   // CPA F6: dismissing a blocking RULES_FAILED = transaction never posts, close unblocks. Human-only.
   if (ex.category === 'RULES_FAILED' && action === 'dismissed') return { ok: false, reason: 'BLOCKING_DISMISS_FORBIDDEN' };
-  // CPA F5: materiality is a code decision, never the model's. Unknown amount = fail closed.
+  // CPA F5: materiality is a code decision, never the model's. Unknown/non-numeric amount = fail closed.
+  // Amount must be an affirmatively-numeric string (strict pattern) before Number() — blocks
+  // Number('')===0 and Number(' ')===0 fail-open bypasses, and exotic forms ('0x10', '1e999').
+  // Compare on abs() so a negative material amount (e.g. a refund/adjustment) can't dodge the gate.
   if (action === 'dismissed' || reasonCode === 'IMMATERIAL_WAIVED') {
-    const amt = ex.amount === null ? NaN : Number(ex.amount);
-    if (!Number.isFinite(amt) || amt > materialityThreshold) return { ok: false, reason: 'MATERIALITY_GATE' };
+    const trimmed = typeof ex.amount === 'string' ? ex.amount.trim() : '';
+    const amt = ex.amount !== null && STRICT_DECIMAL.test(trimmed) ? Number(trimmed) : NaN;
+    if (!Number.isFinite(amt) || Math.abs(amt) > materialityThreshold) return { ok: false, reason: 'MATERIALITY_GATE' };
   }
   return { ok: true, value: { action, reasonCode, reasonNote, rationale: r.rationale, confidence: r.confidence } };
 }
