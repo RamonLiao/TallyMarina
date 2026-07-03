@@ -1,5 +1,8 @@
 import { Pool } from 'pg';
-import { SuiClient } from '@mysten/sui/client';
+// SDK v2: the JSON-RPC client moved to the jsonRpc entry point (SuiClient is gone).
+// NOTE: public JSON-RPC endpoints shut down 2026-07 — migrate this source to gRPC
+// alongside anchor-svc's SuiGrpcClient before then.
+import { SuiJsonRpcClient } from '@mysten/sui/jsonRpc';
 import { SuiJsonRpcSource } from '../source/SuiJsonRpcSource.js';
 import { PostgresRepository } from '../repo/PostgresRepository.js';
 import { ingestEntity } from '../ingest/ingestEntity.js';
@@ -19,7 +22,7 @@ async function main() {
   if (!expectedChainId) throw new Error('EXPECTED_CHAIN_IDENTIFIER is required (network guard, F3)');
   if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required');
 
-  const source = new SuiJsonRpcSource(new SuiClient({ url: rpcUrl }) as never, expectedChainId);
+  const source = new SuiJsonRpcSource(new SuiJsonRpcClient({ url: rpcUrl, network: (process.env.SUI_NETWORK ?? 'testnet') as 'testnet' }) as never, expectedChainId);
   const guard = await source.describe();           // startup network guard
   console.log(`ingesting from chain=${guard.chainIdentifier} epoch=${guard.epoch}`);
 

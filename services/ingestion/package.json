@@ -12,7 +12,7 @@
     "ingest": "node --import tsx src/cli/run-ingest.ts"
   },
   "dependencies": {
-    "@mysten/sui": "^1.0.0",
+    "@mysten/sui": "2.19.0",
     "pg": "^8.11.0",
     "zod": "^3.23.0"
   },

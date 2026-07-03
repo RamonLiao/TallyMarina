@@ -1,0 +1,19 @@
+{
+  "name": "sui-agentic-subledger",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Enterprise on-chain accounting subledger on Sui — monorepo root",
+  "workspaces": [
+    "services/anchor-svc",
+    "services/ingestion",
+    "services/rules-engine",
+    "services/snapshot-svc",
+    "services/api",
+    "web"
+  ],
+  "scripts": {
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm exec --workspaces -- tsc --noEmit",
+    "build": "npm run build --workspaces --if-present"
+  }
+}
