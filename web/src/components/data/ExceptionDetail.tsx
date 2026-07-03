@@ -1,17 +1,20 @@
 import { useState } from 'react';
-import type { ExceptionDTO, CopilotAdvice } from '../../api/types';
+import type { ExceptionDTO, CopilotAdvice, ProposalDTO } from '../../api/types';
 import { ConfidenceBar } from './ConfidenceBar';
 import { CopilotDock } from '../chrome/CopilotDock';
 import { DecideForm } from './DecideForm';
 import { DispositionControls } from './DispositionControls';
+import { AgentProposalCard } from './AgentProposalCard';
 import { useCopilot, useDecide } from '../../api/hooks';
 
 export function ExceptionDetail({
   exception,
   entityId,
+  proposal,
 }: {
   exception: ExceptionDTO;
   entityId: string;
+  proposal?: ProposalDTO | null;
 }) {
   const copilot = useCopilot();
   const decide = useDecide(entityId);
@@ -62,7 +65,8 @@ export function ExceptionDetail({
       </div>
 
       {/* SUGGESTION ZONE — warmer, mascot allowed (§8.5) */}
-      {isClassifyReview && (
+      {proposal && <AgentProposalCard proposal={proposal} exception={exception} entityId={entityId} />}
+      {isClassifyReview && !proposal && (
         <div style={{ display: 'grid', gap: 'var(--s-3)' }}>
           <button
             className="btn-primary"
@@ -102,7 +106,12 @@ export function ExceptionDetail({
             }
           />
         )}
-        <DispositionControls exception={exception} entityId={entityId} />
+        {proposal && (
+          <p style={{ margin: 0, fontSize: 'var(--text-xs)', color: 'var(--ink-soft)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+            or decide manually
+          </p>
+        )}
+        <DispositionControls exception={exception} entityId={entityId} demoted={!!proposal} />
       </div>
     </div>
   );

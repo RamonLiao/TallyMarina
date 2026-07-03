@@ -248,3 +248,28 @@ export interface VerifyResultDTO {
   verdict: 'VERIFIED';
   attestation: { wallet: string; verifiedAt: number; verifier: string; templateVersion: string };
 }
+
+// ---- Exception-Triage Agent types ----
+
+export interface ProposalDTO {
+  id: number;
+  exceptionId: string;
+  eventId: string;
+  entityId: string;
+  periodId: string;
+  action: 'resolved' | 'deferred' | 'dismissed';
+  reasonCode: ReasonCode;
+  reasonNote: string | null;
+  rationale: string;
+  confidence: number;
+  status: 'proposed' | 'accepted' | 'rejected' | 'stale';
+  model: string;
+  createdAt: number;
+  decidedBy?: string | null;
+  decidedAt?: number | null;
+  decisionNote?: string | null;
+}
+
+export interface ProposalsResponse {
+  proposals: ProposalDTO[];
+}
