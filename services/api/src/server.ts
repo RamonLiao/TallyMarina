@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path';
 import { loadConfig } from './config.js';
 import { openDb } from './store/db.js';
 import { seed } from './store/seed.js';
-import { registerRoutes } from './http/routes.js';
+import { registerRoutes, DEFAULT_PERIOD } from './http/routes.js';
 import { makeGeminiClient } from './ai/geminiClient.js';
 import { makeEntityMutex } from '@subledger/anchor-svc';
 import { makeGrpcAdapter } from './grpcClient.js';
@@ -27,7 +27,7 @@ const { adapter } = makeGrpcAdapter(cfg);
 const ai = makeGeminiClient(cfg.geminiApiKey);
 const mutex = makeEntityMutex();
 const triageRunner = makeTriageRunner({ db, cfg, client: ai });
-startTriageScheduler(triageRunner, cfg.triageIntervalMs, cfg.entityId, '2026-Q2');
+startTriageScheduler(triageRunner, cfg.triageIntervalMs, cfg.entityId, DEFAULT_PERIOD);
 
 const app = Fastify({ logger: true });
 app.addHook('onRequest', async (_req, reply) => {

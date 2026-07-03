@@ -104,6 +104,22 @@ describe('triage routes', () => {
     expect(getProposal(app._db, p.id)?.status).toBe('proposed'); // untouched, human can fix mapping then re-accept
   });
 
+  it('accept: non-transition applyDisposition failure reverts proposal to stale, not left accepted (final-review Finding 1)', async () => {
+    const app = await buildTestApp(false, triageClient);
+    seedReviewEvent(app._db, 'ev-t5b');
+    const p = seedProposal(app._db, 'ev-t5b');
+    // Force applyDisposition to throw something other than ILLEGAL_TRANSITION by
+    // breaking the table it writes to. decideProposal(…'accepted') still succeeds
+    // (different table), so this reproduces "accepted, then write blows up".
+    app._db.exec('ALTER TABLE exception_disposition RENAME TO exception_disposition_x');
+    const res = await app.inject({ method: 'POST', url: `/triage/proposals/${p.id}/accept` });
+    expect(res.statusCode).toBe(500);
+    app._db.exec('ALTER TABLE exception_disposition_x RENAME TO exception_disposition');
+    expect(getProposal(app._db, p.id)?.status).toBe('stale');
+    const rows = app._db.prepare('SELECT * FROM exception_disposition WHERE event_id = ?').all('ev-t5b');
+    expect(rows).toHaveLength(0);
+  });
+
   it('reject records optional note (CPA F10); unknown id 404', async () => {
     const app = await buildTestApp(false, triageClient);
     seedReviewEvent(app._db, 'ev-t6');

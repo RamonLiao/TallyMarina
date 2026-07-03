@@ -68,7 +68,7 @@ function eventDTO(e: EventRow) {
   };
 }
 
-const DEFAULT_PERIOD = '2026-Q2';
+export const DEFAULT_PERIOD = '2026-Q2';
 
 function exceptionDTO(db: Db, entityId: string, periodId: string, lowConf: number) {
   const anchored = hasAnchoredSnapshot(db, entityId);
@@ -539,8 +539,12 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
       });
       return { disposition: row, proposal: getProposal(db, p.id) };
     } catch (err) {
+      // Any applyDisposition failure — not just ILLEGAL_TRANSITION — must not leave the
+      // proposal 'accepted' with no disposition row (that would misrepresent the audit
+      // trail as an applied AI-assisted decision). revertAcceptedToStale is a no-op if
+      // the row isn't 'accepted'.
+      revertAcceptedToStale(db, p.id, Date.now());
       if ((err as Error).message.startsWith('ILLEGAL_TRANSITION')) {
-        revertAcceptedToStale(db, p.id, Date.now());
         throw new ApiError(409, 'PROPOSAL_STALE', (err as Error).message);
       }
       throw err;
