@@ -128,3 +128,32 @@ CREATE TABLE IF NOT EXISTS wallet_ownership_attestation (
   connected_account TEXT NOT NULL,
   verified_at      INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS triage_proposal (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  exception_id  TEXT NOT NULL,
+  event_id      TEXT NOT NULL REFERENCES events(id),
+  entity_id     TEXT NOT NULL REFERENCES entities(id),
+  period_id     TEXT NOT NULL,
+  action        TEXT NOT NULL,
+  reason_code   TEXT NOT NULL,
+  reason_note   TEXT,
+  rationale     TEXT NOT NULL,
+  confidence    REAL NOT NULL,
+  status        TEXT NOT NULL DEFAULT 'proposed',
+  model         TEXT NOT NULL,
+  created_at    INTEGER NOT NULL,
+  decided_by    TEXT,
+  decided_at    INTEGER,
+  decision_note TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_triage_open ON triage_proposal(exception_id) WHERE status = 'proposed';
+CREATE TABLE IF NOT EXISTS triage_proposal_log (
+  seq           INTEGER PRIMARY KEY AUTOINCREMENT,
+  proposal_id   INTEGER NOT NULL,
+  exception_id  TEXT NOT NULL,
+  entity_id     TEXT NOT NULL,
+  status        TEXT NOT NULL,
+  decided_by    TEXT,
+  decision_note TEXT,
+  at            INTEGER NOT NULL
+);
