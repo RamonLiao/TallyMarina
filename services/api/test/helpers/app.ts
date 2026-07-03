@@ -27,10 +27,17 @@ export const cfg = loadConfig({
   EXPLORER_BASE: 'https://suiscan.xyz/testnet',
 });
 
-/** High-confidence stub → AUTO routing (0.92 ≥ 0.85 threshold). */
+/**
+ * High-confidence TRUTHFUL stub → AUTO routing (0.92 ≥ 0.85 threshold).
+ * Echoes the event's real eventType from the prompt: the deterministic AUTO gate (F3)
+ * requires LLM agreement with the ingestion-normalized type, so a stub that always
+ * answers RECEIPT would (correctly) route every payment to NEEDS_REVIEW.
+ */
 export const stubClassifyClient: GeminiClient = {
-  async generateJson() {
-    return { eventType: 'DIGITAL_ASSET_RECEIPT', economicPurpose: 'RECEIVABLE_SETTLEMENT', counterparty: null, confidence: 0.92, reasoning: 'r' } as never;
+  async generateJson(_model: string, prompt: string) {
+    const m = /"eventType"\s*:\s*"([A-Z_]+)"/.exec(prompt);
+    if (!m) throw new Error('classify stub: eventType not found in prompt — prompt format changed?');
+    return { eventType: m?.[1] ?? 'DIGITAL_ASSET_RECEIPT', economicPurpose: 'RECEIVABLE_SETTLEMENT', counterparty: null, confidence: 0.92, reasoning: 'r' } as never;
   },
 };
 
@@ -40,7 +47,7 @@ export const needsReviewClient: GeminiClient = {
   },
 };
 
-export async function buildTestApp(seedFixture = true): Promise<FastifyInstance & { _db: Db }> {
+export async function buildTestApp(seedFixture = true, client: GeminiClient = stubClassifyClient): Promise<FastifyInstance & { _db: Db }> {
   const db = openDb(':memory:');
   // Seed entity "e1" with fixture events (same pattern as routes.test.ts).
   if (seedFixture) {
@@ -55,8 +62,8 @@ export async function buildTestApp(seedFixture = true): Promise<FastifyInstance 
   app._db = db;
   registerRoutes(app, {
     db, cfg,
-    classifyClient: stubClassifyClient,
-    copilotClient: stubClassifyClient,
+    classifyClient: client,
+    copilotClient: client,
     anchorAdapter: null as never,
     mutex: { run: (_k: string, fn: () => Promise<never>) => fn() },
   });

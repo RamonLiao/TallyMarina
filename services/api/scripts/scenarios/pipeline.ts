@@ -54,7 +54,7 @@ export async function runPipeline(
     ...listByStatus(db, cfg.entityId, 'AUTO'),
   ];
   for (const ev of approved) {
-    const out = evaluate(buildRuleInput(ev, { periodId }));
+    const out = evaluate(buildRuleInput(ev, { periodId, periodOpen: true })); // scenario DB — period never locked at this stage;
     if (out.decision !== 'POSTABLE') {
       console.warn(`  SKIP ${ev.id}: ${out.decision} ${JSON.stringify(out.exceptions)}`);
       continue;

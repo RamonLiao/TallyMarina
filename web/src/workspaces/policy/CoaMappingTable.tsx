@@ -3,7 +3,7 @@ import './policy.css';
 
 interface Props {
   rules: CoaRuleDTO[];
-  defaultAccount: string;
+  defaultAccount: string | null;
   title: string;
   editable?: boolean;
   onChange?: (rules: CoaRuleDTO[]) => void;
@@ -44,9 +44,9 @@ export function CoaMappingTable({ rules, defaultAccount, title, editable, onChan
             </tr>
           ))}
           <tr className="policy-coa-default">
-            <td className="mono">— default —</td>
+            <td className="mono">— unmapped —</td>
             <td className="mono">*</td>
-            <td className="mono">{defaultAccount}</td>
+            <td className="mono">{defaultAccount ?? 'fail-closed → MAPPING_MISSING'}</td>
           </tr>
         </tbody>
       </table>

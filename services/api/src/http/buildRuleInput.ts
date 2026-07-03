@@ -5,13 +5,23 @@ import type {
 } from '../deps/rulesEngine.js';
 import { DEMO_POLICY_SET, buildCoaMapping } from './policyConstants.js';
 
-export function buildRuleInput(event: EventRow, opts: { periodId: string }): RuleInput {
-  const ne = JSON.parse(event.rawJson) as NormalizedEvent;
+export function buildRuleInput(event: EventRow, opts: { periodId: string; periodOpen: boolean }): RuleInput {
+  const raw = JSON.parse(event.rawJson) as NormalizedEvent;
+  // Human review decision (spec §6.9) overrides the raw event classification; the AI
+  // suggestion is never read here — it stays suggestion-only. An invalid finalEventType
+  // fail-closes downstream via the rules engine's schema gate (SCHEMA_INVALID).
+  const ne: NormalizedEvent = {
+    ...raw,
+    eventType: (event.finalEventType ?? raw.eventType) as NormalizedEvent['eventType'],
+    economicPurpose: event.finalPurpose ?? raw.economicPurpose,
+  };
   const runContext: RunContext = {
     runId: `run-${event.id}`, entityId: event.entityId, bookId: ne.bookId,
     periodId: opts.periodId, mode: 'POST', asOf: ne.eventTime,
   };
-  const policySet: ResolvedPolicySet = DEMO_POLICY_SET;
+  // periodOpen resolves from the period_lock store per call — never from the constant
+  // (review C1: the hardcoded `periodOpen: true` made the engine's PERIOD_CLOSED gate dead code).
+  const policySet: ResolvedPolicySet = { ...DEMO_POLICY_SET, periodOpen: opts.periodOpen };
   const coaMapping = buildCoaMapping();
   const assetAssessment: ClassificationAssessment = {
     coinType: ne.coinType, status: 'APPROVED',

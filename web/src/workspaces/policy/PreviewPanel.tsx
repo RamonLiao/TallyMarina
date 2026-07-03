@@ -7,12 +7,14 @@ import './policy.css';
 
 export function PreviewPanel({ policy, journal, events }: { policy: PolicyActiveDTO; journal: JournalDTO[]; events: EventDTO[] }) {
   const baseRules = policy.coaMapping.rules;
-  const baseDefault = policy.coaMapping.defaultAccount;
+  // null = fail-closed backend (no default account); '' routes unmapped legs into the
+  // existing EMPTY_ACCOUNT warning path so the preview surfaces them instead of hiding them.
+  const baseDefault = policy.coaMapping.defaultAccount ?? '';
   const [draft, setDraft] = useState<CoaRuleDTO[]>(() => baseRules.map((r) => ({ ...r })));
   const [result, setResult] = useState<PreviewResult | null>(null);
 
   const knownAccounts = useMemo(() => {
-    const s = new Set<string>([baseDefault]);
+    const s = new Set<string>(baseDefault ? [baseDefault] : []);
     baseRules.forEach((r) => s.add(r.account));
     journal.forEach((j) => j.je.lines.forEach((l) => s.add(l.account)));
     return [...s];

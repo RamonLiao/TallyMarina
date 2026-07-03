@@ -37,9 +37,13 @@ const cfg = loadConfig({
   EXPLORER_BASE: 'https://suiscan.xyz/testnet',
 });
 
+// Truthful high-confidence stub: echoes the event's real eventType from the prompt
+// (the F3 deterministic AUTO gate requires LLM agreement with the normalized type).
 const classifyClient: GeminiClient = {
-  async generateJson() {
-    return { eventType: 'DIGITAL_ASSET_RECEIPT', economicPurpose: 'X', counterparty: null, confidence: 0.92, reasoning: 'r' } as never;
+  async generateJson(_model: string, prompt: string) {
+    const m = /"eventType"\s*:\s*"([A-Z_]+)"/.exec(prompt);
+    if (!m) throw new Error('classify stub: eventType not found in prompt — prompt format changed?');
+    return { eventType: m?.[1] ?? 'DIGITAL_ASSET_RECEIPT', economicPurpose: 'X', counterparty: null, confidence: 0.92, reasoning: 'r' } as never;
   },
 };
 
@@ -111,7 +115,8 @@ describe('REST contract', () => {
   it('decide on a non-review event fails closed with 409 ILLEGAL_TRANSITION', async () => {
     const r = await app.inject({
       method: 'POST', url: '/reviews/evt-001/decide',
-      payload: { finalEventType: 'X', finalPurpose: 'Y' },
+      // Valid eventType so the boundary validation passes and the STATE check is what rejects.
+      payload: { finalEventType: 'DIGITAL_ASSET_RECEIPT', finalPurpose: 'Y' },
     });
     expect(r.statusCode).toBe(409);
     expect((r.json() as { error: { code: string } }).error.code).toBe('ILLEGAL_TRANSITION');

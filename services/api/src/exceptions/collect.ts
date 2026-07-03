@@ -4,6 +4,7 @@ import { listEvents } from '../store/eventStore.js';
 import type { EventRow } from '../store/eventStore.js';
 import { buildRuleInput } from '../http/buildRuleInput.js';
 import { evaluate } from '../deps/rulesEngine.js';
+import { getPeriodLock } from '../periodLock/store.js';
 import { type Exception, type ExceptionCategory, severityRank } from './types.js';
 
 function aiBlock(e: EventRow) {
@@ -36,6 +37,9 @@ function mk(category: ExceptionCategory, e: EventRow, reason: string): Exception
  */
 export function collectExceptions(db: Db, entityId: string, periodId: string, lowConfidence: number): Exception[] {
   const out: Exception[] = [];
+  // Probe "would this event post?" under the REAL period state so the diagnosis
+  // matches what run-rules would actually do (locked → PERIOD_CLOSED is truthful).
+  const periodOpen = getPeriodLock(db, entityId, periodId).status !== 'LOCKED';
   for (const e of listEvents(db, entityId)) {
     if (e.status === 'NEEDS_REVIEW') {
       out.push(mk('CLASSIFY_REVIEW', e, 'AI routed to human review (low classification confidence)'));
@@ -47,7 +51,7 @@ export function collectExceptions(db: Db, entityId: string, periodId: string, lo
     if (e.status === 'APPROVED' || e.status === 'AUTO') {
       let reason = '';
       try {
-        const o = evaluate(buildRuleInput(e, { periodId }));
+        const o = evaluate(buildRuleInput(e, { periodId, periodOpen }));
         if (o.decision !== 'POSTABLE' || o.journalEntries.length === 0) {
           reason = o.exceptions[0]?.code ?? (o.decision === 'POSTABLE' ? 'NO_JOURNAL_ENTRIES' : o.decision);
         }

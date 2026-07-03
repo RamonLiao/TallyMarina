@@ -4,7 +4,7 @@ import { openDb } from '../src/store/db.js';
 import { registerRoutes } from '../src/http/routes.js';
 import { loadConfig } from '../src/config.js';
 import type { GeminiClient } from '../src/ai/geminiClient.js';
-import { DEMO_POLICY_SET, DEMO_COA_RULES, DEMO_DEFAULT_ACCOUNT } from '../src/http/policyConstants.js';
+import { DEMO_POLICY_SET, DEMO_COA_RULES } from '../src/http/policyConstants.js';
 
 const cfg = loadConfig({
   SUI_NETWORK: 'testnet', SUI_GRPC_URL: 'https://grpc', ANCHOR_PACKAGE_ID: '0xpkg',
@@ -38,12 +38,13 @@ describe('GET /policy/active', () => {
     expect(res.statusCode).toBe(200);
     const body = res.json() as {
       policySet: typeof DEMO_POLICY_SET;
-      coaMapping: { rules: typeof DEMO_COA_RULES; defaultAccount: string };
+      coaMapping: { rules: typeof DEMO_COA_RULES; defaultAccount: string | null };
       periodId: string;
     };
     expect(body.policySet).toEqual(DEMO_POLICY_SET);
     expect(body.coaMapping.rules).toEqual(DEMO_COA_RULES);
-    expect(body.coaMapping.defaultAccount).toBe(DEMO_DEFAULT_ACCOUNT);
+    // Fail-closed: no suspense default — unmapped legs must MAPPING_MISSING (review C3).
+    expect(body.coaMapping.defaultAccount).toBeNull();
     expect(typeof body.periodId).toBe('string');
     expect(body.periodId).toBe('2026-Q2');
   });

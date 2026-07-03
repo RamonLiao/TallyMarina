@@ -143,3 +143,4 @@ export type {
   NormalizedEvent, RunContext, ResolvedPolicySet, ClassificationAssessment,
   PositionLot, PricePoint, FxRate, CoaMapping, EventType,
 } from './domain/types.js';
+export { eventTypeSchema } from './domain/schemas.js';

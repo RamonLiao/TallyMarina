@@ -29,11 +29,11 @@ import { hasAnchoredSnapshotForPeriod } from '../store/snapshotStore.js';
 import { classifyEvent } from '../ai/classify.js';
 import { reviewCopilot } from '../ai/copilot.js';
 import { buildRuleInput } from './buildRuleInput.js';
-import { evaluate, buildMerkle, leafHash, inclusionProof, type JournalEntry } from '../deps/rulesEngine.js';
+import { evaluate, buildMerkle, leafHash, inclusionProof, eventTypeSchema, type JournalEntry } from '../deps/rulesEngine.js';
 import { buildSnapshot, InMemorySnapshotRepo } from '../deps/snapshotSvc.js';
 import { prepareAnchor, confirmAnchor, type AnchorServiceDeps } from './anchorService.js';
 import { SnapshotError } from '@subledger/snapshot-svc';
-import { DEMO_POLICY_SET, DEMO_COA_RULES, DEMO_DEFAULT_ACCOUNT } from './policyConstants.js';
+import { DEMO_POLICY_SET, DEMO_COA_RULES } from './policyConstants.js';
 import { deriveSources } from '../onboarding/sources.js';
 import { issueChallenge } from '../onboarding/challenge.js';
 import { verifyOwnership } from '../onboarding/verify.js';
@@ -159,7 +159,7 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
   // GET /policy/active — read-only policy constants endpoint
   app.get('/policy/active', async () => ({
     policySet: DEMO_POLICY_SET,
-    coaMapping: { rules: DEMO_COA_RULES, defaultAccount: DEMO_DEFAULT_ACCOUNT },
+    coaMapping: { rules: DEMO_COA_RULES, defaultAccount: null },
     periodId: DEFAULT_PERIOD,
   }));
 
@@ -221,22 +221,10 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     })),
   }));
 
-  // 2. POST /entities/:id/ingest
-  app.post<{ Params: { id: string } }>('/entities/:id/ingest', async (req) => {
-    requireEntity(db, req.params.id);
-    const events = listEvents(db, req.params.id);
-    return { ingested: events.length, events: events.map(eventDTO) };
-  });
-
-  // 3. GET /entities/:id/events
-  app.get<{ Params: { id: string } }>('/entities/:id/events', async (req) => {
-    requireEntity(db, req.params.id);
-    return { events: listEvents(db, req.params.id).map(eventDTO) };
-  });
-
-  // 4. POST /events/:id/classify
-  app.post<{ Params: { id: string } }>('/events/:id/classify', async (req) => {
-    const ev = requireEvent(db, req.params.id);
+  // Classify one event and persist the suggestion. AI failure never throws
+  // (classifyEvent degrades to NEEDS_REVIEW); setAiSuggestion can still throw
+  // StateError if a concurrent request already transitioned the event.
+  async function classifyAndStore(ev: EventRow): Promise<{ degraded: boolean }> {
     const res = await classifyEvent(
       { rawJson: ev.rawJson },
       { client: deps.classifyClient, model: cfg.aiModelClassify, threshold: cfg.aiConfidenceThreshold },
@@ -249,7 +237,45 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
       aiReasoning: res.suggestion.reasoning,
       nextStatus: res.routing,
     });
-    return { event: eventDTO(getEvent(db, ev.id)!), degraded: res.degraded };
+    return { degraded: res.degraded };
+  }
+
+  // 2. POST /entities/:id/ingest — classification runs automatically on ingest;
+  // the per-event classify endpoint remains for re-display but is a no-op once classified.
+  app.post<{ Params: { id: string } }>('/entities/:id/ingest', async (req) => {
+    requireEntity(db, req.params.id);
+    let classified = 0, degraded = 0;
+    for (const ev of listByStatus(db, req.params.id, 'INGESTED')) {
+      try {
+        const r = await classifyAndStore(ev);
+        classified++;
+        if (r.degraded) degraded++;
+      } catch (err) {
+        // Concurrent ingest already transitioned this event between our list
+        // and this write — the other request classified it; skip, don't 500.
+        if (err instanceof StateError) continue;
+        throw err;
+      }
+    }
+    const events = listEvents(db, req.params.id);
+    return { ingested: events.length, events: events.map(eventDTO), classified, degraded };
+  });
+
+  // 3. GET /entities/:id/events
+  app.get<{ Params: { id: string } }>('/entities/:id/events', async (req) => {
+    requireEntity(db, req.params.id);
+    return { events: listEvents(db, req.params.id).map(eventDTO) };
+  });
+
+  // 4. POST /events/:id/classify — idempotent: already-classified events (auto pass
+  // on ingest) return their current state instead of an ILLEGAL_TRANSITION 409.
+  app.post<{ Params: { id: string } }>('/events/:id/classify', async (req) => {
+    const ev = requireEvent(db, req.params.id);
+    if (ev.status !== 'INGESTED') {
+      return { event: eventDTO(ev), degraded: false };
+    }
+    const { degraded } = await classifyAndStore(ev);
+    return { event: eventDTO(getEvent(db, ev.id)!), degraded };
   });
 
   // 5. GET /entities/:id/review-queue
@@ -275,6 +301,17 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     if (!b.finalEventType || !b.finalPurpose) {
       throw new ApiError(400, 'VALIDATION', 'finalEventType and finalPurpose are required');
     }
+    // Review C1: a human decision is an accounting judgment that changes what a reopen
+    // would post — reject it while the period is locked. Events carry no period yet
+    // (review C2, deferred), so the demo period is the guard scope.
+    if (getPeriodLock(db, ev.entityId, DEFAULT_PERIOD).status === 'LOCKED') {
+      throw new ApiError(409, 'PERIOD_LOCKED', `period ${DEFAULT_PERIOD} is locked; reopen it before deciding classifications`);
+    }
+    // finalEventType feeds the rules engine (buildRuleInput); reject unknown types at
+    // the boundary instead of letting the event strand as APPROVED-but-unpostable.
+    if (!eventTypeSchema.safeParse(b.finalEventType).success) {
+      throw new ApiError(400, 'VALIDATION', `unknown finalEventType ${b.finalEventType}; must be one of ${eventTypeSchema.options.join(', ')}`);
+    }
     setDecision(db, ev.id, { finalEventType: b.finalEventType, finalPurpose: b.finalPurpose });
     return { event: eventDTO(getEvent(db, ev.id)!) };
   });
@@ -284,13 +321,20 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     requireEntity(db, req.params.id);
     const periodId = req.body?.periodId;
     if (!periodId) throw new ApiError(400, 'VALIDATION', 'periodId is required');
+    // Review C1: a locked period MUST reject new postings — otherwise the on-chain
+    // anchor and the books diverge after close. Route guard + engine gate (periodOpen).
+    const lock = getPeriodLock(db, req.params.id, periodId);
+    const periodOpen = lock.status !== 'LOCKED';
+    if (!periodOpen) {
+      throw new ApiError(409, 'PERIOD_LOCKED', `period ${periodId} is locked; reopen it before posting`);
+    }
     const candidates = [
       ...listByStatus(db, req.params.id, 'APPROVED'),
       ...listByStatus(db, req.params.id, 'AUTO'),
     ];
     let posted = 0, skipped = 0;
     for (const ev of candidates) {
-      const output = evaluate(buildRuleInput(ev, { periodId }));
+      const output = evaluate(buildRuleInput(ev, { periodId, periodOpen }));
       if (output.decision !== 'POSTABLE' || output.journalEntries.length === 0) { skipped++; continue; }
       for (const je of output.journalEntries) {
         const res = insertJournalEntry(db, {

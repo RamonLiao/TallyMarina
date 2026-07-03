@@ -91,7 +91,8 @@ async function main(): Promise<void> {
     ...listByStatus(db, cfg.entityId, 'AUTO'),
   ];
   for (const ev of approved) {
-    const out = evaluate(buildRuleInput(ev, { periodId }));
+    // Fresh in-memory DB — the demo period is never locked here.
+    const out = evaluate(buildRuleInput(ev, { periodId, periodOpen: true }));
     if (out.decision !== 'POSTABLE') {
       console.warn(`  SKIP ${ev.id}: ${out.decision} ${JSON.stringify(out.exceptions)}`);
       continue;

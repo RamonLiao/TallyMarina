@@ -213,7 +213,8 @@ export interface CoaRuleDTO {
 
 export interface PolicyActiveDTO {
   policySet: ResolvedPolicySetDTO;
-  coaMapping: { rules: CoaRuleDTO[]; defaultAccount: string };
+  // null = fail-closed: unmapped legs raise MAPPING_MISSING instead of a suspense default.
+  coaMapping: { rules: CoaRuleDTO[]; defaultAccount: string | null };
   periodId: string;
 }
 

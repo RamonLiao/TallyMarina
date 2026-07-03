@@ -8,19 +8,33 @@ export const DEMO_POLICY_SET: ResolvedPolicySet = {
 
 export interface CoaRule { eventType: string; leg: string; account: string } // leg '*' = catch-all
 
-// Serializable table mirroring the ORIGINAL buildRuleInput closure semantics, rule order significant.
+// Explicit per-leg mapping using the REAL leg names the rules engine emits
+// (receiptRules/paymentRules/gasRules/swapRules/internalTransferRules). The previous
+// 'L1' rows never matched any real leg, so every line silently fell through to the
+// Suspense fallback — review C3 (2026-07-03). There is NO default account anymore:
+// an unmapped leg resolves to null and fail-closes as MAPPING_MISSING (spec §6.5, A.2).
 export const DEMO_COA_RULES: CoaRule[] = [
-  { eventType: 'DIGITAL_ASSET_RECEIPT', leg: 'L1', account: 'DigitalAssets' },
-  { eventType: 'DIGITAL_ASSET_RECEIPT', leg: '*',  account: 'AccountsReceivable' },
-  { eventType: 'DIGITAL_ASSET_PAYMENT', leg: 'L1', account: 'AccountsPayable' },
-  { eventType: 'DIGITAL_ASSET_PAYMENT', leg: '*',  account: 'DigitalAssets' },
+  { eventType: 'DIGITAL_ASSET_RECEIPT', leg: 'ACQUISITION', account: 'DigitalAssets' },
+  { eventType: 'DIGITAL_ASSET_RECEIPT', leg: 'RECEIVABLE_SETTLEMENT', account: 'AccountsReceivable' },
+  { eventType: 'DIGITAL_ASSET_PAYMENT', leg: 'EXPENSE', account: 'AccountsPayable' },
+  { eventType: 'DIGITAL_ASSET_PAYMENT', leg: 'DISPOSAL', account: 'DigitalAssets' },
+  { eventType: 'DIGITAL_ASSET_PAYMENT', leg: 'DISPOSAL_GAIN', account: 'DisposalGain' },
+  { eventType: 'DIGITAL_ASSET_PAYMENT', leg: 'DISPOSAL_LOSS', account: 'DisposalLoss' },
+  { eventType: 'GAS_FEE', leg: 'NETWORK_FEE', account: 'GasFeeExpense' },
+  { eventType: 'GAS_FEE', leg: 'DISPOSAL', account: 'DigitalAssets' },
+  { eventType: 'GAS_FEE', leg: 'DISPOSAL_GAIN', account: 'DisposalGain' },
+  { eventType: 'GAS_FEE', leg: 'DISPOSAL_LOSS', account: 'DisposalLoss' },
+  { eventType: 'SPOT_TRADE_SWAP', leg: 'ACQUISITION', account: 'DigitalAssets' },
+  { eventType: 'SPOT_TRADE_SWAP', leg: 'DISPOSAL', account: 'DigitalAssets' },
+  { eventType: 'SPOT_TRADE_SWAP', leg: 'DISPOSAL_GAIN', account: 'DisposalGain' },
+  { eventType: 'SPOT_TRADE_SWAP', leg: 'DISPOSAL_LOSS', account: 'DisposalLoss' },
+  // INTERNAL_TRANSFER legs are dynamic (WALLET:<addr>) — the catch-all is intentional.
+  { eventType: 'INTERNAL_TRANSFER', leg: '*', account: 'DigitalAssets' },
 ];
 
-export const DEMO_DEFAULT_ACCOUNT = 'Suspense';
-
-export function resolveCoa(args: { eventType: string; leg: string }, rules: CoaRule[] = DEMO_COA_RULES, fallback: string = DEMO_DEFAULT_ACCOUNT): string {
+export function resolveCoa(args: { eventType: string; leg: string }, rules: CoaRule[] = DEMO_COA_RULES): string | null {
   const hit = rules.find((r) => r.eventType === args.eventType && (r.leg === args.leg || r.leg === '*'));
-  return hit ? hit.account : fallback;
+  return hit ? hit.account : null;
 }
 
 export function buildCoaMapping(): CoaMapping {

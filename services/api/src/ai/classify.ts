@@ -26,6 +26,16 @@ const RESPONSE_SCHEMA: GeminiSchema = {
   required: ['eventType', 'economicPurpose', 'confidence', 'reasoning'],
 };
 
+/**
+ * Deterministic AUTO gate (review F3, 2026-07-03). Routing is a code decision, not an
+ * LLM judgment: AUTO requires (1) the ingestion-normalized eventType to be on this
+ * allow-list, (2) the LLM suggestion to AGREE with it, and (3) confidence ≥ threshold.
+ * The self-reported confidence alone can never reach AUTO — a prompt injection via
+ * event memo/counterparty fields inflating confidence or steering the suggestion
+ * still lands in NEEDS_REVIEW.
+ */
+const AUTO_ALLOWLIST: ReadonlySet<string> = new Set(['DIGITAL_ASSET_RECEIPT', 'DIGITAL_ASSET_PAYMENT']);
+
 const DEGRADED: ClassifySuggestion = {
   eventType: 'NEEDS_REVIEW',
   economicPurpose: 'unknown',
@@ -51,7 +61,10 @@ export async function classifyEvent(
     if (!isValidConf) {
       return { suggestion: { ...DEGRADED, eventType: raw.eventType ?? 'NEEDS_REVIEW', economicPurpose: raw.economicPurpose ?? 'unknown', counterparty: raw.counterparty ?? null, confidence: 0, reasoning: raw.reasoning ?? '' }, routing: 'NEEDS_REVIEW', degraded: true };
     }
-    const routing: 'AUTO' | 'NEEDS_REVIEW' = confidence >= deps.threshold ? 'AUTO' : 'NEEDS_REVIEW';
+    const rawEventType = typeof parsed.eventType === 'string' ? parsed.eventType : '';
+    const routing: 'AUTO' | 'NEEDS_REVIEW' =
+      AUTO_ALLOWLIST.has(rawEventType) && raw.eventType === rawEventType && confidence >= deps.threshold
+        ? 'AUTO' : 'NEEDS_REVIEW';
     return {
       suggestion: { eventType: raw.eventType, economicPurpose: raw.economicPurpose, counterparty: raw.counterparty ?? null, confidence, reasoning: raw.reasoning },
       routing,
