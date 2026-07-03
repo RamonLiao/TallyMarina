@@ -40,6 +40,8 @@ import { verifyOwnership } from '../onboarding/verify.js';
 import { latestAttestation, listAttestations } from '../store/onboardingStore.js';
 import { DEMO_ENTITY_META } from '../onboarding/constants.js';
 import { normalizeSuiAddress } from '@mysten/sui/utils';
+import { getProposal, listProposals, decideProposal, revertAcceptedToStale, markEntityProposalsStale, type ProposalStatus } from '../store/proposalStore.js';
+import { makeTriageRunner, type TriageRunner } from '../triage/scheduler.js';
 
 export interface RouteDeps {
   db: Db;
@@ -48,6 +50,7 @@ export interface RouteDeps {
   copilotClient: GeminiClient;
   anchorAdapter: SuiGrpcChainAdapter;
   mutex: { run<T>(key: string, fn: () => Promise<T>): Promise<T> };
+  triageRunner?: TriageRunner;
 }
 
 function eventDTO(e: EventRow) {
@@ -139,6 +142,7 @@ function reconDTO(db: Db, entityId: string, periodId: string, liveWallet: string
 
 export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
   const { db, cfg } = deps;
+  const triage = deps.triageRunner ?? makeTriageRunner({ db, cfg, client: deps.copilotClient });
 
   // Unified error envelope.
   app.setErrorHandler((err, _req, reply) => {
@@ -405,6 +409,7 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
         entityId: req.params.id, periodId,
         lightsSnapshot: JSON.stringify(view.lights), lockedBy: LOCKED_BY, now: Date.now(),
       });
+      markEntityProposalsStale(db, req.params.id, periodId, LOCKED_BY, Date.now());
       return { lock: row };
     } catch (err) {
       if ((err as Error).message.startsWith('ILLEGAL_TRANSITION')) throw new ApiError(409, 'ILLEGAL_TRANSITION', (err as Error).message);
@@ -474,6 +479,84 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
       }
       throw err;
     }
+  });
+
+  // Triage agent (exception-triage proposals — agent proposes, human accepts)
+  app.post<{ Params: { id: string }; Body: { periodId?: string } }>('/entities/:id/triage/run', async (req) => {
+    requireEntity(db, req.params.id);
+    const periodId = req.body?.periodId ?? DEFAULT_PERIOD;
+    try {
+      return { run: await triage.runOnce(req.params.id, periodId) };
+    } catch (err) {
+      if ((err as Error).message === 'TRIAGE_BUSY') throw new ApiError(409, 'TRIAGE_BUSY', 'a triage run is already in progress');
+      throw err;
+    }
+  });
+
+  app.get<{ Params: { id: string }; Querystring: { status?: string } }>('/entities/:id/triage/proposals', async (req) => {
+    requireEntity(db, req.params.id);
+    // Lazy stale sweep (I2): anchored entity can never accept — expire open proposals.
+    if (hasAnchoredSnapshot(db, req.params.id)) markEntityProposalsStale(db, req.params.id, null, LOCKED_BY, Date.now());
+    const q = req.query.status ?? 'proposed';
+    if (q !== 'all' && !['proposed', 'accepted', 'rejected', 'stale'].includes(q)) {
+      throw new ApiError(400, 'VALIDATION', `unknown status ${q}`);
+    }
+    return { proposals: q === 'all' ? listProposals(db, req.params.id) : listProposals(db, req.params.id, q as ProposalStatus) };
+  });
+
+  app.post<{ Params: { id: string } }>('/triage/proposals/:id/accept', async (req) => {
+    const pid = Number(req.params.id);
+    const p = Number.isInteger(pid) ? getProposal(db, pid) : null;
+    if (!p) throw new ApiError(404, 'PROPOSAL_NOT_FOUND', `no proposal ${req.params.id}`);
+    if (p.status !== 'proposed') throw new ApiError(409, 'PROPOSAL_NOT_OPEN', `proposal is ${p.status}`);
+    // B1: same guard as the manual disposition path — anchored = read-only. NOT period-lock:
+    // locked-but-not-anchored proposals were already swept stale at lock time.
+    if (hasAnchoredSnapshot(db, p.entityId)) {
+      markEntityProposalsStale(db, p.entityId, null, LOCKED_BY, Date.now());
+      throw new ApiError(409, 'ANCHORED_READ_ONLY', 'period anchored, exceptions are informational');
+    }
+    // I3: re-validate against the live projection, same as the manual route.
+    const live = collectExceptions(db, p.entityId, p.periodId, cfg.exceptionLowConfidence)
+      .find((e) => e.exceptionId === p.exceptionId);
+    if (!live) {
+      decideProposal(db, p.id, 'stale', LOCKED_BY, 'exception no longer current', Date.now());
+      throw new ApiError(409, 'PROPOSAL_STALE', 'exception no longer current — proposal expired');
+    }
+    // CPA F7: live RULES_FAILED means evaluate() still fails (collectExceptions runs it);
+    // marking it resolved would hide a rule that still cannot post. Fix the mapping first.
+    if (p.action === 'resolved' && live.category === 'RULES_FAILED') {
+      throw new ApiError(409, 'STILL_FAILING', 'rule still fails for this event — fix the mapping, the exception will clear itself');
+    }
+    if (!decideProposal(db, p.id, 'accepted', LOCKED_BY, null, Date.now())) {
+      throw new ApiError(409, 'PROPOSAL_NOT_OPEN', 'proposal was decided concurrently');
+    }
+    try {
+      const row = applyDisposition(db, {
+        entityId: p.entityId, category: live.category, eventId: p.eventId,
+        to: p.action, reasonCode: p.reasonCode, reasonNote: p.reasonNote,
+        decidedBy: LOCKED_BY, now: Date.now(),
+        source: 'AGENT_PROPOSAL', proposalId: p.id,
+      });
+      return { disposition: row, proposal: getProposal(db, p.id) };
+    } catch (err) {
+      if ((err as Error).message.startsWith('ILLEGAL_TRANSITION')) {
+        revertAcceptedToStale(db, p.id, Date.now());
+        throw new ApiError(409, 'PROPOSAL_STALE', (err as Error).message);
+      }
+      throw err;
+    }
+  });
+
+  app.post<{ Params: { id: string }; Body: { note?: string } }>('/triage/proposals/:id/reject', async (req) => {
+    const pid = Number(req.params.id);
+    const p = Number.isInteger(pid) ? getProposal(db, pid) : null;
+    if (!p) throw new ApiError(404, 'PROPOSAL_NOT_FOUND', `no proposal ${req.params.id}`);
+    const note = req.body?.note ?? null;
+    if (note !== null && note.length > 500) throw new ApiError(400, 'VALIDATION', 'note exceeds 500 chars');
+    if (!decideProposal(db, p.id, 'rejected', LOCKED_BY, note, Date.now())) {
+      throw new ApiError(409, 'PROPOSAL_NOT_OPEN', `proposal is ${getProposal(db, p.id)!.status}`);
+    }
+    return { proposal: getProposal(db, p.id) };
   });
 
   // 10. POST /entities/:id/snapshot
