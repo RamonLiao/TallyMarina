@@ -150,6 +150,9 @@ export function useDisposition(entityId: string | undefined) {
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['exceptions', entityId ?? ''] });
+      // A manual disposition can outrun a still-`proposed` agent proposal on the same
+      // exception; without this the list/detail keep showing the stale agent badge.
+      qc.invalidateQueries({ queryKey: ['triage-proposals', entityId ?? ''] });
     },
   });
 }
@@ -184,5 +187,6 @@ export function useRejectProposal(entityId: string | undefined) {
     mutationFn: (v: { proposalId: number; note?: string }) =>
       fetchJson(`/triage/proposals/${v.proposalId}/reject`, { method: 'POST', body: JSON.stringify({ note: v.note }) }),
     onSuccess: () => invalidateTriage(qc, entityId),
+    onError: () => invalidateTriage(qc, entityId), // 409 stale → refresh so the card disappears
   });
 }
