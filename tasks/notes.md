@@ -50,3 +50,22 @@
 - **frontend-design（已補 spec UX 決策）**：verified/draft **全卡面非顏色處理**（austere navy vs dashed cream + glyph，非 button-side badge）；**下載前自驗摘要為必要 §**（改變 buildBundle contract：回傳 summary 顯示值，不只 throw）；借貸不平錯誤態顯示實際數字+delta；空 period = nil return 用吉祥物（非 error）；hash UI 永不截斷。
 
 spec v2 path 同上；待使用者 review 後進 writing-plans。
+
+## 2026-07-03 四視角架構審查（會計/SUI/全端/AI）
+
+完整報告：`reviews/architecture-review-4lens-2026-07-03.md`。
+核心結論：設計層（rules-engine、merkle、audit_anchor.move）達 spec 水準；所有 Critical 集中在 services/api 的 demo stub 層（period lock 鎖不住、Suspense fail-open、合成 lot、maker-checker 零 enforcement）；AI 成色 3/10——分類結果在 posting path 是裝飾性的（buildRuleInput 不讀 finalEventType），是 Agentic Web 賽道最大風險。
+修復優先序：F2/F1（AI 接進 posting path + 自動化）→ C1/C3（lock guard、刪 Suspense fallback）→ F3（AUTO 改 deterministic allow-list）→ S2（Move version gate）→ SDK 版本統一+workspaces。C2/C4/H2 為 demo→production 分水嶺，賽後做。
+
+## 2026-07-03 修復完成（審查 5 優先項全落地）
+
+全部驗收（fresh-context verifier 實跑）+ 兩輪 review（獨立 subagent + sui-security-guard on Move diff）通過：
+1. **F2+F1**：`buildRuleInput` 用 finalEventType/finalPurpose 覆蓋 raw（AI 維持 suggestion-only）；`POST /ingest` 自動 classify 全部 INGESTED events（含並發 StateError skip）；per-event classify 冪等化；decide 驗 eventTypeSchema enum。
+2. **C1+C3**：run-rules/decide 加 PERIOD_LOCKED 409 guard + engine 層 periodOpen 動態解析（雙層防禦）；Suspense fallback 刪除、resolveCoa fail-closed 回 null；**附帶修掉審查沒抓到的死規則 bug**——舊 DEMO_COA_RULES 的 L1 leg 名與 rules engine 真實 leg 名（ACQUISITION/EXPENSE/DISPOSAL…）完全不匹配，之前所有 JE 都在走 fallback。web policy workspace 適配 defaultAccount:null。
+3. **F3**：AUTO = raw type ∈ allow-list(RECEIPT,PAYMENT) ∧ LLM agreement ∧ confidence≥threshold。GAS_FEE/SWAP/INTERNAL_TRANSFER 永遠 NEEDS_REVIEW（demo 若加此類 event 需人工 decide 才會 post——runbook 注意）。測試 stub 改「誠實 mock」（從 prompt 抽真實 eventType，抽不到就 throw）。
+4. **S2**：見 move-notes.md 2026-07-03 節。**重要：需 fresh publish**（struct layout change），部署時要重建 chain + 更新 env。
+5. **Workspaces**：root package.json（6 workspaces）、@mysten/sui 統一 2.19.0（web 側 dapp-kit 解析 2.20.1 同 major）、ingestion CLI SuiClient→SuiJsonRpcClient（v2）；各包 package-lock/node_modules 已清，單一 root lock。
+
+最終數字：anchor-svc 69/69、ingestion 35/35(+2 env-skip)、rules-engine 111/111、snapshot-svc 44/44、api 205/205、web 401/401、Move 20/20，tsc 全乾淨。
+未 commit；未跑 web e2e（Playwright）——commit 前要跑（UI 有小改：policy workspace defaultAccount 顯示）。
+賽後 backlog：C2（period 歸屬）、C4（lot store）、H2（snapshot 持久化）、exception-triage agent + memwal（AI ROI 項）。
