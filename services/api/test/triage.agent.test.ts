@@ -137,6 +137,24 @@ describe('runTriageOnce', () => {
     expect(listProposals(db, E).length).toBe(0);
   });
 
+  it('mid-round lock (TOCTOU): a lock landing during the LLM call must not let the insert dodge the sweep (F1b)', async () => {
+    // Round-start gate passes (period is open), but the stub locks the period from *inside*
+    // generateJson — simulating a lock+sweep racing in between the round-start check and the
+    // per-exception insertProposal. Without the re-check immediately before insertProposal,
+    // this proposal would land after the sweep and never get staled.
+    const lockingClient: GeminiClient = {
+      async generateJson(_m: string, prompt: string) {
+        if (!/exceptionId/.test(prompt)) throw new Error('triage stub: prompt no longer carries exceptionId');
+        lockPeriod(db, { entityId: E, periodId: P, lightsSnapshot: '[]', lockedBy: 'demo-controller', now: 1 });
+        return good as never;
+      },
+    };
+    const s = await runTriageOnce({ db, cfg, client: lockingClient }, E, P);
+    expect(s.proposed).toBe(0);
+    expect(s.skipped).toBeGreaterThan(0);
+    expect(listProposals(db, E).length).toBe(0);
+  });
+
   it('a throwing LLM call does not abort the round', async () => {
     seedReviewEvent(db, 'ev-2');
     let n = 0;

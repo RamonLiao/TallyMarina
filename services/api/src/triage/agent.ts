@@ -115,6 +115,14 @@ export async function runTriageOnce(
       const raw = await client.generateJson<unknown>(cfg.aiModelCopilot, buildTriagePrompt(ex, ev?.rawJson ?? '{}'), TRIAGE_SCHEMA);
       const v = validateProposal(ex, raw, cfg.triageMaterialityThreshold);
       if (!v.ok) { summary.failed++; console.warn(`triage: discarded proposal for ${ex.exceptionId}: ${v.reason}`); continue; }
+      // F1b TOCTOU: the lock/anchored gate above was checked once at round start, but this
+      // exception just awaited an LLM round-trip — a lock (+stale-sweep) landing mid-round
+      // would otherwise let this insert dodge the sweep entirely. Re-check immediately
+      // before the write, not just at round start.
+      if (getPeriodLock(db, entityId, periodId).status === 'LOCKED' || hasAnchoredSnapshot(db, entityId)) {
+        summary.skipped++;
+        continue;
+      }
       insertProposal(db, {
         exceptionId: ex.exceptionId, eventId: ex.eventId, entityId, periodId,
         action: v.value.action, reasonCode: v.value.reasonCode, reasonNote: v.value.reasonNote,

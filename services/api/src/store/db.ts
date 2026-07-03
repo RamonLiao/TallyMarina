@@ -21,7 +21,11 @@ export function openDb(path: string): Db {
     'ALTER TABLE exception_disposition_log ADD COLUMN proposal_id INTEGER',
   ];
   for (const m of MIGRATIONS) {
-    try { db.exec(m); } catch { /* duplicate column = already migrated */ }
+    try { db.exec(m); } catch (err) {
+      // duplicate column = already migrated; anything else (e.g. a genuine SQL/schema
+      // error) must not be swallowed — fail loud instead of silently skipping.
+      if (!/duplicate column/i.test((err as Error).message)) throw err;
+    }
   }
   return db;
 }

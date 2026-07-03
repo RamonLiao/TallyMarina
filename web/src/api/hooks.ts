@@ -89,6 +89,10 @@ export function useDecide(entityId: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: qk.events(entityId) });
       qc.invalidateQueries({ queryKey: qk.reviewQueue(entityId) });
+      // A decide can change the CLASSIFY_REVIEW exception's underlying event and outrun a
+      // still-`proposed` agent proposal on it (same reasoning as useDisposition).
+      qc.invalidateQueries({ queryKey: ['exceptions', entityId] });
+      qc.invalidateQueries({ queryKey: ['triage-proposals', entityId] });
     },
   });
 }

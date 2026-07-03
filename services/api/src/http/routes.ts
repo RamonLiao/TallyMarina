@@ -484,7 +484,19 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
   // Triage agent (exception-triage proposals — agent proposes, human accepts)
   app.post<{ Params: { id: string }; Body: { periodId?: string } }>('/entities/:id/triage/run', async (req) => {
     requireEntity(db, req.params.id);
-    const periodId = req.body?.periodId ?? DEFAULT_PERIOD;
+    const rawPeriodId = req.body?.periodId;
+    if (rawPeriodId !== undefined && typeof rawPeriodId !== 'string') {
+      throw new ApiError(400, 'VALIDATION', 'periodId must be a string');
+    }
+    // F1a: the demo is single-period (events carry no period; review C2 deferred), so the
+    // lock/anchor sweep only ever runs against DEFAULT_PERIOD. Accepting an arbitrary
+    // periodId lets a caller probe an unlocked "FAKE" period lock row while the real
+    // period is LOCKED — the agent would then propose against live exceptions and the
+    // period-scoped stale-sweep (markEntityProposalsStale) would never touch them.
+    const periodId = rawPeriodId ?? DEFAULT_PERIOD;
+    if (periodId !== DEFAULT_PERIOD) {
+      throw new ApiError(400, 'VALIDATION', `unknown periodId ${periodId}`);
+    }
     try {
       return { run: await triage.runOnce(req.params.id, periodId) };
     } catch (err) {
@@ -505,8 +517,8 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
   });
 
   app.post<{ Params: { id: string } }>('/triage/proposals/:id/accept', async (req) => {
-    const pid = Number(req.params.id);
-    const p = Number.isInteger(pid) ? getProposal(db, pid) : null;
+    // F5: Number('0x10') === 16, Number(' 12 ') === 12, etc. — only accept plain decimal ids.
+    const p = /^\d+$/.test(req.params.id) ? getProposal(db, Number(req.params.id)) : null;
     if (!p) throw new ApiError(404, 'PROPOSAL_NOT_FOUND', `no proposal ${req.params.id}`);
     if (p.status !== 'proposed') throw new ApiError(409, 'PROPOSAL_NOT_OPEN', `proposal is ${p.status}`);
     // B1: same guard as the manual disposition path — anchored = read-only. NOT period-lock:
@@ -514,6 +526,16 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     if (hasAnchoredSnapshot(db, p.entityId)) {
       markEntityProposalsStale(db, p.entityId, null, LOCKED_BY, Date.now());
       throw new ApiError(409, 'ANCHORED_READ_ONLY', 'period anchored, exceptions are informational');
+    }
+    // F1b defense-in-depth: a lock landing between triage/run's round-start check and this
+    // accept (TOCTOU) must still stale the proposal. This makes agent-accept strictly
+    // stricter than the manual disposition route (which only checks anchored, not lock) —
+    // intentional per spec: a period lock must stale agent proposals even though a human
+    // can still dispose manually up to anchor. See runTriageOnce's per-insert re-check for
+    // the write-side half of this fix.
+    if (getPeriodLock(db, p.entityId, p.periodId).status === 'LOCKED') {
+      decideProposal(db, p.id, 'stale', LOCKED_BY, 'period locked', Date.now());
+      throw new ApiError(409, 'PERIOD_LOCKED', `period ${p.periodId} is locked`);
     }
     // I3: re-validate against the live projection, same as the manual route.
     const live = collectExceptions(db, p.entityId, p.periodId, cfg.exceptionLowConfidence)
@@ -552,10 +574,14 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
   });
 
   app.post<{ Params: { id: string }; Body: { note?: string } }>('/triage/proposals/:id/reject', async (req) => {
-    const pid = Number(req.params.id);
-    const p = Number.isInteger(pid) ? getProposal(db, pid) : null;
+    // F5: reject non-decimal ids (e.g. '0x10') before Number() coercion.
+    const p = /^\d+$/.test(req.params.id) ? getProposal(db, Number(req.params.id)) : null;
     if (!p) throw new ApiError(404, 'PROPOSAL_NOT_FOUND', `no proposal ${req.params.id}`);
     const note = req.body?.note ?? null;
+    // F3: a non-string note (e.g. {"note": 123}) has no .length check that can save it —
+    // number.length is undefined, undefined>500 is false, so it would reach better-sqlite3's
+    // bind and throw a raw 500. Reject the type at the boundary instead.
+    if (note !== null && typeof note !== 'string') throw new ApiError(400, 'VALIDATION', 'note must be a string');
     if (note !== null && note.length > 500) throw new ApiError(400, 'VALIDATION', 'note exceeds 500 chars');
     if (!decideProposal(db, p.id, 'rejected', LOCKED_BY, note, Date.now())) {
       throw new ApiError(409, 'PROPOSAL_NOT_OPEN', `proposal is ${getProposal(db, p.id)!.status}`);

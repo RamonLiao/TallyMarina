@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { buildTestApp, TEST_ENTITY_ID, seedSnapshot } from './helpers.js';
 import type { GeminiClient } from '../src/ai/geminiClient.js';
 import { insertProposal, getProposal, type ProposalRow } from '../src/store/proposalStore.js';
+import { lockPeriod } from '../src/periodLock/store.js';
 import type { Db } from '../src/store/db.js';
 
 const P = '2026-Q2';
@@ -130,6 +131,42 @@ describe('triage routes', () => {
     expect(getProposal(app._db, p.id)?.decisionNote).toBe('not a duplicate');
     const missing = await app.inject({ method: 'POST', url: '/triage/proposals/99999/reject' });
     expect(missing.statusCode).toBe(404);
+  });
+
+  it('run with bogus periodId → 400 VALIDATION (F1a: single-period demo, blocks lock-sweep-dodge probe)', async () => {
+    const app = await buildTestApp(false, triageClient);
+    seedReviewEvent(app._db, 'ev-t8');
+    const res = await app.inject({ method: 'POST', url: `/entities/${encodeURIComponent(TEST_ENTITY_ID)}/triage/run`, payload: { periodId: 'FAKE' } });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe('VALIDATION');
+  });
+
+  it('run with non-string periodId → 400 VALIDATION (F3)', async () => {
+    const app = await buildTestApp(false, triageClient);
+    seedReviewEvent(app._db, 'ev-t9');
+    const res = await app.inject({ method: 'POST', url: `/entities/${encodeURIComponent(TEST_ENTITY_ID)}/triage/run`, payload: { periodId: { $ne: null } } });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe('VALIDATION');
+  });
+
+  it('reject with numeric note → 400 VALIDATION (F3), not a 500 from better-sqlite3', async () => {
+    const app = await buildTestApp(false, triageClient);
+    seedReviewEvent(app._db, 'ev-t10');
+    const p = seedProposal(app._db, 'ev-t10');
+    const res = await app.inject({ method: 'POST', url: `/triage/proposals/${p.id}/reject`, payload: { note: 123 } });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe('VALIDATION');
+  });
+
+  it('accept a proposal whose period is locked → 409 PERIOD_LOCKED, proposal staled (F1b defense-in-depth)', async () => {
+    const app = await buildTestApp(false, triageClient);
+    seedReviewEvent(app._db, 'ev-t11');
+    const p = seedProposal(app._db, 'ev-t11');
+    lockPeriod(app._db, { entityId: TEST_ENTITY_ID, periodId: P, lightsSnapshot: '[]', lockedBy: 'demo-controller', now: Date.now() });
+    const res = await app.inject({ method: 'POST', url: `/triage/proposals/${p.id}/accept` });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.code).toBe('PERIOD_LOCKED');
+    expect(getProposal(app._db, p.id)?.status).toBe('stale');
   });
 
   it('run returns 409 TRIAGE_BUSY when a run is in flight', async () => {
