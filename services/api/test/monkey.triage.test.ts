@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest';
 import { buildTestApp, TEST_ENTITY_ID } from './helpers.js';
 import type { GeminiClient } from '../src/ai/geminiClient.js';
-import { insertProposal, getProposal, listProposals } from '../src/store/proposalStore.js';
+import { insertProposal, getProposal, listProposals, decideProposal } from '../src/store/proposalStore.js';
 import { upsertReconDisposition } from '../src/store/reconBreakStore.js';
 import type { Db } from '../src/store/db.js';
 
@@ -55,7 +55,11 @@ describe('monkey: triage', () => {
     }
   });
 
-  it('concurrent accept storm: exactly one wins', async () => {
+  it('serial mutual-exclusion (one winner, one AGENT_PROPOSAL audit row)', async () => {
+    // This test verifies the serial mutual-exclusion CONTRACT: exactly one winner, one AGENT_PROPOSAL
+    // disposition row. Fastify inject handlers run synchronously in better-sqlite3 transactions, so
+    // there is no true interleaving — this test exercises serial ordering, not race conditions.
+    // The actual CAS protection is verified by the regression assertion below.
     const app = await buildTestApp(false);
     seedReviewEvent(app._db, 'ev-m2');
     const p = insertProposal(app._db, {
@@ -71,6 +75,14 @@ describe('monkey: triage', () => {
     // audit trail: exactly one disposition log row from the agent path
     const logs = app._db.prepare("SELECT COUNT(*) AS n FROM exception_disposition_log WHERE event_id = 'ev-m2' AND source = 'AGENT_PROPOSAL'").get() as { n: number };
     expect(logs.n).toBe(1);
+
+    // CAS regression: decideProposal must refuse to transition an already-accepted proposal.
+    // This test fails if the WHERE status='proposed' clause is removed from the UPDATE statement.
+    const alreadyAccepted = getProposal(app._db, p.id)!;
+    expect(alreadyAccepted.status).toBe('accepted');
+    const result = decideProposal(app._db, p.id, 'rejected', 'demo-controller', null, Date.now());
+    expect(result).toBe(false); // CAS must reject this transition
+    expect(getProposal(app._db, p.id)!.status).toBe('accepted'); // status unchanged
   });
 
   it('accept vs reject race: proposal ends in exactly one terminal state', async () => {
