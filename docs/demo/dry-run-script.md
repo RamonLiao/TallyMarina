@@ -13,7 +13,7 @@ This is a human walkthrough of the full close-the-period flow, end-to-end, with 
 You need a testnet wallet that **owns the real AnchorCap**. The cap's object ID is:
 
 ```
-0x266e7c8ea0b27ad52080074c9f6c1f73ec8a6ea9dd9a68d310b7cf56262dfba9
+0xaa1f65d8a2238ec0012d14413ee069207fa493274a71c53129a322489c8e8a73
 ```
 
 If you don't have this cap, ask the team to transfer it to your wallet address via:
@@ -21,14 +21,14 @@ If you don't have this cap, ask the team to transfer it to your wallet address v
 ```bash
 sui client transfer \
   --to <your-wallet-address> \
-  --object-id 0x266e7c8ea0b27ad52080074c9f6c1f73ec8a6ea9dd9a68d310b7cf56262dfba9 \
+  --object-id 0xaa1f65d8a2238ec0012d14413ee069207fa493274a71c53129a322489c8e8a73 \
   --gas-budget 10000000
 ```
 
 Verify ownership by querying the chain:
 
 ```bash
-sui client objects --filter-by-type 0x2::transfer_policy::TransferPolicy | grep 0x266e7c8e
+sui client objects --filter-by-type 0x2::transfer_policy::TransferPolicy | grep 0xaa1f65d8
 ```
 
 ### 2. Environment Setup
@@ -348,7 +348,7 @@ Then re-run the demo from Step 1.
 **How to fix:**
 ```bash
 # Option A: Transfer the cap to your wallet
-sui client transfer --to <your-address> --object-id 0x266e7c8e...dfba9 --gas-budget 10000000
+sui client transfer --to <your-address> --object-id 0xaa1f65d8...8a73 --gas-budget 10000000
 
 # Option B: Use a wallet that already owns the cap (if you have multiple wallets)
 # — Disconnect the current wallet, re-click "Connect Wallet", select the cap-owner wallet.
@@ -423,7 +423,7 @@ If you also want to test the **Onboarding Workspace**, here's the flow:
 
 Before you run the demo, verify:
 
-- [ ] Testnet wallet owns AnchorCap `0x266e7c8ea0b27ad52080074c9f6c1f73ec8a6ea9dd9a68d310b7cf56262dfba9`.
+- [ ] Testnet wallet owns AnchorCap `0xaa1f65d8a2238ec0012d14413ee069207fa493274a71c53129a322489c8e8a73`.
 - [ ] `SUI_PK` is set in `services/api/.env`.
 - [ ] `GEMINI_API_KEY` is set.
 - [ ] `SUI_NETWORK=testnet` and `SUI_GRPC_URL=https://grpc.testnet.sui.io`.

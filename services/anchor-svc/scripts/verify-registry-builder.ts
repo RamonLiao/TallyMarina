@@ -16,10 +16,10 @@ import { buildRegistry } from '../src/core/buildRegistry.js';
 import { SuiChainAdapter } from '../src/adapter/suiChainAdapter.js';
 
 // === Fill from anchor-notes.md ===
-const ORIGINAL_PACKAGE_ID = '0xafc87017beab87bd4b0bad129d3aa5c5ed4a7a20fef888f458916b8477ea9c0d';
+const ORIGINAL_PACKAGE_ID = '0x6aa2a0404013d3ea7840ab510420b9a1cde98cd20ad8fb54e32b0bbc9e8eb12f';
 const ENTITY_ID = 'acme:pilot-001';
-const EXPECTED_CHAIN = '0x451114f9db3b6226bc8c3dd79a21796408a75eb983a6701d345e449f25b4162f';
-const EXPECTED_CAP = '0x266e7c8ea0b27ad52080074c9f6c1f73ec8a6ea9dd9a68d310b7cf56262dfba9';
+const EXPECTED_CHAIN = '0x4194290ec2e4d28617f7cae463ebfb4e37f173ed7b06b495cf203e015d1de869';
+const EXPECTED_CAP = '0xaa1f65d8a2238ec0012d14413ee069207fa493274a71c53129a322489c8e8a73';
 const OWNER = '0x1509b5fdf09296b2cf749a710e36da06f5693ccd5b2144ad643b3a895abcbc4c';  // address holding the AnchorCap (verified on-chain)
 // =================================
 

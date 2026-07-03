@@ -12,8 +12,8 @@ import { SuiGrpcClient } from '@mysten/sui/grpc';
 const TESTNET_GRPC_URL = 'https://fullnode.testnet.sui.io:443';
 
 // Deployed testnet objects:
-const ENTITY_ANCHOR_CHAIN = '0x451114f9db3b6226bc8c3dd79a21796408a75eb983a6701d345e449f25b4162f';
-const ANCHOR_CAP = '0x266e7c8ea0b27ad52080074c9f6c1f73ec8a6ea9dd9a68d310b7cf56262dfba9';
+const ENTITY_ANCHOR_CHAIN = '0x4194290ec2e4d28617f7cae463ebfb4e37f173ed7b06b495cf203e015d1de869';
+const ANCHOR_CAP = '0xaa1f65d8a2238ec0012d14413ee069207fa493274a71c53129a322489c8e8a73';
 
 async function probe(grpc: SuiGrpcClient, label: string, objectId: string): Promise<void> {
   console.log(`\n--- ${label} (${objectId}) ---`);

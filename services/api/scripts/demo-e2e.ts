@@ -3,7 +3,7 @@
  *
  * Prerequisites for the FULL write path (anchor on-chain):
  *   SUI_PK   — Sui private key (suiprivkey… bech32) of the wallet that owns:
- *                - AnchorCap 0x266e7c8ea0b27ad52080074c9f6c1f73ec8a6ea9dd9a68d310b7cf56262dfba9
+ *                - AnchorCap 0xaa1f65d8a2238ec0012d14413ee069207fa493274a71c53129a322489c8e8a73
  *                - enough SUI gas (faucet: https://faucet.testnet.sui.io)
  *
  * If SUI_PK is absent, the script runs every step up to anchor/prepare (read-only)
