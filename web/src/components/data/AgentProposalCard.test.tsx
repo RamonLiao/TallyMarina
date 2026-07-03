@@ -55,6 +55,10 @@ describe('AgentProposalCard', () => {
     fireEvent.click(screen.getByRole('button', { name: /^Accept — / }));
     await vi.waitFor(() => expect(spy).toHaveBeenCalled());
     expect(String(spy.mock.calls[0]![0])).toContain('/triage/proposals/7/accept');
+    // Regression: fetchJson always sets content-type: application/json; a request with that
+    // header but no body trips Fastify's FST_ERR_CTP_EMPTY_JSON_BODY (real-browser 500, not
+    // caught by jsdom's mocked fetch unless we assert the body explicitly).
+    expect(spy.mock.calls[0]![1]?.body).toBe('{}');
   });
 
   it('Reject expands optional note then confirms', async () => {

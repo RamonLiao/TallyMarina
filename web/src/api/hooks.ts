@@ -175,7 +175,8 @@ function invalidateTriage(qc: ReturnType<typeof useQueryClient>, entityId: strin
 export function useAcceptProposal(entityId: string | undefined) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (proposalId: number) => fetchJson(`/triage/proposals/${proposalId}/accept`, { method: 'POST' }),
+    mutationFn: (proposalId: number) =>
+      fetchJson(`/triage/proposals/${proposalId}/accept`, { method: 'POST', body: JSON.stringify({}) }),
     onSuccess: () => invalidateTriage(qc, entityId),
     onError: () => invalidateTriage(qc, entityId), // 409 stale → refresh so the card disappears
   });

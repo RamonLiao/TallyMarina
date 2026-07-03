@@ -59,4 +59,39 @@ describe('ExceptionDetail — proposal/disposition gating', () => {
     expect(screen.queryByText(/AGENT PROPOSAL/i)).toBeNull();
     expect(screen.queryByText(/or decide manually/i)).toBeNull();
   });
+
+  // Regression: CLASSIFY_REVIEW exceptions render DecideForm alongside DispositionControls.
+  // A live agent proposal must demote BOTH, not just DispositionControls, or the pane shows
+  // two brass primary CTAs (Accept + DecideForm's Approve) violating the one-primary-CTA rule.
+  it('CLASSIFY_REVIEW + live proposal: exactly one btn-primary (Accept), divider sits above the manual path', () => {
+    wrap(
+      <ExceptionDetail
+        exception={exception({ exceptionId: 'CLASSIFY_REVIEW:2', category: 'CLASSIFY_REVIEW' })}
+        entityId="e1"
+        proposal={proposal}
+      />,
+    );
+    const primaries = document.querySelectorAll('.btn-primary');
+    expect(primaries.length).toBe(1);
+    expect(primaries[0]).toHaveTextContent(/^Accept —/);
+
+    // Divider must precede both the manual DecideForm and DispositionControls.
+    const divider = screen.getByText(/or decide manually/i);
+    const approveButton = screen.getByRole('button', { name: /^approve$/i });
+    const resolveButton = screen.getByRole('button', { name: /^resolve$/i });
+    expect(divider.compareDocumentPosition(approveButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(divider.compareDocumentPosition(resolveButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('CLASSIFY_REVIEW without a live proposal: DecideForm Approve keeps btn-primary (unchanged)', () => {
+    wrap(
+      <ExceptionDetail
+        exception={exception({ exceptionId: 'CLASSIFY_REVIEW:2', category: 'CLASSIFY_REVIEW' })}
+        entityId="e1"
+        proposal={null}
+      />,
+    );
+    expect(screen.queryByText(/or decide manually/i)).toBeNull();
+    expect(screen.getByRole('button', { name: /^approve$/i })).toHaveClass('btn-primary');
+  });
 });

@@ -2,14 +2,26 @@
 import { useState } from 'react';
 import type { EventDTO } from '../../api/types';
 
+const ghostStyle: React.CSSProperties = {
+  background: 'none',
+  border: '1px solid var(--paper-line)',
+  borderRadius: 'var(--radius-pill)',
+  padding: 'var(--s-2) var(--s-4)',
+  cursor: 'pointer',
+  fontFamily: 'var(--font-mono)',
+  fontSize: 'var(--text-sm)',
+};
+
 export function DecideForm({
-  event, draft, onDecide, pending,
+  event, draft, onDecide, pending, demoted,
 }: {
   event: EventDTO;
   /** AI suggestedEntry lines for pre-fill. Adopt only populates the form — AI has NO posting authority. */
   draft?: { eventType?: string; purpose?: string } | null;
   onDecide(finalEventType: string, finalPurpose: string): void;
   pending: boolean;
+  /** When true (a live agent proposal is the primary CTA), drop btn-primary from Approve. */
+  demoted?: boolean;
 }) {
   const [eventType, setEventType] = useState(event.ai?.eventType ?? '');
   const [purpose, setPurpose] = useState(event.ai?.purpose ?? '');
@@ -47,7 +59,12 @@ export function DecideForm({
           ↓ Adopt AI draft (pre-fills form only — you decide)
         </button>
       )}
-      <button className="btn-primary" type="submit" disabled={pending || !eventType || !purpose}>
+      <button
+        className={demoted ? undefined : 'btn-primary'}
+        style={demoted ? ghostStyle : undefined}
+        type="submit"
+        disabled={pending || !eventType || !purpose}
+      >
         {pending ? 'Approving…' : 'Approve'}
       </button>
     </form>

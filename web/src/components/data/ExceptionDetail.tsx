@@ -104,20 +104,21 @@ export function ExceptionDetail({
           gap: 'var(--s-3)',
         }}
       >
+        {liveProposal && (
+          <p style={{ margin: 0, fontSize: 'var(--text-xs)', color: 'var(--ink-soft)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+            or decide manually
+          </p>
+        )}
         {isClassifyReview && (
           <DecideForm
             event={eventForForm}
             draft={null}
             pending={decide.isPending}
+            demoted={!!liveProposal}
             onDecide={(finalEventType, finalPurpose) =>
               decide.mutate({ eventId: exception.eventId, finalEventType, finalPurpose })
             }
           />
-        )}
-        {liveProposal && (
-          <p style={{ margin: 0, fontSize: 'var(--text-xs)', color: 'var(--ink-soft)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-            or decide manually
-          </p>
         )}
         <DispositionControls exception={exception} entityId={entityId} demoted={!!liveProposal} />
       </div>
