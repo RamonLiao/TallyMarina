@@ -44,6 +44,7 @@ import { getProposal, listProposals, decideProposal, revertAcceptedToStale, mark
 import { makeTriageRunner, type TriageRunner } from '../triage/scheduler.js';
 import type { MemoryClient, MemoryRecord } from '../triage/memory/types.js';
 import { amountBand } from '../triage/memory/format.js';
+import { ingestEvent, PeriodLockedError } from './ingestEvent.js';
 
 export interface RouteDeps {
   db: Db;
@@ -287,6 +288,29 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
   app.get<{ Params: { id: string } }>('/entities/:id/events', async (req) => {
     requireEntity(db, req.params.id);
     return { events: listEvents(db, req.params.id).map(eventDTO) };
+  });
+
+  // 3b. POST /entities/:id/events — ingest gate: refuses+logs events dated into a LOCKED period.
+  app.post<{ Params: { id: string }; Body: { event: unknown } }>('/entities/:id/events', async (req, reply) => {
+    requireEntity(db, req.params.id);
+    try {
+      const rawJson = JSON.stringify(req.body.event);
+      const { eventId, periodId } = ingestEvent(db, req.params.id, rawJson);
+      return reply.code(201).send({ eventId, periodId });
+    } catch (err) {
+      if (err instanceof PeriodLockedError) {
+        return reply.code(409).send({
+          error: {
+            code: 'PERIOD_LOCKED_FOR_DATE', message: err.message,
+            details: { periodId: err.periodId, eventTime: err.eventTime },
+          },
+        });
+      }
+      if (err instanceof Error && err.message.startsWith('INVALID_EVENT_TIME')) {
+        return reply.code(400).send({ error: { code: 'INVALID_EVENT_TIME', message: err.message } });
+      }
+      throw err;
+    }
   });
 
   // 4. POST /events/:id/classify — idempotent: already-classified events (auto pass

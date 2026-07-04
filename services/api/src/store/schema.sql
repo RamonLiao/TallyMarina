@@ -169,3 +169,12 @@ CREATE TABLE IF NOT EXISTS triage_proposal_log (
 CREATE INDEX IF NOT EXISTS idx_events_entity_period ON events (entity_id, period_id);
 CREATE INDEX IF NOT EXISTS idx_je_entity_period ON journal_entries (entity_id, period_id);
 CREATE INDEX IF NOT EXISTS idx_expdisp_entity_period ON exception_disposition (entity_id, period_id);
+CREATE TABLE IF NOT EXISTS rejected_event_log (
+  seq         INTEGER PRIMARY KEY AUTOINCREMENT,
+  entity_id   TEXT NOT NULL,
+  period_id   TEXT NOT NULL,
+  event_time  TEXT NOT NULL,
+  raw_json    TEXT NOT NULL,
+  reason      TEXT NOT NULL,
+  rejected_at TEXT NOT NULL
+);
