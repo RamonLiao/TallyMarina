@@ -13,7 +13,7 @@ function mkDb(): Db {
 }
 // a raw event the rules engine cannot post (unknown type) → RULES_FAILED when APPROVED
 function addEvent(db: Db, id: string, raw: object) {
-  insertEvent(db, { id, entityId: 'e1', rawJson: JSON.stringify(raw) });
+  insertEvent(db, { id, entityId: 'e1', rawJson: JSON.stringify({ eventTime: '2026-05-01T00:00:00Z', ...raw }) });
 }
 
 describe('collectExceptions', () => {

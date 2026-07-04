@@ -20,7 +20,7 @@ describe('entityStore', () => {
 
 describe('eventStore state-gated writes', () => {
   it('setAiSuggestion routes INGESTED -> AUTO and persists ai_* fields', () => {
-    insertEvent(db, { id: 'e1', entityId: 'acme:pilot-001', rawJson: '{}' });
+    insertEvent(db, { id: 'e1', entityId: 'acme:pilot-001', rawJson: JSON.stringify({ eventTime: '2026-05-01T00:00:00Z' }) });
     setAiSuggestion(db, 'e1', { aiEventType: 'DIGITAL_ASSET_RECEIPT', aiPurpose: 'X', aiCounterparty: null, aiConfidence: 0.91, aiReasoning: 'r', nextStatus: 'AUTO' });
     const ev = getEvent(db, 'e1')!;
     expect(ev.status).toBe('AUTO');
@@ -28,7 +28,7 @@ describe('eventStore state-gated writes', () => {
     expect(listByStatus(db, 'acme:pilot-001', 'AUTO')).toHaveLength(1);
   });
   it('decide then post follows the legal chain', () => {
-    insertEvent(db, { id: 'e2', entityId: 'acme:pilot-001', rawJson: '{}' });
+    insertEvent(db, { id: 'e2', entityId: 'acme:pilot-001', rawJson: JSON.stringify({ eventTime: '2026-05-01T00:00:00Z' }) });
     setAiSuggestion(db, 'e2', { aiEventType: 'X', aiPurpose: 'Y', aiCounterparty: null, aiConfidence: 0.5, aiReasoning: 'r', nextStatus: 'NEEDS_REVIEW' });
     setDecision(db, 'e2', { finalEventType: 'DIGITAL_ASSET_RECEIPT', finalPurpose: 'Z' });
     expect(getEvent(db, 'e2')!.status).toBe('APPROVED');
@@ -36,14 +36,14 @@ describe('eventStore state-gated writes', () => {
     expect(getEvent(db, 'e2')!.status).toBe('POSTED');
   });
   it('rejects illegal: cannot decide an INGESTED event', () => {
-    insertEvent(db, { id: 'e3', entityId: 'acme:pilot-001', rawJson: '{}' });
+    insertEvent(db, { id: 'e3', entityId: 'acme:pilot-001', rawJson: JSON.stringify({ eventTime: '2026-05-01T00:00:00Z' }) });
     expect(() => setDecision(db, 'e3', { finalEventType: 'X', finalPurpose: 'Y' })).toThrowError(StateError);
   });
 });
 
 describe('journalStore idempotency', () => {
   it('second insert with same idempotency_key is a no-op duplicate', () => {
-    insertEvent(db, { id: 'e4', entityId: 'acme:pilot-001', rawJson: '{}' });
+    insertEvent(db, { id: 'e4', entityId: 'acme:pilot-001', rawJson: JSON.stringify({ eventTime: '2026-05-01T00:00:00Z' }) });
     const row = { id: 'j1', entityId: 'acme:pilot-001', eventId: 'e4', jeJson: '{}', idempotencyKey: 'K1', leafHash: 'abcd' };
     expect(insertJournalEntry(db, row)).toBe('inserted');
     expect(insertJournalEntry(db, { ...row, id: 'j2' })).toBe('duplicate');

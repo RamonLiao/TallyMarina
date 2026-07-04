@@ -27,7 +27,7 @@ describe('exceptions routes + close gate', () => {
 
   it('GET /entities/:id/exceptions returns categorized list + summary', async () => {
     // Seed a NEEDS_REVIEW event so collectExceptions surfaces CLASSIFY_REVIEW
-    insertEvent(app._db, { id: 'ev-nr1', entityId: EID, rawJson: JSON.stringify({ kind: 'x' }) });
+    insertEvent(app._db, { id: 'ev-nr1', entityId: EID, rawJson: JSON.stringify({ kind: 'x', eventTime: '2026-05-01T00:00:00Z' }) });
     setAiSuggestion(app._db, 'ev-nr1', {
       aiEventType: 'X', aiPurpose: 'p', aiCounterparty: null,
       aiConfidence: 0.4, aiReasoning: 'r', nextStatus: 'NEEDS_REVIEW',
@@ -54,7 +54,7 @@ describe('exceptions routes + close gate', () => {
 
   it('POST disposition rejects illegal transition with 409', async () => {
     // Create a real CLASSIFY_REVIEW exception: NEEDS_REVIEW event
-    insertEvent(app._db, { id: 'ev-t1', entityId: EID, rawJson: JSON.stringify({ kind: 'x' }) });
+    insertEvent(app._db, { id: 'ev-t1', entityId: EID, rawJson: JSON.stringify({ kind: 'x', eventTime: '2026-05-01T00:00:00Z' }) });
     setAiSuggestion(app._db, 'ev-t1', {
       aiEventType: 'X', aiPurpose: 'p', aiCounterparty: null,
       aiConfidence: 0.4, aiReasoning: 'r', nextStatus: 'NEEDS_REVIEW',
@@ -93,7 +93,7 @@ describe('exceptions routes + close gate', () => {
     expect(rrBody.posted).toBeGreaterThanOrEqual(1);
 
     // Seed a CLASSIFY_REVIEW exception (NEEDS_REVIEW event = blocking)
-    insertEvent(app._db, { id: 'ev-gate1', entityId: EID, rawJson: JSON.stringify({ kind: 'x' }) });
+    insertEvent(app._db, { id: 'ev-gate1', entityId: EID, rawJson: JSON.stringify({ kind: 'x', eventTime: '2026-05-01T00:00:00Z' }) });
     setAiSuggestion(app._db, 'ev-gate1', {
       aiEventType: 'X', aiPurpose: 'p', aiCounterparty: null,
       aiConfidence: 0.4, aiReasoning: 'r', nextStatus: 'NEEDS_REVIEW',
@@ -137,7 +137,7 @@ describe('exceptions routes + close gate', () => {
 
   it('LOW_CONFIDENCE_AUTO open does NOT block close', async () => {
     // Seed an AUTO event with confidence < 0.85 (LOW_CONFIDENCE_AUTO, advisory only)
-    insertEvent(app._db, { id: 'ev-lo1', entityId: EID, rawJson: JSON.stringify({ kind: 'x' }) });
+    insertEvent(app._db, { id: 'ev-lo1', entityId: EID, rawJson: JSON.stringify({ kind: 'x', eventTime: '2026-05-01T00:00:00Z' }) });
     setAiSuggestion(app._db, 'ev-lo1', {
       aiEventType: 'DIGITAL_ASSET_RECEIPT', aiPurpose: 'p', aiCounterparty: null,
       aiConfidence: 0.8, aiReasoning: 'r', nextStatus: 'AUTO',

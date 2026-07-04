@@ -22,7 +22,7 @@ describe('collectBreaks', () => {
   });
 
   it('SUI: opening + net JE movement = computed; break vs statement is signed + material', () => {
-    insertEvent(db, { id: 'evt-001', entityId: 'acme:pilot-001', rawJson: JSON.stringify({ wallet: '0xacmeTreasury', coinType: '0x2::sui::SUI' }) });
+    insertEvent(db, { id: 'evt-001', entityId: 'acme:pilot-001', rawJson: JSON.stringify({ wallet: '0xacmeTreasury', coinType: '0x2::sui::SUI', eventTime: '2026-05-01T00:00:00Z' }) });
     seedJe(db, 'evt-001', '0xacmeTreasury', '0x2::sui::SUI', '5000000000', '1200000000'); // +3.8
     const rows = collectBreaks(db, 'acme:pilot-001', '2026-Q2');
     const sui = rows.find((r) => r.coinType === '0x2::sui::SUI')!;
@@ -42,7 +42,7 @@ describe('collectBreaks', () => {
   });
 
   it('book-only asset surfaces via key union with statementMinor=0 and nonzero signed break', () => {
-    insertEvent(db, { id: 'evt-bookonly', entityId: 'acme:pilot-001', rawJson: JSON.stringify({ wallet: '0xacmeTreasury', coinType: '0xrandom::tok::TOK' }) });
+    insertEvent(db, { id: 'evt-bookonly', entityId: 'acme:pilot-001', rawJson: JSON.stringify({ wallet: '0xacmeTreasury', coinType: '0xrandom::tok::TOK', eventTime: '2026-05-01T00:00:00Z' }) });
     seedJe(db, 'evt-bookonly', '0xacmeTreasury', '0xrandom::tok::TOK', '9000000000', '2000000000'); // net +7000000000
     const rows = collectBreaks(db, 'acme:pilot-001', '2026-Q2');
     const tok = rows.find((r) => r.coinType === '0xrandom::tok::TOK')!;
@@ -81,7 +81,7 @@ describe('collectBreaks — fixture-less entity (missing vs malformed)', () => {
 
   it('fixture-less entity WITH JEs → book-only rows surface without throwing', () => {
     // WHY: two-directional design — book movements always surface even without a fixture
-    insertEvent(db, { id: 'evt-nf-001', entityId: 'no-fixture:entity', rawJson: JSON.stringify({ wallet: '0xwallet', coinType: '0xtoken::tok::TOK' }) });
+    insertEvent(db, { id: 'evt-nf-001', entityId: 'no-fixture:entity', rawJson: JSON.stringify({ wallet: '0xwallet', coinType: '0xtoken::tok::TOK', eventTime: '2026-05-01T00:00:00Z' }) });
     insertJournalEntry(db, {
       id: 'je-nf-001', entityId: 'no-fixture:entity', eventId: 'evt-nf-001',
       jeJson: JSON.stringify({ idempotencyKey: 'evt-nf-001', lineageHash: 'h', reversalOf: null,

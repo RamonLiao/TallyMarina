@@ -14,7 +14,7 @@ const EID = TEST_ENTITY_ID;
 
 /** Seed a CLASSIFY_REVIEW exception (NEEDS_REVIEW event) and return its exceptionId URL param. */
 function seedClassifyReview(db: Db, id: string): string {
-  insertEvent(db, { id, entityId: EID, rawJson: JSON.stringify({ kind: 'x' }) });
+  insertEvent(db, { id, entityId: EID, rawJson: JSON.stringify({ kind: 'x', eventTime: '2026-05-01T00:00:00Z' }) });
   setAiSuggestion(db, id, {
     aiEventType: 'X', aiPurpose: 'p', aiCounterparty: null,
     aiConfidence: 0.4, aiReasoning: 'r', nextStatus: 'NEEDS_REVIEW',
@@ -126,7 +126,7 @@ describe('monkey: exceptions disposition — extreme inputs', () => {
     //     → evaluate() returns REJECTED → RULES_FAILED
     // Both exceptions share the same eventId; the composite PK (category, eventId) must
     // ensure disposing one leaves the other's disposition untouched.
-    insertEvent(app._db, { id: 'ev-mono-2cat', entityId: EID, rawJson: JSON.stringify({ kind: 'x' }) });
+    insertEvent(app._db, { id: 'ev-mono-2cat', entityId: EID, rawJson: JSON.stringify({ kind: 'x', eventTime: '2026-05-01T00:00:00Z' }) });
     setAiSuggestion(app._db, 'ev-mono-2cat', {
       aiEventType: 'UNKNOWN_TYPE', aiPurpose: 'p', aiCounterparty: null,
       aiConfidence: 0.4, aiReasoning: 'r', nextStatus: 'AUTO',

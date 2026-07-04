@@ -26,7 +26,7 @@ describe('reconciliation routes', () => {
   beforeEach(async () => {
     db = openDb(':memory:');
     db.prepare("INSERT INTO entities (id, display_name, chain_object_id, cap_object_id, original_package_id) VALUES ('acme:pilot-001','Acme','0x1','0x2','0x3')").run();
-    insertEvent(db, { id: 'evt-001', entityId: 'acme:pilot-001', rawJson: JSON.stringify({ wallet: '0xacmeTreasury', coinType: '0x2::sui::SUI' }) });
+    insertEvent(db, { id: 'evt-001', entityId: 'acme:pilot-001', rawJson: JSON.stringify({ wallet: '0xacmeTreasury', coinType: '0x2::sui::SUI', eventTime: '2026-05-01T00:00:00Z' }) });
     insertJournalEntry(db, { id: 'je-1', entityId: 'acme:pilot-001', eventId: 'evt-001', jeJson: JSON.stringify({ idempotencyKey: 'evt-001', lineageHash: 'h', reversalOf: null, lines: [
       { account: '1000', side: 'DEBIT', amountMinor: '5000000000', origCoinType: '0x2::sui::SUI', origQtyMinor: '5000000000', priceRef: null, fxRef: null, leg: 'MAIN' },
       { account: '4000', side: 'CREDIT', amountMinor: '1200000000', origCoinType: '0x2::sui::SUI', origQtyMinor: '1200000000', priceRef: null, fxRef: null, leg: 'MAIN' },
