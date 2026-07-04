@@ -20,7 +20,7 @@ const feat = { eventType: 'RECEIPT', category: 'RULES_FAILED', amountBand: '1e3'
 describe('OffMemory', () => {
   it('recall → [] and remember → resolves (noop)', async () => {
     const m: MemoryClient = new OffMemory();
-    expect(await m.recall({ entityId: 'e', query: 'q', features: feat, limit: 5 })).toEqual([]);
+    expect(await m.recall({ entityId: 'e', query: 'q', features: feat, limit: 5 })).toEqual({ hits: [], servedBy: 'off' });
     await expect(m.remember({ entityId: 'e', record: {} as never })).resolves.toBeUndefined();
     await expect(m.probe()).resolves.toBeUndefined();
     await expect(m.close()).resolves.toBeUndefined();
@@ -38,7 +38,8 @@ describe('LocalMemory', () => {
     });
     decideProposal(db, row.id, 'accepted', 'human', null, 2);
     const m: MemoryClient = new LocalMemory(db, 5);
-    const hits = await m.recall({ entityId: 'acme-pilot-001', query: 'q', features: { eventType: null, category: 'RULES_FAILED', amountBand: 'UNKNOWN' }, limit: 5 });
+    const { hits, servedBy } = await m.recall({ entityId: 'acme-pilot-001', query: 'q', features: { eventType: null, category: 'RULES_FAILED', amountBand: 'UNKNOWN' }, limit: 5 });
+    expect(servedBy).toBe('local');
     expect(hits.length).toBe(1);
     expect(hits[0]?.text).toContain('[ACCEPTED]');
     expect(hits[0]?.text).toContain('RULES_FAILED');
@@ -53,7 +54,7 @@ describe('LocalMemory', () => {
     });
     decideProposal(db, row.id, 'accepted', 'human', null, 2);
     const m: MemoryClient = new LocalMemory(db, 5);
-    const hits = await m.recall({ entityId: 'OTHER-CO', query: 'q', features: { eventType: null, category: 'RULES_FAILED', amountBand: 'UNKNOWN' }, limit: 5 });
+    const { hits } = await m.recall({ entityId: 'OTHER-CO', query: 'q', features: { eventType: null, category: 'RULES_FAILED', amountBand: 'UNKNOWN' }, limit: 5 });
     expect(hits).toEqual([]);
   });
 
@@ -65,7 +66,7 @@ describe('LocalMemory', () => {
       action: 'deferred', reasonCode: 'PENDING_DOC', reasonNote: null, rationale: 'r', confidence: 0.5, model: 'm', createdAt: 1,
     });
     const m: MemoryClient = new LocalMemory(db, 5);
-    const hits = await m.recall({ entityId: 'acme-pilot-001', query: 'q', features: { eventType: null, category: 'RULES_FAILED', amountBand: 'UNKNOWN' }, limit: 5 });
+    const { hits } = await m.recall({ entityId: 'acme-pilot-001', query: 'q', features: { eventType: null, category: 'RULES_FAILED', amountBand: 'UNKNOWN' }, limit: 5 });
     expect(hits).toEqual([]);
   });
 });

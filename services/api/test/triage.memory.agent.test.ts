@@ -13,8 +13,10 @@ import { openDb, type Db } from '../src/store/db.js';
 import { insertEntity } from '../src/store/entityStore.js';
 import { insertEvent, setAiSuggestion } from '../src/store/eventStore.js';
 import { runTriageOnce } from '../src/triage/agent.js';
-import { listProposals } from '../src/store/proposalStore.js';
+import { listProposals, insertProposal, decideProposal } from '../src/store/proposalStore.js';
 import type { MemoryClient } from '../src/triage/memory/types.js';
+import { MemwalMemory, type MemWalLike } from '../src/triage/memory/memwalMemory.js';
+import { LocalMemory } from '../src/triage/memory/localMemory.js';
 import type { GeminiClient } from '../src/ai/geminiClient.js';
 import { cfg } from './helpers/app.js';
 
@@ -63,7 +65,7 @@ function capturingGemini(capture: { prompt?: string }): GeminiClient {
 }
 
 const memWithHits = (hits: { text: string }[]): MemoryClient => ({
-  recall: vi.fn(async () => hits), remember: vi.fn(async () => {}), probe: async () => {}, close: async () => {},
+  recall: vi.fn(async () => ({ hits, servedBy: 'local' as const })), remember: vi.fn(async () => {}), probe: async () => {}, close: async () => {},
 });
 
 describe('runTriageOnce + memory', () => {
@@ -96,7 +98,48 @@ describe('runTriageOnce + memory', () => {
     const ctx = JSON.parse(recallContext!);
     expect(ctx.hits[0].text).toBe('PRECEDENT-X');
     expect(ctx).toHaveProperty('query');
-    expect(ctx).toHaveProperty('mode');
+    // SUI review Fix 1: the persisted record must name the TRUE serving source
+    // ('servedBy'), never the configured mode — there is no 'mode' field any more.
+    expect(ctx).not.toHaveProperty('mode');
+    expect(ctx.servedBy).toBe('local');
+  });
+
+  it('mode=memwal with a THROWING adapter: recall_context records the TRUE source ' +
+     "(servedBy='local-fallback', namespace=null) — never the configured 'memwal' mode " +
+     '(SUI review Fix 1: a namespace never actually queried must not be claimed)', async () => {
+    const db = mkDb();
+    // Seed one PRIOR decided proposal of the same category so LocalMemory (the fallback)
+    // actually returns a hit — otherwise recall_context would be null and this test would
+    // prove nothing about the servedBy/namespace fields. eventId FK requires a real event row.
+    seedReviewEvent(db, 'ev-prior');
+    const priorRow = insertProposal(db, {
+      exceptionId: 'CLASSIFY_REVIEW:ev-prior', eventId: 'ev-prior', entityId: E, periodId: P,
+      action: 'deferred', reasonCode: 'PENDING_DOC', reasonNote: null, rationale: 'r', confidence: 0.5, model: 'm', createdAt: 1,
+    });
+    decideProposal(db, priorRow.id, 'accepted', 'human', null, 2);
+    seedReviewEvent(db, 'ev-1');
+    const cap: { prompt?: string } = {};
+    // Real MemwalMemory (mode='memwal' in cfg) wired to an adapter that throws synchronously
+    // on every call, falling open to a real LocalMemory instance. This exercises the actual
+    // production seam end-to-end (agent.ts -> MemwalMemory.recall -> LocalMemory fallback) —
+    // it is non-vacuous because if agent.ts still wrote `mode: cfg.memory.mode` (='memwal')
+    // instead of the true `servedBy`, or MemwalMemory still returned a bare array without a
+    // servedBy tag, these assertions on ctx.servedBy/ctx.namespace would fail.
+    const memwalCfg = { ...cfg.memory, mode: 'memwal' as const, namespacePrefix: 'triage' };
+    const throwingAdapter: MemWalLike = {
+      recall: () => { throw new Error('relayer down'); },
+      rememberAndWait: async () => {}, compatibility: async () => {}, health: async () => {}, destroy: () => {},
+    };
+    const memory = new MemwalMemory({ createMemWal: () => throwingAdapter, fallback: new LocalMemory(db, 5), cfg: memwalCfg });
+    await runTriageOnce({ db, cfg: { ...cfg, memory: memwalCfg }, client: capturingGemini(cap), memory }, E, P);
+    const proposals = listProposals(db, E).filter((p) => p.exceptionId !== 'CLASSIFY_REVIEW:ev-prior');
+    expect(proposals.length).toBeGreaterThan(0);
+    const recallContext = proposals[0]?.recallContext;
+    expect(recallContext).not.toBeNull();
+    const ctx = JSON.parse(recallContext!);
+    expect(ctx.servedBy).toBe('local-fallback');
+    expect(ctx.namespace).toBeNull();
+    expect(ctx).not.toHaveProperty('mode');
   });
 
   it('empty recall → recall_context is null on the proposal', async () => {

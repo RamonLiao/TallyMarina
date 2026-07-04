@@ -40,7 +40,7 @@ import { verifyOwnership } from '../onboarding/verify.js';
 import { latestAttestation, listAttestations } from '../store/onboardingStore.js';
 import { DEMO_ENTITY_META } from '../onboarding/constants.js';
 import { normalizeSuiAddress } from '@mysten/sui/utils';
-import { getProposal, listProposals, decideProposal, revertAcceptedToStale, markEntityProposalsStale, type ProposalStatus } from '../store/proposalStore.js';
+import { getProposal, listProposals, decideProposal, revertAcceptedToStale, markEntityProposalsStale, type ProposalStatus, type ProposalRow } from '../store/proposalStore.js';
 import { makeTriageRunner, type TriageRunner } from '../triage/scheduler.js';
 import type { MemoryClient, MemoryRecord } from '../triage/memory/types.js';
 import { amountBand } from '../triage/memory/format.js';
@@ -531,7 +531,10 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     if (q !== 'all' && !['proposed', 'accepted', 'rejected', 'stale'].includes(q)) {
       throw new ApiError(400, 'VALIDATION', `unknown status ${q}`);
     }
-    return { proposals: q === 'all' ? listProposals(db, req.params.id) : listProposals(db, req.params.id, q as ProposalStatus) };
+    const rows = q === 'all' ? listProposals(db, req.params.id) : listProposals(db, req.params.id, q as ProposalStatus);
+    // §3.1a: recall provenance is audit-only this round, never surfaced in the list DTO.
+    // Kept in the DB row and in getProposal (used internally) — stripped only here.
+    return { proposals: rows.map(({ recallContext: _recallContext, ...rest }): Omit<ProposalRow, 'recallContext'> => rest) };
   });
 
   app.post<{ Params: { id: string } }>('/triage/proposals/:id/accept', async (req) => {

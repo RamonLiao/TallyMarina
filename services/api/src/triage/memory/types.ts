@@ -1,5 +1,3 @@
-import type { MemoryMode } from '../../config.js';
-
 export interface RecallFeatures {
   eventType: string | null;
   category: string;
@@ -22,16 +20,21 @@ export interface MemoryHit {
   distance?: number;
 }
 
-export interface RecallContext {
-  mode: MemoryMode;
-  namespace: string;
-  query: string;
+/**
+ * True serving source for a recall — NOT the configured mode. When mode=memwal fails open
+ * to the local fallback, the honest record is 'local-fallback', never 'memwal': the audit
+ * trail (recall_context) must reflect what actually served the query, not what was configured.
+ */
+export type ServedBy = 'memwal' | 'local' | 'local-fallback' | 'off';
+
+export interface RecallOutcome {
   hits: MemoryHit[];
+  servedBy: ServedBy;
 }
 
 export interface MemoryClient {
   /** Advisory precedent for classify. Fail-open: implementations must never throw. */
-  recall(input: { entityId: string; query: string; features: RecallFeatures; limit: number }): Promise<MemoryHit[]>;
+  recall(input: { entityId: string; query: string; features: RecallFeatures; limit: number }): Promise<RecallOutcome>;
   /** Write-back a human decision. Fire-and-forget at call site. */
   remember(input: { entityId: string; record: MemoryRecord }): Promise<void>;
   /** Startup readiness. memwal: compatibility()/health() — THROWS on failure (fail-loud). off/local: no-op. */

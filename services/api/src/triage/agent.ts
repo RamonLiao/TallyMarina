@@ -118,9 +118,17 @@ export async function runTriageOnce(
       const ev = getEvent(db, ex.eventId);
       const features = { eventType: ex.ai?.eventType ?? null, category: ex.category, amountBand: amountBand(ex.amount) };
       const query = buildRecallQuery(features);
-      const hits = await memory.recall({ entityId, query, features, limit: cfg.memory.recallLimit });
+      const { hits, servedBy } = await memory.recall({ entityId, query, features, limit: cfg.memory.recallLimit });
+      // Record the TRUE serving source, not the configured mode (SUI review Fix 1): when
+      // mode=memwal fails open to local, servedBy is 'local-fallback' and namespace is null —
+      // a namespace never actually queried must never be claimed in this audit column.
       const recallContext = hits.length > 0
-        ? JSON.stringify({ mode: cfg.memory.mode, namespace: `${cfg.memory.namespacePrefix}:${entityId}`, query, hits })
+        ? JSON.stringify({
+            servedBy,
+            namespace: servedBy === 'memwal' ? `${cfg.memory.namespacePrefix}:${entityId}` : null,
+            query,
+            hits,
+          })
         : null;
       const raw = await client.generateJson<unknown>(cfg.aiModelCopilot, buildTriagePrompt(ex, ev?.rawJson ?? '{}', renderFewShotBlock(hits)), TRIAGE_SCHEMA);
       const v = validateProposal(ex, raw, cfg.triageMaterialityThreshold);

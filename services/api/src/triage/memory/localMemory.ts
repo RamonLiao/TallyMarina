@@ -1,5 +1,5 @@
 import type { Db } from '../../store/db.js';
-import type { MemoryClient, MemoryHit, MemoryRecord, RecallFeatures } from './types.js';
+import type { MemoryClient, MemoryHit, MemoryRecord, RecallFeatures, RecallOutcome } from './types.js';
 import { renderMemoryRecord } from './format.js';
 
 interface DecidedRow {
@@ -15,7 +15,7 @@ interface DecidedRow {
 export class LocalMemory implements MemoryClient {
   constructor(private readonly db: Db, private readonly defaultLimit: number) {}
 
-  async recall(input: { entityId: string; features: RecallFeatures; limit: number }): Promise<MemoryHit[]> {
+  async recall(input: { entityId: string; features: RecallFeatures; limit: number }): Promise<RecallOutcome> {
     try {
       const rows = this.db.prepare(
         `SELECT tp.exception_id, tp.action, tp.reason_code, tp.decision_note, tp.status, e.ai_event_type AS event_type
@@ -38,9 +38,9 @@ export class LocalMemory implements MemoryClient {
         hits.push({ text: renderMemoryRecord(rec) });
         if (hits.length >= input.limit) break;
       }
-      return hits;
+      return { hits, servedBy: 'local' };
     } catch {
-      return []; // fail-open: recall must never throw
+      return { hits: [], servedBy: 'local' }; // fail-open: recall must never throw
     }
   }
 

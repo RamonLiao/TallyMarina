@@ -8,7 +8,7 @@ const P = '2026-Q2';
 
 function recordingMemory(sink: MemoryRecord[]): MemoryClient {
   return {
-    recall: async () => [],
+    recall: async () => ({ hits: [], servedBy: 'off' }),
     probe: async () => {},
     close: async () => {},
     remember: vi.fn(async ({ record }: { record: MemoryRecord }) => { sink.push(record); }),
@@ -17,7 +17,7 @@ function recordingMemory(sink: MemoryRecord[]): MemoryClient {
 
 function throwingMemory(): MemoryClient {
   return {
-    recall: async () => [],
+    recall: async () => ({ hits: [], servedBy: 'off' }),
     probe: async () => {},
     close: async () => {},
     remember: async () => { throw new Error('relayer down'); },

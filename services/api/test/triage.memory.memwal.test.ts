@@ -10,7 +10,7 @@ const cfg: MemoryConfig = {
 const feat = { eventType: 'RECEIPT', category: 'RULES_FAILED', amountBand: '1e3' };
 
 function fallbackStub(hits: MemoryHit[]): MemoryClient {
-  return { recall: async () => hits, remember: async () => {}, probe: async () => {}, close: async () => {} };
+  return { recall: async () => ({ hits, servedBy: 'local' }), remember: async () => {}, probe: async () => {}, close: async () => {} };
 }
 
 function fakeMemWal(over: Partial<Record<string, unknown>> = {}) {
@@ -28,22 +28,25 @@ describe('MemwalMemory', () => {
   it('maps recall {results} → MemoryHit[]', async () => {
     const mw = fakeMemWal();
     const m = new MemwalMemory({ createMemWal: () => mw, fallback: fallbackStub([]), cfg });
-    const hits = await m.recall({ entityId: 'e1', query: 'q', features: feat, limit: 5 });
+    const { hits, servedBy } = await m.recall({ entityId: 'e1', query: 'q', features: feat, limit: 5 });
     expect(hits).toEqual([{ text: 'M-HIT', distance: 0.1 }]);
+    expect(servedBy).toBe('memwal');
   });
 
-  it('recall throw → fail-open to fallback', async () => {
+  it('recall throw → fail-open to fallback, servedBy reports the true source (not memwal)', async () => {
     const mw = fakeMemWal({ recall: vi.fn(async () => { throw new Error('relayer down'); }) });
     const m = new MemwalMemory({ createMemWal: () => mw, fallback: fallbackStub([{ text: 'LOCAL' }]), cfg });
-    const hits = await m.recall({ entityId: 'e1', query: 'q', features: feat, limit: 5 });
+    const { hits, servedBy } = await m.recall({ entityId: 'e1', query: 'q', features: feat, limit: 5 });
     expect(hits).toEqual([{ text: 'LOCAL' }]);
+    expect(servedBy).toBe('local-fallback');
   });
 
-  it('recall timeout → fail-open to fallback', async () => {
+  it('recall timeout → fail-open to fallback, servedBy reports the true source (not memwal)', async () => {
     const mw = fakeMemWal({ recall: vi.fn(() => new Promise(() => {})) }); // never resolves
     const m = new MemwalMemory({ createMemWal: () => mw, fallback: fallbackStub([{ text: 'LOCAL' }]), cfg });
-    const hits = await m.recall({ entityId: 'e1', query: 'q', features: feat, limit: 5 });
+    const { hits, servedBy } = await m.recall({ entityId: 'e1', query: 'q', features: feat, limit: 5 });
     expect(hits).toEqual([{ text: 'LOCAL' }]);
+    expect(servedBy).toBe('local-fallback');
   });
 
   it('per-entity: distinct entityId → distinct MemWal instance (isolation)', async () => {
