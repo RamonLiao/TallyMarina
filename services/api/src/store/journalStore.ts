@@ -16,10 +16,12 @@ export function insertJournalEntry(db: Db, r: JournalRow): 'inserted' | 'duplica
   return result.changes > 0 ? 'inserted' : 'duplicate';
 }
 
-export function listJournal(db: Db, entityId: string): JournalRow[] {
-  return (db.prepare('SELECT * FROM journal_entries WHERE entity_id = ? ORDER BY idempotency_key').all(entityId) as Record<string, unknown>[])
-    .map((r) => ({
-      id: r.id as string, entityId: r.entity_id as string, eventId: r.event_id as string,
-      jeJson: r.je_json as string, idempotencyKey: r.idempotency_key as string, leafHash: r.leaf_hash as string, periodId: (r.period_id as string) || null,
-    }));
+export function listJournal(db: Db, entityId: string, periodId?: string): JournalRow[] {
+  const rows = periodId
+    ? (db.prepare('SELECT * FROM journal_entries WHERE entity_id = ? AND period_id = ? ORDER BY idempotency_key').all(entityId, periodId) as Record<string, unknown>[])
+    : (db.prepare('SELECT * FROM journal_entries WHERE entity_id = ? ORDER BY idempotency_key').all(entityId) as Record<string, unknown>[]);
+  return rows.map((r) => ({
+    id: r.id as string, entityId: r.entity_id as string, eventId: r.event_id as string,
+    jeJson: r.je_json as string, idempotencyKey: r.idempotency_key as string, leafHash: r.leaf_hash as string, periodId: (r.period_id as string) || null,
+  }));
 }

@@ -16,8 +16,8 @@ const P = '2026-Q2';
 // NEEDS_REVIEW event → CLASSIFY_REVIEW exception in collectExceptions.
 function seedReviewEvent(db: Db, id: string, amount = '100') {
   db.prepare(
-    "INSERT INTO events (id, entity_id, raw_json, ai_event_type, ai_confidence, ai_reasoning, status) VALUES (?, ?, ?, 'DIGITAL_ASSET_RECEIPT', 0.4, 'unsure', 'NEEDS_REVIEW')",
-  ).run(id, E, JSON.stringify({ eventType: 'DIGITAL_ASSET_RECEIPT', amount, entityId: E }));
+    "INSERT INTO events (id, entity_id, raw_json, ai_event_type, ai_confidence, ai_reasoning, status, period_id) VALUES (?, ?, ?, 'DIGITAL_ASSET_RECEIPT', 0.4, 'unsure', 'NEEDS_REVIEW', ?)",
+  ).run(id, E, JSON.stringify({ eventType: 'DIGITAL_ASSET_RECEIPT', amount, entityId: E }), P);
 }
 
 const ex = (over: Partial<Exception> = {}): Exception => ({

@@ -52,6 +52,10 @@ export function listEvents(db: Db, entityId: string): EventRow[] {
   return (db.prepare('SELECT * FROM events WHERE entity_id = ? ORDER BY id').all(entityId) as Record<string, unknown>[]).map(map);
 }
 
+export function listEventsByPeriod(db: Db, entityId: string, periodId: string): EventRow[] {
+  return (db.prepare('SELECT * FROM events WHERE entity_id = ? AND period_id = ? ORDER BY id').all(entityId, periodId) as Record<string, unknown>[]).map(map);
+}
+
 export function listByStatus(db: Db, entityId: string, status: EventStatus): EventRow[] {
   return (db.prepare('SELECT * FROM events WHERE entity_id = ? AND status = ? ORDER BY id').all(entityId, status) as Record<string, unknown>[]).map(map);
 }
