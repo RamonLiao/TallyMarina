@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { backfillPeriodIds } from './backfillPeriod';
 
 export type Db = Database.Database;
 
@@ -32,5 +33,6 @@ export function openDb(path: string): Db {
       if (!/duplicate column/i.test((err as Error).message)) throw err;
     }
   }
+  backfillPeriodIds(db);
   return db;
 }
