@@ -62,7 +62,6 @@ describe('POST /entities/:id/events — HTTP response envelopes', () => {
     const r = await app.inject({
       method: 'POST',
       url: `/entities/${EID}/events`,
-      payload: {},
     });
     expect(r.statusCode).toBe(400);
     const body = r.json() as { error: { code: string; message: string } };
