@@ -393,6 +393,7 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
           jeJson: JSON.stringify(je),
           idempotencyKey: je.idempotencyKey,
           leafHash: leafHash(je),
+          periodId: ev.periodId, // inherit from source event (spec §5.2.4)
         });
         if (res === 'inserted') posted++; else skipped++;
       }
