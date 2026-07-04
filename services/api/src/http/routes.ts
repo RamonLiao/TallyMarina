@@ -293,6 +293,9 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
   // 3b. POST /entities/:id/events — ingest gate: refuses+logs events dated into a LOCKED period.
   app.post<{ Params: { id: string }; Body: { event: unknown } }>('/entities/:id/events', async (req, reply) => {
     requireEntity(db, req.params.id);
+    if (req.body?.event === undefined) {
+      return reply.code(400).send({ error: { code: 'INVALID_EVENT_TIME', message: 'event body is required' } });
+    }
     try {
       const rawJson = JSON.stringify(req.body.event);
       const { eventId, periodId } = ingestEvent(db, req.params.id, rawJson);
