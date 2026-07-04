@@ -59,6 +59,27 @@ describe('backfillPeriodIds', () => {
     expect(e1.period_id).toBe('2026-Q1');
   });
 
+  it('P1 gate failure rolls back period_id writes so the gate keeps firing on every reboot (NEW-1 fix)', () => {
+    const db = legacyDb(); // e1=Q1, e2=Q2 for entity 'acme', both period_id NULL
+    db.prepare(`INSERT INTO snapshots (id, entity_id, period_id, merkle_root, status) VALUES ('s1','acme',NULL,'root1','ANCHORED')`).run();
+
+    // Boot 1: P1 gate throws.
+    expect(() => backfillPeriodIds(db as any)).toThrow(/MIGRATION_P1_ANCHOR_ROOT_CHANGED/);
+
+    // The backfill UPDATEs must have been rolled back with the gate failure —
+    // NOT committed ahead of the throw. Pre-fix, each UPDATE auto-committed
+    // outside a transaction, so this would read 0 instead of 2.
+    const residual = db.prepare(`SELECT COUNT(*) AS n FROM events WHERE period_id IS NULL`).get() as {
+      n: number;
+    };
+    expect(residual.n).toBe(2);
+
+    // Boot 2: because period_id is still NULL for both events, the top-level
+    // `pending` guard does NOT early-return, so P1 must run and throw again —
+    // the gate must not silently self-clear on restart.
+    expect(() => backfillPeriodIds(db as any)).toThrow(/MIGRATION_P1_ANCHOR_ROOT_CHANGED/);
+  });
+
   it('one-time skip: once migrated, the gate is dormant on every subsequent boot (Critical fix)', () => {
     const db = legacyDb();
     // First boot: successful migration, no anchored entities yet.
