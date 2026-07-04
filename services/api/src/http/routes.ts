@@ -358,10 +358,13 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
       throw new ApiError(400, 'VALIDATION', 'finalEventType and finalPurpose are required');
     }
     // Review C1: a human decision is an accounting judgment that changes what a reopen
-    // would post — reject it while the period is locked. Events carry no period yet
-    // (review C2, deferred), so the demo period is the guard scope.
-    if (getPeriodLock(db, ev.entityId, DEFAULT_PERIOD).status === 'LOCKED') {
-      throw new ApiError(409, 'PERIOD_LOCKED', `period ${DEFAULT_PERIOD} is locked; reopen it before deciding classifications`);
+    // would post — reject it while the period is locked. C2: derive the lock scope from
+    // the event's OWN attributed period (never a caller-supplied periodId).
+    if (!ev.periodId) {
+      throw new ApiError(409, 'PERIOD_UNKNOWN', 'event has no attributed period');
+    }
+    if (getPeriodLock(db, ev.entityId, ev.periodId).status === 'LOCKED') {
+      throw new ApiError(409, 'PERIOD_LOCKED', `period ${ev.periodId} is locked; reopen it before deciding classifications`);
     }
     // finalEventType feeds the rules engine (buildRuleInput); reject unknown types at
     // the boundary instead of letting the event strand as APPROVED-but-unpostable.
@@ -444,13 +447,15 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
 
   app.get<{ Params: { id: string }; Querystring: { periodId?: string } }>('/entities/:id/close-cockpit', async (req) => {
     requireEntity(db, req.params.id);
-    const periodId = req.query.periodId ?? DEFAULT_PERIOD;
+    const periodId = req.query.periodId;
+    if (!periodId) throw new ApiError(400, 'PERIOD_ID_REQUIRED', 'periodId query param is required');
     return buildCockpit(db, req.params.id, periodId, cfg.exceptionLowConfidence);
   });
 
   app.post<{ Params: { id: string }; Body: { periodId?: string } }>('/entities/:id/period/lock', async (req) => {
     requireEntity(db, req.params.id);
-    const periodId = (req.body as { periodId?: string } | undefined)?.periodId ?? DEFAULT_PERIOD;
+    const periodId = (req.body as { periodId?: string } | undefined)?.periodId;
+    if (!periodId) throw new ApiError(400, 'PERIOD_ID_REQUIRED', 'periodId is required');
     // Recompute server-side — NEVER trust client-sent lights.
     const view = buildCockpit(db, req.params.id, periodId, cfg.exceptionLowConfidence);
     if (!view.closeable) {

@@ -91,7 +91,7 @@ describe('Period Close Cockpit — integration', () => {
   it('GET /close-cockpit returns 6 lights and status OPEN for a fresh entity', async () => {
     // WHY: the cockpit is the single source of truth for close-readiness. A fresh entity
     // must show OPEN with all 6 light keys present so the UI can render complete status.
-    const r = await app.inject({ method: 'GET', url: '/entities/acme:pilot-001/close-cockpit' });
+    const r = await app.inject({ method: 'GET', url: '/entities/acme:pilot-001/close-cockpit?periodId=2026-Q2' });
     expect(r.statusCode).toBe(200);
     const body = r.json() as { lights: Array<{ key: string; status: string }>; status: string };
     expect(body.status).toBe('OPEN');
@@ -109,7 +109,7 @@ describe('Period Close Cockpit — integration', () => {
   it('POST /period/lock with a red blocking light → 409 LIGHTS_NOT_GREEN', async () => {
     // WHY: locking while lights are red would close a period with unresolved errors —
     // the server must recompute and reject, never trust client-sent lights.
-    const r = await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/period/lock', payload: {} });
+    const r = await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/period/lock', payload: { periodId: '2026-Q2' } });
     expect(r.statusCode).toBe(409);
     expect((r.json() as { error: { code: string } }).error.code).toBe('LIGHTS_NOT_GREEN');
   });
@@ -119,12 +119,12 @@ describe('Period Close Cockpit — integration', () => {
     // WHY: lock must recompute server-side and transition state; the subsequent
     // cockpit read must reflect the new LOCKED status, proving state persistence.
     await makeAllGreen();
-    const lockR = await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/period/lock', payload: {} });
+    const lockR = await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/period/lock', payload: { periodId: '2026-Q2' } });
     expect(lockR.statusCode).toBe(200);
     const lockBody = lockR.json() as { lock: { status: string } };
     expect(lockBody.lock.status).toBe('LOCKED');
 
-    const cockpitR = await app.inject({ method: 'GET', url: '/entities/acme:pilot-001/close-cockpit' });
+    const cockpitR = await app.inject({ method: 'GET', url: '/entities/acme:pilot-001/close-cockpit?periodId=2026-Q2' });
     const cockpitBody = cockpitR.json() as { status: string };
     expect(cockpitBody.status).toBe('LOCKED');
   });
@@ -148,8 +148,8 @@ describe('Period Close Cockpit — integration', () => {
     // WHY: LOCKED→lock is not a legal transition; allowing it would corrupt the
     // audit trail by overwriting the lights snapshot and lockedAt timestamp.
     await makeAllGreen();
-    await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/period/lock', payload: {} });
-    const r = await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/period/lock', payload: {} });
+    await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/period/lock', payload: { periodId: '2026-Q2' } });
+    const r = await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/period/lock', payload: { periodId: '2026-Q2' } });
     expect(r.statusCode).toBe(409);
     expect((r.json() as { error: { code: string } }).error.code).toBe('ILLEGAL_TRANSITION');
   });
@@ -159,7 +159,7 @@ describe('Period Close Cockpit — integration', () => {
     // WHY: every reopen must record a material explanation for the audit trail.
     // Accepting empty reasons would undermine ASC 250 / IAS 8 disclosure requirements.
     await makeAllGreen();
-    await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/period/lock', payload: {} });
+    await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/period/lock', payload: { periodId: '2026-Q2' } });
     const r = await app.inject({
       method: 'POST', url: '/entities/acme:pilot-001/period/reopen',
       payload: { restatementReason: '', reasonCode: 'ERROR_CORRECTION' },
@@ -173,7 +173,7 @@ describe('Period Close Cockpit — integration', () => {
     // WHY: unknown reason codes cannot be mapped to disclosure treatment;
     // accepting them silently would produce unclassified restatements.
     await makeAllGreen();
-    await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/period/lock', payload: {} });
+    await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/period/lock', payload: { periodId: '2026-Q2' } });
     const r = await app.inject({
       method: 'POST', url: '/entities/acme:pilot-001/period/reopen',
       payload: { restatementReason: 'Fix something', reasonCode: 'TOTALLY_UNKNOWN' },
@@ -187,7 +187,7 @@ describe('Period Close Cockpit — integration', () => {
     // WHY: a valid reopen must decrement the status back to OPEN and increment
     // reopenCount, so the audit trail shows exactly how many times the period was unwound.
     await makeAllGreen();
-    await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/period/lock', payload: {} });
+    await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/period/lock', payload: { periodId: '2026-Q2' } });
     const r = await app.inject({
       method: 'POST', url: '/entities/acme:pilot-001/period/reopen',
       payload: { restatementReason: 'Found a late-arriving txn', reasonCode: 'LATE_ARRIVING_TXN' },
