@@ -673,7 +673,7 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
         throw new ApiError(409, 'RECON_BREAKS_BLOCKING',
           `${reconBlockers.length} open material break(s) block close: ${reconBlockers.map((b) => encodeReconBreakId(b.wallet, b.coinType)).join(', ')}`);
       }
-      const jes: JournalEntry[] = listJournal(db, req.params.id).map((r) => JSON.parse(r.jeJson) as JournalEntry);
+      const jes: JournalEntry[] = listJournal(db, req.params.id, periodId).map((r) => JSON.parse(r.jeJson) as JournalEntry);
       const outputs = jes.map((je) => ({
         decision: 'POSTABLE' as const,
         assessment: { eventType: 'DIGITAL_ASSET_RECEIPT' as const, accountingClass: '', measurementModel: '' },
@@ -842,8 +842,10 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     let proof = null;
     const key = req.query.idempotencyKey;
     if (key) {
-      const jes = listJournal(db, req.params.id).map((r) => JSON.parse(r.jeJson) as JournalEntry);
-      if (jes.some((j) => j.idempotencyKey === key)) {
+      const all = listJournal(db, req.params.id);
+      const target = all.find((r) => r.idempotencyKey === key);
+      if (target && target.periodId) {
+        const jes = listJournal(db, req.params.id, target.periodId).map((r) => JSON.parse(r.jeJson) as JournalEntry);
         const p = inclusionProof(jes, key);
         const { manifest } = buildMerkle(jes);
         proof = { idempotencyKey: key, leafIndex: p.leafIndex, siblings: p.siblings, merkleRoot: manifest.merkleRoot };
