@@ -18,8 +18,8 @@ function ensureEntity(db: Db) {
 function seedReviewEvent(db: Db, id: string, amount = '100') {
   ensureEntity(db);
   db.prepare(
-    "INSERT INTO events (id, entity_id, raw_json, ai_event_type, ai_confidence, ai_reasoning, status) VALUES (?, ?, ?, 'DIGITAL_ASSET_RECEIPT', 0.4, 'unsure', 'NEEDS_REVIEW')",
-  ).run(id, TEST_ENTITY_ID, JSON.stringify({ eventType: 'DIGITAL_ASSET_RECEIPT', amount, entityId: TEST_ENTITY_ID }));
+    "INSERT INTO events (id, entity_id, raw_json, ai_event_type, ai_confidence, ai_reasoning, status, period_id) VALUES (?, ?, ?, 'DIGITAL_ASSET_RECEIPT', 0.4, 'unsure', 'NEEDS_REVIEW', ?)",
+  ).run(id, TEST_ENTITY_ID, JSON.stringify({ eventType: 'DIGITAL_ASSET_RECEIPT', amount, entityId: TEST_ENTITY_ID }), P);
 }
 
 function seedProposal(db: Db, eventId: string, over: Partial<ProposalRow> = {}): ProposalRow {
@@ -93,8 +93,8 @@ describe('triage routes', () => {
     ensureEntity(app._db);
     // APPROVED with a type the rules engine cannot post → RULES_FAILED in projection
     app._db.prepare(
-      "INSERT INTO events (id, entity_id, raw_json, final_event_type, final_purpose, status) VALUES ('ev-t5', ?, ?, 'DIGITAL_ASSET_RECEIPT', 'x', 'APPROVED')",
-    ).run(TEST_ENTITY_ID, JSON.stringify({ eventType: 'DIGITAL_ASSET_RECEIPT', entityId: 'WRONG-ENTITY' }));
+      "INSERT INTO events (id, entity_id, raw_json, final_event_type, final_purpose, status, period_id) VALUES ('ev-t5', ?, ?, 'DIGITAL_ASSET_RECEIPT', 'x', 'APPROVED', ?)",
+    ).run(TEST_ENTITY_ID, JSON.stringify({ eventType: 'DIGITAL_ASSET_RECEIPT', entityId: 'WRONG-ENTITY' }), P);
     const p = insertProposal(app._db, {
       exceptionId: 'RULES_FAILED:ev-t5', eventId: 'ev-t5', entityId: TEST_ENTITY_ID, periodId: P,
       action: 'resolved', reasonCode: 'MAPPING_ADDED', reasonNote: null, rationale: 'mapping added', confidence: 0.9, model: 'm2', createdAt: 1,

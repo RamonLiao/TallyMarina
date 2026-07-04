@@ -144,3 +144,4 @@ export type {
   PositionLot, PricePoint, FxRate, CoaMapping, EventType,
 } from './domain/types.js';
 export { eventTypeSchema } from './domain/schemas.js';
+export { periodOf, type PeriodId } from './core/period.js';

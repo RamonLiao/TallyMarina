@@ -11,6 +11,7 @@ import {
   listEvents, getEvent, listByStatus, setAiSuggestion, setDecision, markPosted, type EventRow,
 } from '../store/eventStore.js';
 import { insertJournalEntry, listJournal } from '../store/journalStore.js';
+import { listPeriods } from '../store/periodQuery.js';
 import { insertSnapshot, getSnapshot, hasAnchoredSnapshot } from '../store/snapshotStore.js';
 import { collectExceptions } from '../exceptions/collect.js';
 import { applyDisposition } from '../exceptions/disposition.js';
@@ -44,6 +45,7 @@ import { getProposal, listProposals, decideProposal, revertAcceptedToStale, mark
 import { makeTriageRunner, type TriageRunner } from '../triage/scheduler.js';
 import type { MemoryClient, MemoryRecord } from '../triage/memory/types.js';
 import { amountBand } from '../triage/memory/format.js';
+import { ingestEvent, PeriodLockedError } from './ingestEvent.js';
 
 export interface RouteDeps {
   db: Db;
@@ -289,6 +291,38 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     return { events: listEvents(db, req.params.id).map(eventDTO) };
   });
 
+  // 3a. GET /entities/:id/periods — list periods with lock status (frontend period selector)
+  app.get<{ Params: { id: string } }>('/entities/:id/periods', async (req) => {
+    requireEntity(db, req.params.id);
+    return listPeriods(db, req.params.id);
+  });
+
+  // 3b. POST /entities/:id/events — ingest gate: refuses+logs events dated into a LOCKED period.
+  app.post<{ Params: { id: string }; Body: { event: unknown } }>('/entities/:id/events', async (req, reply) => {
+    requireEntity(db, req.params.id);
+    if (req.body?.event === undefined) {
+      return reply.code(400).send({ error: { code: 'INVALID_EVENT_TIME', message: 'event body is required' } });
+    }
+    try {
+      const rawJson = JSON.stringify(req.body.event);
+      const { eventId, periodId } = ingestEvent(db, req.params.id, rawJson);
+      return reply.code(201).send({ eventId, periodId });
+    } catch (err) {
+      if (err instanceof PeriodLockedError) {
+        return reply.code(409).send({
+          error: {
+            code: 'PERIOD_LOCKED_FOR_DATE', message: err.message,
+            details: { periodId: err.periodId, eventTime: err.eventTime },
+          },
+        });
+      }
+      if (err instanceof Error && err.message.startsWith('INVALID_EVENT_TIME')) {
+        return reply.code(400).send({ error: { code: 'INVALID_EVENT_TIME', message: err.message } });
+      }
+      throw err;
+    }
+  });
+
   // 4. POST /events/:id/classify — idempotent: already-classified events (auto pass
   // on ingest) return their current state instead of an ILLEGAL_TRANSITION 409.
   app.post<{ Params: { id: string } }>('/events/:id/classify', async (req) => {
@@ -324,10 +358,13 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
       throw new ApiError(400, 'VALIDATION', 'finalEventType and finalPurpose are required');
     }
     // Review C1: a human decision is an accounting judgment that changes what a reopen
-    // would post — reject it while the period is locked. Events carry no period yet
-    // (review C2, deferred), so the demo period is the guard scope.
-    if (getPeriodLock(db, ev.entityId, DEFAULT_PERIOD).status === 'LOCKED') {
-      throw new ApiError(409, 'PERIOD_LOCKED', `period ${DEFAULT_PERIOD} is locked; reopen it before deciding classifications`);
+    // would post — reject it while the period is locked. C2: derive the lock scope from
+    // the event's OWN attributed period (never a caller-supplied periodId).
+    if (!ev.periodId) {
+      throw new ApiError(409, 'PERIOD_UNKNOWN', 'event has no attributed period');
+    }
+    if (getPeriodLock(db, ev.entityId, ev.periodId).status === 'LOCKED') {
+      throw new ApiError(409, 'PERIOD_LOCKED', `period ${ev.periodId} is locked; reopen it before deciding classifications`);
     }
     // finalEventType feeds the rules engine (buildRuleInput); reject unknown types at
     // the boundary instead of letting the event strand as APPROVED-but-unpostable.
@@ -350,10 +387,14 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     if (!periodOpen) {
       throw new ApiError(409, 'PERIOD_LOCKED', `period ${periodId} is locked; reopen it before posting`);
     }
+    // C2 fix: scope candidates to THIS run's period. listByStatus is entity-wide,
+    // so without this filter an event attributed to a different (possibly locked)
+    // period would be evaluated against this request's periodOpen and posted under
+    // its own periodId — bypassing that period's lock. See routes.ts run-rules review.
     const candidates = [
       ...listByStatus(db, req.params.id, 'APPROVED'),
       ...listByStatus(db, req.params.id, 'AUTO'),
-    ];
+    ].filter((ev) => ev.periodId === periodId);
     let posted = 0, skipped = 0;
     for (const ev of candidates) {
       const output = evaluate(buildRuleInput(ev, { periodId, periodOpen }));
@@ -366,6 +407,7 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
           jeJson: JSON.stringify(je),
           idempotencyKey: je.idempotencyKey,
           leafHash: leafHash(je),
+          periodId: ev.periodId, // inherit from source event (spec §5.2.4)
         });
         if (res === 'inserted') posted++; else skipped++;
       }
@@ -409,13 +451,15 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
 
   app.get<{ Params: { id: string }; Querystring: { periodId?: string } }>('/entities/:id/close-cockpit', async (req) => {
     requireEntity(db, req.params.id);
-    const periodId = req.query.periodId ?? DEFAULT_PERIOD;
+    const periodId = req.query.periodId;
+    if (!periodId) throw new ApiError(400, 'PERIOD_ID_REQUIRED', 'periodId query param is required');
     return buildCockpit(db, req.params.id, periodId, cfg.exceptionLowConfidence);
   });
 
   app.post<{ Params: { id: string }; Body: { periodId?: string } }>('/entities/:id/period/lock', async (req) => {
     requireEntity(db, req.params.id);
-    const periodId = (req.body as { periodId?: string } | undefined)?.periodId ?? DEFAULT_PERIOD;
+    const periodId = (req.body as { periodId?: string } | undefined)?.periodId;
+    if (!periodId) throw new ApiError(400, 'PERIOD_ID_REQUIRED', 'periodId is required');
     // Recompute server-side — NEVER trust client-sent lights.
     const view = buildCockpit(db, req.params.id, periodId, cfg.exceptionLowConfidence);
     if (!view.closeable) {
@@ -645,7 +689,7 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
         throw new ApiError(409, 'RECON_BREAKS_BLOCKING',
           `${reconBlockers.length} open material break(s) block close: ${reconBlockers.map((b) => encodeReconBreakId(b.wallet, b.coinType)).join(', ')}`);
       }
-      const jes: JournalEntry[] = listJournal(db, req.params.id).map((r) => JSON.parse(r.jeJson) as JournalEntry);
+      const jes: JournalEntry[] = listJournal(db, req.params.id, periodId).map((r) => JSON.parse(r.jeJson) as JournalEntry);
       const outputs = jes.map((je) => ({
         decision: 'POSTABLE' as const,
         assessment: { eventType: 'DIGITAL_ASSET_RECEIPT' as const, accountingClass: '', measurementModel: '' },
@@ -814,8 +858,10 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     let proof = null;
     const key = req.query.idempotencyKey;
     if (key) {
-      const jes = listJournal(db, req.params.id).map((r) => JSON.parse(r.jeJson) as JournalEntry);
-      if (jes.some((j) => j.idempotencyKey === key)) {
+      const all = listJournal(db, req.params.id);
+      const target = all.find((r) => r.idempotencyKey === key);
+      if (target && target.periodId) {
+        const jes = listJournal(db, req.params.id, target.periodId).map((r) => JSON.parse(r.jeJson) as JournalEntry);
         const p = inclusionProof(jes, key);
         const { manifest } = buildMerkle(jes);
         proof = { idempotencyKey: key, leafIndex: p.leafIndex, siblings: p.siblings, merkleRoot: manifest.merkleRoot };

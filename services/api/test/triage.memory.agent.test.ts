@@ -31,7 +31,7 @@ function mkDb(): Db {
 
 /** NEEDS_REVIEW event → CLASSIFY_REVIEW exception in collectExceptions. */
 function seedReviewEvent(db: Db, id: string) {
-  insertEvent(db, { id, entityId: E, rawJson: JSON.stringify({ kind: 'x', amount: '100' }) });
+  insertEvent(db, { id, entityId: E, rawJson: JSON.stringify({ kind: 'x', amount: '100', eventTime: '2026-05-01T00:00:00Z' }) });
   setAiSuggestion(db, id, {
     aiEventType: 'X', aiPurpose: 'p', aiCounterparty: null, aiConfidence: 0.4, aiReasoning: 'unsure', nextStatus: 'NEEDS_REVIEW',
   });

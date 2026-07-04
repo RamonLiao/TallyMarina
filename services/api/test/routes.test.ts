@@ -163,7 +163,7 @@ describe('REST contract', () => {
     expect(rrBody.posted).toBeGreaterThanOrEqual(1);
     dismissReconBreaks(db, 'acme:pilot-001', '2026-Q2');
     // Lock the period before snapshot (required since Phase 2 B1: PERIOD_NOT_LOCKED gate).
-    const lockR = await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/period/lock', payload: {} });
+    const lockR = await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/period/lock', payload: { periodId: '2026-Q2' } });
     expect(lockR.statusCode).toBe(200);
     const snap = await app.inject({
       method: 'POST', url: '/entities/acme:pilot-001/snapshot',
@@ -187,7 +187,7 @@ describe('REST contract', () => {
     });
     dismissReconBreaks(db, 'acme:pilot-001', '2026-Q2');
     // Lock the period before snapshot (required since Phase 2 B1: PERIOD_NOT_LOCKED gate).
-    await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/period/lock', payload: {} });
+    await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/period/lock', payload: { periodId: '2026-Q2' } });
     const first = await app.inject({
       method: 'POST', url: '/entities/acme:pilot-001/snapshot', payload: { periodId: '2026-Q2' },
     });
@@ -214,7 +214,7 @@ describe('REST contract', () => {
     await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/run-rules', payload: { periodId: '2026-Q2' } });
     dismissReconBreaks(db, 'acme:pilot-001', '2026-Q2');
     // Lock the period before snapshot (required since Phase 2 B1: PERIOD_NOT_LOCKED gate).
-    await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/period/lock', payload: {} });
+    await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/period/lock', payload: { periodId: '2026-Q2' } });
     const first = await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/snapshot', payload: { periodId: '2026-Q2' } });
     const { snapshot } = first.json() as { snapshot: { id: string } };
     // period_id has no FK; repointing it simulates an id that resolves to a different period.
@@ -232,7 +232,7 @@ describe('REST contract', () => {
     await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/run-rules', payload: { periodId: '2026-Q2' } });
     dismissReconBreaks(db, 'acme:pilot-001', '2026-Q2');
     // Lock the period before snapshot (required since Phase 2 B1: PERIOD_NOT_LOCKED gate).
-    await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/period/lock', payload: {} });
+    await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/period/lock', payload: { periodId: '2026-Q2' } });
     const first = await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/snapshot', payload: { periodId: '2026-Q2' } });
     const { snapshot } = first.json() as { snapshot: { id: string } };
     db.prepare("UPDATE snapshots SET status='ANCHORED' WHERE id=?").run(snapshot.id);

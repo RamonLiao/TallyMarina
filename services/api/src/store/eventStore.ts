@@ -1,5 +1,6 @@
 import type { Db } from './db.js';
 import { assertEventTransition, type EventStatus } from './stateMachine.js';
+import { periodOf } from '@subledger/rules-engine';
 
 export interface EventRow {
   id: string; entityId: string; rawJson: string;
@@ -7,6 +8,17 @@ export interface EventRow {
   aiConfidence: number | null; aiReasoning: string | null;
   finalEventType: string | null; finalPurpose: string | null;
   status: EventStatus;
+  periodId: string | null;
+}
+
+export function deriveEventPeriod(rawJson: string): string {
+  let eventTime: string;
+  try {
+    eventTime = (JSON.parse(rawJson) as { eventTime: string }).eventTime;
+  } catch {
+    throw new Error('INVALID_EVENT_TIME: raw_json is not valid JSON');
+  }
+  return periodOf(eventTime); // throws INVALID_EVENT_TIME on bad time
 }
 
 function map(r: Record<string, unknown>): EventRow {
@@ -20,12 +32,15 @@ function map(r: Record<string, unknown>): EventRow {
     finalEventType: (r.final_event_type as string | null) ?? null,
     finalPurpose: (r.final_purpose as string | null) ?? null,
     status: r.status as EventStatus,
+    periodId: (r.period_id as string | null) ?? null,
   };
 }
 
 export function insertEvent(db: Db, e: { id: string; entityId: string; rawJson: string }): void {
-  db.prepare('INSERT INTO events (id, entity_id, raw_json, status) VALUES (?, ?, ?, ?)')
-    .run(e.id, e.entityId, e.rawJson, 'INGESTED');
+  const periodId = deriveEventPeriod(e.rawJson);
+  db.prepare(
+    `INSERT INTO events (id, entity_id, raw_json, status, period_id) VALUES (?, ?, ?, ?, ?)`,
+  ).run(e.id, e.entityId, e.rawJson, 'INGESTED', periodId);
 }
 
 export function getEvent(db: Db, id: string): EventRow | null {
@@ -35,6 +50,10 @@ export function getEvent(db: Db, id: string): EventRow | null {
 
 export function listEvents(db: Db, entityId: string): EventRow[] {
   return (db.prepare('SELECT * FROM events WHERE entity_id = ? ORDER BY id').all(entityId) as Record<string, unknown>[]).map(map);
+}
+
+export function listEventsByPeriod(db: Db, entityId: string, periodId: string): EventRow[] {
+  return (db.prepare('SELECT * FROM events WHERE entity_id = ? AND period_id = ? ORDER BY id').all(entityId, periodId) as Record<string, unknown>[]).map(map);
 }
 
 export function listByStatus(db: Db, entityId: string, status: EventStatus): EventRow[] {

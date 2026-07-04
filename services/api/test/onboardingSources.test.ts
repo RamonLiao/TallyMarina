@@ -13,7 +13,7 @@ beforeEach(() => {
 });
 
 function addEvent(id: string, wallet: string) {
-  insertEvent(db, { id, entityId: E, rawJson: JSON.stringify({ wallet }) });
+  insertEvent(db, { id, entityId: E, rawJson: JSON.stringify({ wallet, eventTime: '2026-05-01T00:00:00Z' }) });
 }
 
 describe('deriveSources', () => {
@@ -39,7 +39,7 @@ describe('deriveSources', () => {
   });
 
   it('throws when an event has no wallet in rawJson', () => {
-    insertEvent(db, { id: 'bad', entityId: E, rawJson: JSON.stringify({ other: 'field' }) });
+    insertEvent(db, { id: 'bad', entityId: E, rawJson: JSON.stringify({ other: 'field', eventTime: '2026-05-01T00:00:00Z' }) });
     expect(() => deriveSources(db, E)).toThrow('no wallet');
   });
 });

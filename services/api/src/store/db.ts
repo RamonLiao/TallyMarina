@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { backfillPeriodIds } from './backfillPeriod';
 
 export type Db = Database.Database;
 
@@ -20,6 +21,10 @@ export function openDb(path: string): Db {
     "ALTER TABLE exception_disposition_log ADD COLUMN source TEXT NOT NULL DEFAULT 'HUMAN'",
     'ALTER TABLE exception_disposition_log ADD COLUMN proposal_id INTEGER',
     'ALTER TABLE triage_proposal ADD COLUMN recall_context TEXT',
+    'ALTER TABLE events ADD COLUMN period_id TEXT',
+    'ALTER TABLE journal_entries ADD COLUMN period_id TEXT',
+    'ALTER TABLE exception_disposition ADD COLUMN period_id TEXT',
+    'ALTER TABLE exception_disposition_log ADD COLUMN period_id TEXT',
   ];
   for (const m of MIGRATIONS) {
     try { db.exec(m); } catch (err) {
@@ -28,5 +33,6 @@ export function openDb(path: string): Db {
       if (!/duplicate column/i.test((err as Error).message)) throw err;
     }
   }
+  backfillPeriodIds(db);
   return db;
 }

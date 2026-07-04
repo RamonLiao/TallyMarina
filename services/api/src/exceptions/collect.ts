@@ -1,6 +1,6 @@
 // services/api/src/exceptions/collect.ts
 import type { Db } from '../store/db.js';
-import { listEvents } from '../store/eventStore.js';
+import { listEventsByPeriod } from '../store/eventStore.js';
 import type { EventRow } from '../store/eventStore.js';
 import { buildRuleInput } from '../http/buildRuleInput.js';
 import { evaluate } from '../deps/rulesEngine.js';
@@ -40,7 +40,7 @@ export function collectExceptions(db: Db, entityId: string, periodId: string, lo
   // Probe "would this event post?" under the REAL period state so the diagnosis
   // matches what run-rules would actually do (locked → PERIOD_CLOSED is truthful).
   const periodOpen = getPeriodLock(db, entityId, periodId).status !== 'LOCKED';
-  for (const e of listEvents(db, entityId)) {
+  for (const e of listEventsByPeriod(db, entityId, periodId)) {
     if (e.status === 'NEEDS_REVIEW') {
       out.push(mk('CLASSIFY_REVIEW', e, 'AI routed to human review (low classification confidence)'));
     }

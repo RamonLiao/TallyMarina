@@ -99,7 +99,7 @@ describe('MONKEY: confidence NaN / out-of-range never auto-posts', () => {
 // ---------------------------------------------------------------------------
 describe('MONKEY: duplicate ingest / double-post', () => {
   it('inserting the same idempotency_key twice never doubles the ledger', () => {
-    insertEvent(db, { id: 'e1', entityId: ENTITY, rawJson: '{}' });
+    insertEvent(db, { id: 'e1', entityId: ENTITY, rawJson: JSON.stringify({ eventTime: '2026-05-01T00:00:00Z' }) });
     const row = { id: 'j', entityId: ENTITY, eventId: 'e1', jeJson: '{}', idempotencyKey: 'DUP', leafHash: 'h' };
     insertJournalEntry(db, row);
     insertJournalEntry(db, { ...row, id: 'j2' });
@@ -108,7 +108,7 @@ describe('MONKEY: duplicate ingest / double-post', () => {
   });
 
   it('re-classifying an already-AUTO event fails closed (no AUTO→AUTO)', () => {
-    insertEvent(db, { id: 'e2', entityId: ENTITY, rawJson: '{}' });
+    insertEvent(db, { id: 'e2', entityId: ENTITY, rawJson: JSON.stringify({ eventTime: '2026-05-01T00:00:00Z' }) });
     setAiSuggestion(db, 'e2', {
       aiEventType: 'X', aiPurpose: 'Y', aiCounterparty: null,
       aiConfidence: 0.9, aiReasoning: 'r', nextStatus: 'AUTO',
@@ -131,7 +131,7 @@ describe('MONKEY: duplicate ingest / double-post', () => {
 // ---------------------------------------------------------------------------
 describe('MONKEY: TOCTOU concurrent insertJournalEntry', () => {
   it('concurrent inserts with the same idempotency_key → exactly one inserted, rest duplicate, no throw', async () => {
-    insertEvent(db, { id: 'e-toctou', entityId: ENTITY, rawJson: '{}' });
+    insertEvent(db, { id: 'e-toctou', entityId: ENTITY, rawJson: JSON.stringify({ eventTime: '2026-05-01T00:00:00Z' }) });
     const base = { entityId: ENTITY, eventId: 'e-toctou', jeJson: '{}', idempotencyKey: 'TOCTOU-KEY', leafHash: 'h0' };
 
     // better-sqlite3 is synchronous so we simulate "concurrency" by firing many
@@ -221,7 +221,7 @@ describe('MONKEY: forged digest to confirm with seq mismatch', () => {
 // ---------------------------------------------------------------------------
 describe('MONKEY: extreme / adversarial inputs', () => {
   it('insertJournalEntry with a gigantic idempotency_key does not crash', () => {
-    insertEvent(db, { id: 'e-giant', entityId: ENTITY, rawJson: '{}' });
+    insertEvent(db, { id: 'e-giant', entityId: ENTITY, rawJson: JSON.stringify({ eventTime: '2026-05-01T00:00:00Z' }) });
     const bigKey = 'x'.repeat(100_000);
     const r1 = insertJournalEntry(db, { id: 'j-giant-1', entityId: ENTITY, eventId: 'e-giant', jeJson: '{}', idempotencyKey: bigKey, leafHash: 'h' });
     const r2 = insertJournalEntry(db, { id: 'j-giant-2', entityId: ENTITY, eventId: 'e-giant', jeJson: '{}', idempotencyKey: bigKey, leafHash: 'h' });
@@ -231,7 +231,7 @@ describe('MONKEY: extreme / adversarial inputs', () => {
 
   it('insertJournalEntry with unicode entityId / key does not corrupt data', () => {
     insertEntity(db, { id: 'unicode:エンティティ-001', displayName: 'U', chainObjectId: '0xu', capObjectId: '0xu', originalPackageId: '0xp' });
-    insertEvent(db, { id: 'eu', entityId: 'unicode:エンティティ-001', rawJson: '{}' });
+    insertEvent(db, { id: 'eu', entityId: 'unicode:エンティティ-001', rawJson: JSON.stringify({ eventTime: '2026-05-01T00:00:00Z' }) });
     const r = insertJournalEntry(db, { id: 'ju', entityId: 'unicode:エンティティ-001', eventId: 'eu', jeJson: '{}', idempotencyKey: '🔑key', leafHash: 'h' });
     expect(r).toBe('inserted');
     expect(listJournal(db, 'unicode:エンティティ-001')).toHaveLength(1);

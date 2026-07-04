@@ -8,8 +8,8 @@ import { getDisposition } from '../src/store/dispositionStore.js';
 function mkDb(): Db {
   const db = openDb(':memory:');
   insertEntity(db, { id: 'e1', displayName: 'Acme', chainObjectId: '0xc', capObjectId: '0xk', originalPackageId: '0xp' });
-  insertEvent(db, { id: 'ev1', entityId: 'e1', rawJson: '{}' });
-  insertEvent(db, { id: 'ev2', entityId: 'e1', rawJson: '{}' });
+  insertEvent(db, { id: 'ev1', entityId: 'e1', rawJson: JSON.stringify({ eventTime: '2026-05-01T00:00:00Z' }) });
+  insertEvent(db, { id: 'ev2', entityId: 'e1', rawJson: JSON.stringify({ eventTime: '2026-05-01T00:00:00Z' }) });
   return db;
 }
 const base = (over: object) => ({ entityId: 'e1', category: 'CLASSIFY_REVIEW', eventId: 'ev1', reasonCode: 'RECLASSIFIED' as const, decidedBy: 'tester', now: 1000, ...over });

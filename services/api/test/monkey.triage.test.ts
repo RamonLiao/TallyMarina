@@ -28,8 +28,8 @@ function seedReviewEvent(db: Db, id: string, amount = '100') {
     "INSERT OR IGNORE INTO entities (id, display_name, chain_object_id, cap_object_id, original_package_id) VALUES (?, 'd', '0xchain', '0xcap', '0xpkg')",
   ).run(TEST_ENTITY_ID);
   db.prepare(
-    "INSERT INTO events (id, entity_id, raw_json, ai_event_type, ai_confidence, ai_reasoning, status) VALUES (?, ?, ?, 'DIGITAL_ASSET_RECEIPT', 0.4, 'unsure', 'NEEDS_REVIEW')",
-  ).run(id, TEST_ENTITY_ID, JSON.stringify({ eventType: 'DIGITAL_ASSET_RECEIPT', amount, entityId: TEST_ENTITY_ID }));
+    "INSERT INTO events (id, entity_id, raw_json, ai_event_type, ai_confidence, ai_reasoning, status, period_id) VALUES (?, ?, ?, 'DIGITAL_ASSET_RECEIPT', 0.4, 'unsure', 'NEEDS_REVIEW', ?)",
+  ).run(id, TEST_ENTITY_ID, JSON.stringify({ eventType: 'DIGITAL_ASSET_RECEIPT', amount, entityId: TEST_ENTITY_ID }), P);
 }
 
 const HOSTILE_OUTPUTS: unknown[] = [
@@ -143,8 +143,8 @@ describe('monkey: triage', () => {
     // APPROVED with an entityId mismatch → rules engine cannot post → RULES_FAILED (not gated by
     // the "pending NEEDS_REVIEW" half of the classification light, only by the disposition-open half).
     app._db.prepare(
-      "INSERT INTO events (id, entity_id, raw_json, final_event_type, final_purpose, status) VALUES ('ev-m5', ?, ?, 'DIGITAL_ASSET_RECEIPT', 'x', 'APPROVED')",
-    ).run(TEST_ENTITY_ID, JSON.stringify({ eventType: 'DIGITAL_ASSET_RECEIPT', entityId: 'WRONG-ENTITY', wallet: '0xacmeTreasury' }));
+      "INSERT INTO events (id, entity_id, raw_json, final_event_type, final_purpose, status, period_id) VALUES ('ev-m5', ?, ?, 'DIGITAL_ASSET_RECEIPT', 'x', 'APPROVED', ?)",
+    ).run(TEST_ENTITY_ID, JSON.stringify({ eventType: 'DIGITAL_ASSET_RECEIPT', entityId: 'WRONG-ENTITY', wallet: '0xacmeTreasury' }), P);
     // A single balanced JE so the TB-tie-out light is green (event_id FKs to events, reuse ev-m5).
     // walletAssetMovements() reads the event's rawJson wallet, so ev-m5 needs one even though this
     // JE's lines carry no origCoinType/origQtyMinor (no net movement contribution, by design).

@@ -100,7 +100,7 @@ describe('Monkey tests — Period Close Cockpit', () => {
     // WHY: unbounded reason strings bloat the audit DB and can trigger downstream
     // truncation, silently destroying the recorded rationale. 512 is the hard cap.
     await makeAllGreen();
-    await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/period/lock', payload: {} });
+    await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/period/lock', payload: { periodId: '2026-Q2' } });
     const longReason = 'X'.repeat(600);
     const r = await app.inject({
       method: 'POST', url: '/entities/acme:pilot-001/period/reopen',
@@ -117,12 +117,12 @@ describe('Monkey tests — Period Close Cockpit', () => {
     // ensure exactly one wins and the other 409s — the period_lock row must not be corrupted.
     await makeAllGreen();
     // First lock so reopen has something to race against.
-    const lockFirst = await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/period/lock', payload: {} });
+    const lockFirst = await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/period/lock', payload: { periodId: '2026-Q2' } });
     expect(lockFirst.statusCode).toBe(200);
 
     // Now race: another lock attempt vs a reopen (only one can win).
     const [lockAgain, reopen] = await Promise.all([
-      app.inject({ method: 'POST', url: '/entities/acme:pilot-001/period/lock', payload: {} }),
+      app.inject({ method: 'POST', url: '/entities/acme:pilot-001/period/lock', payload: { periodId: '2026-Q2' } }),
       app.inject({
         method: 'POST', url: '/entities/acme:pilot-001/period/reopen',
         payload: { restatementReason: 'Concurrent reopen attempt', reasonCode: 'ERROR_CORRECTION' },
@@ -155,7 +155,7 @@ describe('Monkey tests — Period Close Cockpit', () => {
     // { lights: { recon: 'green' } } in the body must not be able to bypass the gate.
     const r = await app.inject({
       method: 'POST', url: '/entities/acme:pilot-001/period/lock',
-      payload: { lights: { recon: 'green', classification: 'green', je: 'green', completeness: 'green' } },
+      payload: { periodId: '2026-Q2', lights: { recon: 'green', classification: 'green', je: 'green', completeness: 'green' } },
     });
     expect(r.statusCode).toBe(409);
     expect((r.json() as { error: { code: string } }).error.code).toBe('LIGHTS_NOT_GREEN');
@@ -166,7 +166,7 @@ describe('Monkey tests — Period Close Cockpit', () => {
     // WHY: after a reopen the period is OPEN again. The review/lock cycle must be
     // repeated before a new snapshot can be created — there is no shortcut path.
     await makeAllGreen();
-    await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/period/lock', payload: {} });
+    await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/period/lock', payload: { periodId: '2026-Q2' } });
     // Reopen the period.
     await app.inject({
       method: 'POST', url: '/entities/acme:pilot-001/period/reopen',

@@ -12,7 +12,8 @@ CREATE TABLE IF NOT EXISTS events (
   ai_event_type TEXT, ai_purpose TEXT, ai_counterparty TEXT,
   ai_confidence REAL, ai_reasoning TEXT,
   final_event_type TEXT, final_purpose TEXT,
-  status TEXT NOT NULL
+  status TEXT NOT NULL,
+  period_id TEXT
 );
 CREATE TABLE IF NOT EXISTS journal_entries (
   id TEXT PRIMARY KEY,
@@ -20,7 +21,8 @@ CREATE TABLE IF NOT EXISTS journal_entries (
   event_id TEXT NOT NULL REFERENCES events(id),
   je_json TEXT NOT NULL,
   idempotency_key TEXT NOT NULL UNIQUE,
-  leaf_hash TEXT NOT NULL
+  leaf_hash TEXT NOT NULL,
+  period_id TEXT
 );
 CREATE TABLE IF NOT EXISTS snapshots (
   id TEXT PRIMARY KEY,
@@ -54,6 +56,7 @@ CREATE TABLE IF NOT EXISTS exception_disposition (
   decided_at  INTEGER NOT NULL,
   source      TEXT NOT NULL DEFAULT 'HUMAN',
   proposal_id INTEGER,
+  period_id TEXT,
   PRIMARY KEY (category, event_id)
 );
 CREATE TABLE IF NOT EXISTS exception_disposition_log (
@@ -67,7 +70,8 @@ CREATE TABLE IF NOT EXISTS exception_disposition_log (
   decided_by  TEXT NOT NULL,
   decided_at  INTEGER NOT NULL,
   source      TEXT NOT NULL DEFAULT 'HUMAN',
-  proposal_id INTEGER
+  proposal_id INTEGER,
+  period_id TEXT
 );
 CREATE TABLE IF NOT EXISTS recon_break_disposition (
   entity_id   TEXT NOT NULL REFERENCES entities(id),
@@ -161,4 +165,16 @@ CREATE TABLE IF NOT EXISTS triage_proposal_log (
   decided_by    TEXT,
   decision_note TEXT,
   at            INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_events_entity_period ON events (entity_id, period_id);
+CREATE INDEX IF NOT EXISTS idx_je_entity_period ON journal_entries (entity_id, period_id);
+CREATE INDEX IF NOT EXISTS idx_expdisp_entity_period ON exception_disposition (entity_id, period_id);
+CREATE TABLE IF NOT EXISTS rejected_event_log (
+  seq         INTEGER PRIMARY KEY AUTOINCREMENT,
+  entity_id   TEXT NOT NULL,
+  period_id   TEXT NOT NULL,
+  event_time  TEXT NOT NULL,
+  raw_json    TEXT NOT NULL,
+  reason      TEXT NOT NULL,
+  rejected_at TEXT NOT NULL
 );
