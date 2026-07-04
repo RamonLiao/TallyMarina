@@ -607,9 +607,13 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
       throw new ApiError(409, 'PROPOSAL_NOT_OPEN', `proposal is ${getProposal(db, p.id)!.status}`);
     }
     // write-back: reconstruct the live exception for features; fail-open if it's already gone.
-    const live = collectExceptions(db, p.entityId, p.periodId, cfg.exceptionLowConfidence)
-      .find((e) => e.exceptionId === p.exceptionId);
-    if (live) fireAndForgetRemember(p.entityId, buildRecordFromLive(p.entityId, live, p.action, p.reasonCode, 'REJECTED', note));
+    try {
+      const live = collectExceptions(db, p.entityId, p.periodId, cfg.exceptionLowConfidence)
+        .find((e) => e.exceptionId === p.exceptionId);
+      if (live) fireAndForgetRemember(p.entityId, buildRecordFromLive(p.entityId, live, p.action, p.reasonCode, 'REJECTED', note));
+    } catch (err) {
+      app.log.warn(`triage memory reject write-back skipped: ${(err as Error).message}`);
+    }
     return { proposal: getProposal(db, p.id) };
   });
 
