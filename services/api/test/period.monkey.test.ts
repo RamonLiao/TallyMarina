@@ -31,6 +31,12 @@ describe('period attribution — monkey (adversarial)', () => {
     }
   });
 
+  it('non-string eventTime (null, undefined, numeric) → INVALID_EVENT_TIME throws', () => {
+    expect(() => periodOf(null as any)).toThrow(/^INVALID_EVENT_TIME/);
+    expect(() => periodOf(undefined as any)).toThrow(/^INVALID_EVENT_TIME/);
+    expect(() => periodOf(0 as any)).toThrow(/^INVALID_EVENT_TIME/);
+  });
+
   it('far-future instant is a VALID date and must bin, not throw', () => {
     expect(periodOf('9999-01-01T00:00:00Z')).toBe('9999-Q1');
   });
