@@ -1,4 +1,16 @@
 // services/api/src/config.ts
+export type MemoryMode = 'off' | 'local' | 'memwal';
+export interface MemoryConfig {
+  mode: MemoryMode;
+  namespacePrefix: string;         // namespace = `${prefix}:${entityId}`
+  recallLimit: number;
+  recallMaxDistance: number | null;
+  recallTimeoutMs: number;
+  privateKey?: string;             // memwal mode only
+  accountId?: string;              // memwal mode only
+  serverUrl?: string;              // optional relayer override
+}
+
 export interface ApiConfig {
   port: number;
   dbPath: string;
@@ -22,6 +34,8 @@ export interface ApiConfig {
   triageIntervalMs: number;
   /** Agent may not propose dismiss/IMMATERIAL_WAIVED above this amount (deterministic gate, CPA F5). */
   triageMaterialityThreshold: number;
+  /** Triage decision-memory config (round 2). mode=off (default) = round-1 behavior. */
+  memory: MemoryConfig;
 }
 
 function req(env: NodeJS.ProcessEnv, key: string): string {
@@ -52,6 +66,35 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
   if (!Number.isFinite(triageMaterialityThreshold) || triageMaterialityThreshold <= 0) {
     throw new Error(`TRIAGE_MATERIALITY_THRESHOLD must be a positive number, got ${triageMatRaw}`);
   }
+  const memMode = (env['TRIAGE_MEMORY_MODE'] ?? 'off') as string;
+  if (!['off', 'local', 'memwal'].includes(memMode)) {
+    throw new Error(`TRIAGE_MEMORY_MODE must be off|local|memwal, got ${memMode}`);
+  }
+  const recallLimitRaw = env['TRIAGE_MEMORY_RECALL_LIMIT'];
+  const recallLimit = recallLimitRaw === undefined || recallLimitRaw === '' ? 5 : Number(recallLimitRaw);
+  if (!Number.isInteger(recallLimit) || recallLimit <= 0) {
+    throw new Error(`TRIAGE_MEMORY_RECALL_LIMIT must be a positive integer, got ${recallLimitRaw}`);
+  }
+  const timeoutRaw = env['TRIAGE_MEMORY_RECALL_TIMEOUT_MS'];
+  const recallTimeoutMs = timeoutRaw === undefined || timeoutRaw === '' ? 3000 : Number(timeoutRaw);
+  if (!Number.isInteger(recallTimeoutMs) || recallTimeoutMs <= 0) {
+    throw new Error(`TRIAGE_MEMORY_RECALL_TIMEOUT_MS must be a positive integer, got ${timeoutRaw}`);
+  }
+  const maxDistRaw = env['TRIAGE_MEMORY_RECALL_MAXDISTANCE'];
+  const recallMaxDistance = maxDistRaw === undefined || maxDistRaw === '' ? null : Number(maxDistRaw);
+  if (recallMaxDistance !== null && !Number.isFinite(recallMaxDistance)) {
+    throw new Error(`TRIAGE_MEMORY_RECALL_MAXDISTANCE must be a number, got ${maxDistRaw}`);
+  }
+  const memory: MemoryConfig = {
+    mode: memMode as MemoryMode,
+    namespacePrefix: env['MEMWAL_NAMESPACE_PREFIX'] && env['MEMWAL_NAMESPACE_PREFIX'] !== '' ? env['MEMWAL_NAMESPACE_PREFIX']! : 'triage',
+    recallLimit, recallMaxDistance, recallTimeoutMs,
+    serverUrl: env['MEMWAL_SERVER_URL'] && env['MEMWAL_SERVER_URL'] !== '' ? env['MEMWAL_SERVER_URL'] : undefined,
+  };
+  if (memMode === 'memwal') {
+    memory.privateKey = req(env, 'MEMWAL_PRIVATE_KEY');   // req() throws fail-loud if missing/empty
+    memory.accountId = req(env, 'MEMWAL_ACCOUNT_ID');
+  }
   return {
     port,
     dbPath: req(env, 'DB_PATH'),
@@ -72,5 +115,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     reconLiveWallet: env['RECON_LIVE_WALLET'] && env['RECON_LIVE_WALLET'] !== '' ? env['RECON_LIVE_WALLET'] : undefined,
     triageIntervalMs,
     triageMaterialityThreshold,
+    memory,
   };
 }
