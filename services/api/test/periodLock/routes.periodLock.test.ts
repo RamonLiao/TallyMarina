@@ -12,6 +12,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { openDb, type Db } from '../../src/store/db.js';
 import { seed } from '../../src/store/seed.js';
 import { registerRoutes } from '../../src/http/routes.js';
+import { OffMemory } from '../../src/triage/memory/offMemory.js';
 import type { GeminiClient } from '../../src/ai/geminiClient.js';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
@@ -80,6 +81,7 @@ beforeEach(async () => {
     db, cfg, classifyClient, copilotClient: classifyClient,
     anchorAdapter: null as never,
     mutex: { run: (_k: string, fn: () => Promise<never>) => fn() },
+    memory: new OffMemory(),
   });
   await app.ready();
 });

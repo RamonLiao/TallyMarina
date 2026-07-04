@@ -40,8 +40,10 @@ import { verifyOwnership } from '../onboarding/verify.js';
 import { latestAttestation, listAttestations } from '../store/onboardingStore.js';
 import { DEMO_ENTITY_META } from '../onboarding/constants.js';
 import { normalizeSuiAddress } from '@mysten/sui/utils';
-import { getProposal, listProposals, decideProposal, revertAcceptedToStale, markEntityProposalsStale, type ProposalStatus } from '../store/proposalStore.js';
+import { getProposal, listProposals, decideProposal, revertAcceptedToStale, markEntityProposalsStale, type ProposalStatus, type ProposalRow } from '../store/proposalStore.js';
 import { makeTriageRunner, type TriageRunner } from '../triage/scheduler.js';
+import type { MemoryClient, MemoryRecord } from '../triage/memory/types.js';
+import { amountBand } from '../triage/memory/format.js';
 
 export interface RouteDeps {
   db: Db;
@@ -51,6 +53,7 @@ export interface RouteDeps {
   anchorAdapter: SuiGrpcChainAdapter;
   mutex: { run<T>(key: string, fn: () => Promise<T>): Promise<T> };
   triageRunner?: TriageRunner;
+  memory: MemoryClient;
 }
 
 function eventDTO(e: EventRow) {
@@ -141,8 +144,23 @@ function reconDTO(db: Db, entityId: string, periodId: string, liveWallet: string
 }
 
 export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
-  const { db, cfg } = deps;
-  const triage = deps.triageRunner ?? makeTriageRunner({ db, cfg, client: deps.copilotClient });
+  const { db, cfg, memory } = deps;
+  const triage = deps.triageRunner ?? makeTriageRunner({ db, cfg, client: deps.copilotClient, memory });
+
+  function buildRecordFromLive(
+    entityId: string, live: { category: string; amount: string | null; ai: { eventType: string | null } | null },
+    action: string, reasonCode: string, outcome: 'ACCEPTED' | 'REJECTED', note: string | null,
+  ): MemoryRecord {
+    return {
+      entityId, eventType: live.ai?.eventType ?? null, category: live.category,
+      amountBand: amountBand(live.amount), outcome, action, reasonCode, note,
+    };
+  }
+  function fireAndForgetRemember(entityId: string, record: MemoryRecord): void {
+    void memory.remember({ entityId, record })
+      .then(() => app.log.info({ proposal: record }, 'triage memory write-back ok'))
+      .catch((err: Error) => app.log.warn(`triage memory write-back failed: ${err.message}`));
+  }
 
   // Unified error envelope.
   app.setErrorHandler((err, _req, reply) => {
@@ -513,7 +531,10 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     if (q !== 'all' && !['proposed', 'accepted', 'rejected', 'stale'].includes(q)) {
       throw new ApiError(400, 'VALIDATION', `unknown status ${q}`);
     }
-    return { proposals: q === 'all' ? listProposals(db, req.params.id) : listProposals(db, req.params.id, q as ProposalStatus) };
+    const rows = q === 'all' ? listProposals(db, req.params.id) : listProposals(db, req.params.id, q as ProposalStatus);
+    // §3.1a: recall provenance is audit-only this round, never surfaced in the list DTO.
+    // Kept in the DB row and in getProposal (used internally) — stripped only here.
+    return { proposals: rows.map(({ recallContext: _recallContext, ...rest }): Omit<ProposalRow, 'recallContext'> => rest) };
   });
 
   app.post<{ Params: { id: string } }>('/triage/proposals/:id/accept', async (req) => {
@@ -559,7 +580,9 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
         decidedBy: LOCKED_BY, now: Date.now(),
         source: 'AGENT_PROPOSAL', proposalId: p.id,
       });
-      return { disposition: row, proposal: getProposal(db, p.id) };
+      const accepted = getProposal(db, p.id)!;
+      fireAndForgetRemember(p.entityId, buildRecordFromLive(p.entityId, live, accepted.action, accepted.reasonCode, 'ACCEPTED', null));
+      return { disposition: row, proposal: accepted };
     } catch (err) {
       // Any applyDisposition failure — not just ILLEGAL_TRANSITION — must not leave the
       // proposal 'accepted' with no disposition row (that would misrepresent the audit
@@ -585,6 +608,14 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     if (note !== null && note.length > 500) throw new ApiError(400, 'VALIDATION', 'note exceeds 500 chars');
     if (!decideProposal(db, p.id, 'rejected', LOCKED_BY, note, Date.now())) {
       throw new ApiError(409, 'PROPOSAL_NOT_OPEN', `proposal is ${getProposal(db, p.id)!.status}`);
+    }
+    // write-back: reconstruct the live exception for features; fail-open if it's already gone.
+    try {
+      const live = collectExceptions(db, p.entityId, p.periodId, cfg.exceptionLowConfidence)
+        .find((e) => e.exceptionId === p.exceptionId);
+      if (live) fireAndForgetRemember(p.entityId, buildRecordFromLive(p.entityId, live, p.action, p.reasonCode, 'REJECTED', note));
+    } catch (err) {
+      app.log.warn(`triage memory reject write-back skipped: ${(err as Error).message}`);
     }
     return { proposal: getProposal(db, p.id) };
   });

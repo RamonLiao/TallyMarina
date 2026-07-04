@@ -11,6 +11,7 @@ import { makeEntityMutex } from '@subledger/anchor-svc';
 import { makeGrpcAdapter } from './grpcClient.js';
 import type { FixtureBundle } from './deps/ingestion.js';
 import { makeTriageRunner, startTriageScheduler } from './triage/scheduler.js';
+import { createMemoryClient } from './triage/memory/factory.js';
 
 const cfg = loadConfig();
 const db = openDb(cfg.dbPath);
@@ -26,7 +27,8 @@ seed(db, {
 const { adapter } = makeGrpcAdapter(cfg);
 const ai = makeGeminiClient(cfg.geminiApiKey);
 const mutex = makeEntityMutex();
-const triageRunner = makeTriageRunner({ db, cfg, client: ai });
+const memory = createMemoryClient(cfg, db);
+const triageRunner = makeTriageRunner({ db, cfg, client: ai, memory });
 startTriageScheduler(triageRunner, cfg.triageIntervalMs, cfg.entityId, DEFAULT_PERIOD);
 
 const app = Fastify({ logger: true });
@@ -35,8 +37,13 @@ app.addHook('onRequest', async (_req, reply) => {
   reply.header('access-control-allow-headers', 'content-type');
 });
 app.options('/*', async (_req, reply) => reply.code(204).send());
-registerRoutes(app, { db, cfg, classifyClient: ai, copilotClient: ai, anchorAdapter: adapter, mutex, triageRunner });
+registerRoutes(app, { db, cfg, classifyClient: ai, copilotClient: ai, anchorAdapter: adapter, mutex, triageRunner, memory });
 
-app.listen({ port: cfg.port, host: '0.0.0.0' })
+for (const sig of ['SIGINT', 'SIGTERM'] as const) {
+  process.once(sig, () => { void memory.close().finally(() => process.exit(0)); });
+}
+
+memory.probe()
+  .then(() => app.listen({ port: cfg.port, host: '0.0.0.0' }))
   .then(() => app.log.info(`api on :${cfg.port}`))
   .catch((e) => { app.log.error(e); process.exit(1); });

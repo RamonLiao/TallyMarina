@@ -1,6 +1,7 @@
 import type { Db } from '../store/db.js';
 import type { ApiConfig } from '../config.js';
 import type { GeminiClient } from '../ai/geminiClient.js';
+import type { MemoryClient } from './memory/types.js';
 import { runTriageOnce, type TriageRunSummary } from './agent.js';
 
 export interface TriageRunner {
@@ -10,7 +11,7 @@ export interface TriageRunner {
   runOnce(entityId: string, periodId: string): Promise<TriageRunSummary>;
 }
 
-export function makeTriageRunner(deps: { db: Db; cfg: ApiConfig; client: GeminiClient }): TriageRunner {
+export function makeTriageRunner(deps: { db: Db; cfg: ApiConfig; client: GeminiClient; memory: MemoryClient }): TriageRunner {
   let running = false;
   return {
     isRunning: () => running,

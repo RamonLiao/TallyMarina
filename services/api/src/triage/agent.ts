@@ -15,6 +15,8 @@ import { DEMO_COA_RULES } from '../http/policyConstants.js';
 import {
   getOpenProposal, hasRejectedProposal, insertProposal, type ProposalAction,
 } from '../store/proposalStore.js';
+import type { MemoryClient } from './memory/types.js';
+import { buildRecallQuery, renderFewShotBlock, amountBand } from './memory/format.js';
 
 export interface TriageRunSummary {
   scanned: number; proposed: number; skipped: number; failed: number;
@@ -72,8 +74,8 @@ export function validateProposal(
   return { ok: true, value: { action, reasonCode, reasonNote, rationale: r.rationale, confidence: r.confidence } };
 }
 
-function buildTriagePrompt(ex: Exception, rawJson: string): string {
-  return [
+function buildTriagePrompt(ex: Exception, rawJson: string, fewshot: string): string {
+  const lines = [
     'You are an accounting close assistant. Draft ONE disposition proposal for this exception.',
     'A human controller reviews and accepts or rejects it — you decide nothing.',
     'Respond with valid JSON only: {action, reasonCode, reasonNote, rationale, confidence}.',
@@ -85,7 +87,9 @@ function buildTriagePrompt(ex: Exception, rawJson: string): string {
     `Exception: ${JSON.stringify({ exceptionId: ex.exceptionId, category: ex.category, reason: ex.reason, amount: ex.amount, ai: ex.ai })}`,
     `Event: ${rawJson}`,
     `Chart-of-accounts mappings (context): ${JSON.stringify(DEMO_COA_RULES).slice(0, 4000)}`,
-  ].join('\n');
+  ];
+  if (fewshot) lines.push('', fewshot);
+  return lines.join('\n');
 }
 
 function isOpen(d: { state: string } | null): boolean {
@@ -93,10 +97,10 @@ function isOpen(d: { state: string } | null): boolean {
 }
 
 export async function runTriageOnce(
-  deps: { db: Db; cfg: ApiConfig; client: GeminiClient },
+  deps: { db: Db; cfg: ApiConfig; client: GeminiClient; memory: MemoryClient },
   entityId: string, periodId: string,
 ): Promise<TriageRunSummary> {
-  const { db, cfg, client } = deps;
+  const { db, cfg, client, memory } = deps;
   const none = { scanned: 0, proposed: 0, skipped: 0, failed: 0 };
   // Locked projection turns every event into RULES_FAILED:PERIOD_CLOSED noise (CPA F8c);
   // anchored entity is read-only, proposing would burn LLM calls on unacceptable drafts (I2).
@@ -112,7 +116,21 @@ export async function runTriageOnce(
     if (hasRejectedProposal(db, ex.exceptionId)) { summary.skipped++; continue; } // cooldown (F9)
     try {
       const ev = getEvent(db, ex.eventId);
-      const raw = await client.generateJson<unknown>(cfg.aiModelCopilot, buildTriagePrompt(ex, ev?.rawJson ?? '{}'), TRIAGE_SCHEMA);
+      const features = { eventType: ex.ai?.eventType ?? null, category: ex.category, amountBand: amountBand(ex.amount) };
+      const query = buildRecallQuery(features);
+      const { hits, servedBy } = await memory.recall({ entityId, query, features, limit: cfg.memory.recallLimit });
+      // Record the TRUE serving source, not the configured mode (SUI review Fix 1): when
+      // mode=memwal fails open to local, servedBy is 'local-fallback' and namespace is null —
+      // a namespace never actually queried must never be claimed in this audit column.
+      const recallContext = hits.length > 0
+        ? JSON.stringify({
+            servedBy,
+            namespace: servedBy === 'memwal' ? `${cfg.memory.namespacePrefix}:${entityId}` : null,
+            query,
+            hits,
+          })
+        : null;
+      const raw = await client.generateJson<unknown>(cfg.aiModelCopilot, buildTriagePrompt(ex, ev?.rawJson ?? '{}', renderFewShotBlock(hits)), TRIAGE_SCHEMA);
       const v = validateProposal(ex, raw, cfg.triageMaterialityThreshold);
       if (!v.ok) { summary.failed++; console.warn(`triage: discarded proposal for ${ex.exceptionId}: ${v.reason}`); continue; }
       // F1b TOCTOU: the lock/anchored gate above was checked once at round start, but this
@@ -127,7 +145,7 @@ export async function runTriageOnce(
         exceptionId: ex.exceptionId, eventId: ex.eventId, entityId, periodId,
         action: v.value.action, reasonCode: v.value.reasonCode, reasonNote: v.value.reasonNote,
         rationale: v.value.rationale, confidence: v.value.confidence,
-        model: cfg.aiModelCopilot, createdAt: Date.now(),
+        model: cfg.aiModelCopilot, createdAt: Date.now(), recallContext,
       });
       summary.proposed++;
     } catch (err) {

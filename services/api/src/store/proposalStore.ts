@@ -9,6 +9,7 @@ export interface ProposalRow {
   action: ProposalAction; reasonCode: ReasonCode; reasonNote: string | null;
   rationale: string; confidence: number; status: ProposalStatus; model: string;
   createdAt: number; decidedBy: string | null; decidedAt: number | null; decisionNote: string | null;
+  recallContext: string | null;
 }
 
 function map(r: Record<string, unknown>): ProposalRow {
@@ -20,6 +21,7 @@ function map(r: Record<string, unknown>): ProposalRow {
     confidence: r.confidence as number, status: r.status as ProposalStatus, model: r.model as string,
     createdAt: r.created_at as number, decidedBy: (r.decided_by as string | null) ?? null,
     decidedAt: (r.decided_at as number | null) ?? null, decisionNote: (r.decision_note as string | null) ?? null,
+    recallContext: (r.recall_context as string | null) ?? null,
   };
 }
 
@@ -29,13 +31,16 @@ function log(db: Db, p: { id: number; exceptionId: string; entityId: string }, s
   ).run(p.id, p.exceptionId, p.entityId, status, decidedBy, decisionNote, at);
 }
 
-export function insertProposal(db: Db, p: Omit<ProposalRow, 'id' | 'status' | 'decidedBy' | 'decidedAt' | 'decisionNote'>): ProposalRow {
+export function insertProposal(
+  db: Db,
+  p: Omit<ProposalRow, 'id' | 'status' | 'decidedBy' | 'decidedAt' | 'decisionNote' | 'recallContext'> & { recallContext?: string | null },
+): ProposalRow {
   let row!: ProposalRow;
   db.transaction(() => {
     const res = db.prepare(
-      `INSERT INTO triage_proposal (exception_id, event_id, entity_id, period_id, action, reason_code, reason_note, rationale, confidence, status, model, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'proposed', ?, ?)`,
-    ).run(p.exceptionId, p.eventId, p.entityId, p.periodId, p.action, p.reasonCode, p.reasonNote, p.rationale, p.confidence, p.model, p.createdAt);
+      `INSERT INTO triage_proposal (exception_id, event_id, entity_id, period_id, action, reason_code, reason_note, rationale, confidence, status, model, created_at, recall_context)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'proposed', ?, ?, ?)`,
+    ).run(p.exceptionId, p.eventId, p.entityId, p.periodId, p.action, p.reasonCode, p.reasonNote, p.rationale, p.confidence, p.model, p.createdAt, p.recallContext ?? null);
     const id = Number(res.lastInsertRowid);
     log(db, { id, exceptionId: p.exceptionId, entityId: p.entityId }, 'proposed', null, null, p.createdAt);
     row = getProposal(db, id)!;

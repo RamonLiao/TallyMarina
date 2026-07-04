@@ -5,6 +5,7 @@ import { openDb, type Db } from '../src/store/db.js';
 import { insertEvent } from '../src/store/eventStore.js';
 import { insertJournalEntry } from '../src/store/journalStore.js';
 import { registerRoutes } from '../src/http/routes.js';
+import { OffMemory } from '../src/triage/memory/offMemory.js';
 
 function mkApp(db: Db): FastifyInstance {
   const app = Fastify();
@@ -15,6 +16,7 @@ function mkApp(db: Db): FastifyInstance {
     copilotClient: {} as never,
     anchorAdapter: null as never,
     mutex: { run: (_k: string, fn: () => Promise<never>) => fn() },
+    memory: new OffMemory(),
   });
   return app;
 }

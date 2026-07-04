@@ -14,13 +14,18 @@
   },
   "dependencies": {
     "@google/genai": "^0.3.0",
+    "@mysten-incubation/memwal": "^0.0.7",
+    "@mysten/seal": "1.2.1",
     "@mysten/sui": "2.19.0",
+    "@mysten/walrus": "1.2.1",
     "@subledger/anchor-svc": "file:../anchor-svc",
     "@subledger/ingestion": "file:../ingestion",
     "@subledger/rules-engine": "file:../rules-engine",
     "@subledger/snapshot-svc": "file:../snapshot-svc",
+    "ai": "^7.0.14",
     "better-sqlite3": "^11.0.0",
-    "fastify": "^4.28.0"
+    "fastify": "^4.28.0",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.0",

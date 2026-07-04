@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { openDb } from '../src/store/db.js';
 import { registerRoutes } from '../src/http/routes.js';
+import { OffMemory } from '../src/triage/memory/offMemory.js';
 import { loadConfig } from '../src/config.js';
 import type { GeminiClient } from '../src/ai/geminiClient.js';
 import { DEMO_POLICY_SET, DEMO_COA_RULES } from '../src/http/policyConstants.js';
@@ -28,6 +29,7 @@ beforeEach(async () => {
     db, cfg, classifyClient: stubClient, copilotClient: stubClient,
     anchorAdapter: null as never,
     mutex: { run: (_k: string, fn: () => Promise<never>) => fn() },
+    memory: new OffMemory(),
   });
   await app.ready();
 });
