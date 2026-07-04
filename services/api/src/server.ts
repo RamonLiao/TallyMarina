@@ -27,8 +27,6 @@ seed(db, {
 const { adapter } = makeGrpcAdapter(cfg);
 const ai = makeGeminiClient(cfg.geminiApiKey);
 const mutex = makeEntityMutex();
-// NOTE: memory.probe()/close() lifecycle wiring + RouteDeps.memory (write-back) land in Task 8
-// ("server 完整接線"). Task 7 only needs the scheduler's recall path fed a real client.
 const memory = createMemoryClient(cfg, db);
 const triageRunner = makeTriageRunner({ db, cfg, client: ai, memory });
 startTriageScheduler(triageRunner, cfg.triageIntervalMs, cfg.entityId, DEFAULT_PERIOD);
@@ -39,8 +37,13 @@ app.addHook('onRequest', async (_req, reply) => {
   reply.header('access-control-allow-headers', 'content-type');
 });
 app.options('/*', async (_req, reply) => reply.code(204).send());
-registerRoutes(app, { db, cfg, classifyClient: ai, copilotClient: ai, anchorAdapter: adapter, mutex, triageRunner });
+registerRoutes(app, { db, cfg, classifyClient: ai, copilotClient: ai, anchorAdapter: adapter, mutex, triageRunner, memory });
 
-app.listen({ port: cfg.port, host: '0.0.0.0' })
+for (const sig of ['SIGINT', 'SIGTERM'] as const) {
+  process.on(sig, () => { void memory.close(); });
+}
+
+memory.probe()
+  .then(() => app.listen({ port: cfg.port, host: '0.0.0.0' }))
   .then(() => app.log.info(`api on :${cfg.port}`))
   .catch((e) => { app.log.error(e); process.exit(1); });

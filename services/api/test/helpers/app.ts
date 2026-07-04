@@ -10,6 +10,8 @@ import type { GeminiClient } from '../../src/ai/geminiClient.js';
 import { loadConfig } from '../../src/config.js';
 import { seed } from '../../src/store/seed.js';
 import type { FixtureBundle } from '../../src/deps/ingestion.js';
+import type { MemoryClient } from '../../src/triage/memory/types.js';
+import { OffMemory } from '../../src/triage/memory/offMemory.js';
 
 const require = createRequire(import.meta.url);
 const fixture = require('../../src/fixtures/acme-pilot-001.events.json') as unknown;
@@ -47,7 +49,11 @@ export const needsReviewClient: GeminiClient = {
   },
 };
 
-export async function buildTestApp(seedFixture = true, client: GeminiClient = stubClassifyClient): Promise<FastifyInstance & { _db: Db }> {
+export async function buildTestApp(
+  seedFixture = true,
+  client: GeminiClient = stubClassifyClient,
+  memory: MemoryClient = new OffMemory(),
+): Promise<FastifyInstance & { _db: Db }> {
   const db = openDb(':memory:');
   // Seed entity "e1" with fixture events (same pattern as routes.test.ts).
   if (seedFixture) {
@@ -66,6 +72,7 @@ export async function buildTestApp(seedFixture = true, client: GeminiClient = st
     copilotClient: client,
     anchorAdapter: null as never,
     mutex: { run: (_k: string, fn: () => Promise<never>) => fn() },
+    memory,
   });
   await app.ready();
   return app;

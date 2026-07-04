@@ -42,7 +42,8 @@ import { DEMO_ENTITY_META } from '../onboarding/constants.js';
 import { normalizeSuiAddress } from '@mysten/sui/utils';
 import { getProposal, listProposals, decideProposal, revertAcceptedToStale, markEntityProposalsStale, type ProposalStatus } from '../store/proposalStore.js';
 import { makeTriageRunner, type TriageRunner } from '../triage/scheduler.js';
-import { OffMemory } from '../triage/memory/offMemory.js';
+import type { MemoryClient, MemoryRecord } from '../triage/memory/types.js';
+import { amountBand } from '../triage/memory/format.js';
 
 export interface RouteDeps {
   db: Db;
@@ -52,6 +53,7 @@ export interface RouteDeps {
   anchorAdapter: SuiGrpcChainAdapter;
   mutex: { run<T>(key: string, fn: () => Promise<T>): Promise<T> };
   triageRunner?: TriageRunner;
+  memory: MemoryClient;
 }
 
 function eventDTO(e: EventRow) {
@@ -142,12 +144,23 @@ function reconDTO(db: Db, entityId: string, periodId: string, liveWallet: string
 }
 
 export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
-  const { db, cfg } = deps;
-  // NOTE: RouteDeps.memory (write-back on accept/reject, real recall client here) lands in
-  // Task 8. This fallback path (used when a caller doesn't inject its own triageRunner) keeps
-  // round-1 behavior (memory off) until then — many existing test harnesses build a partial
-  // ApiConfig without a `memory` field, so this must not depend on cfg.memory.
-  const triage = deps.triageRunner ?? makeTriageRunner({ db, cfg, client: deps.copilotClient, memory: new OffMemory() });
+  const { db, cfg, memory } = deps;
+  const triage = deps.triageRunner ?? makeTriageRunner({ db, cfg, client: deps.copilotClient, memory });
+
+  function buildRecordFromLive(
+    entityId: string, live: { category: string; amount: string | null; ai: { eventType: string | null } | null },
+    action: string, reasonCode: string, outcome: 'ACCEPTED' | 'REJECTED', note: string | null,
+  ): MemoryRecord {
+    return {
+      entityId, eventType: live.ai?.eventType ?? null, category: live.category,
+      amountBand: amountBand(live.amount), outcome, action, reasonCode, note,
+    };
+  }
+  function fireAndForgetRemember(entityId: string, record: MemoryRecord): void {
+    void memory.remember({ entityId, record })
+      .then(() => app.log.info({ proposal: record }, 'triage memory write-back ok'))
+      .catch((err: Error) => app.log.warn(`triage memory write-back failed: ${err.message}`));
+  }
 
   // Unified error envelope.
   app.setErrorHandler((err, _req, reply) => {
@@ -564,7 +577,9 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
         decidedBy: LOCKED_BY, now: Date.now(),
         source: 'AGENT_PROPOSAL', proposalId: p.id,
       });
-      return { disposition: row, proposal: getProposal(db, p.id) };
+      const accepted = getProposal(db, p.id)!;
+      fireAndForgetRemember(p.entityId, buildRecordFromLive(p.entityId, live, accepted.action, accepted.reasonCode, 'ACCEPTED', null));
+      return { disposition: row, proposal: accepted };
     } catch (err) {
       // Any applyDisposition failure — not just ILLEGAL_TRANSITION — must not leave the
       // proposal 'accepted' with no disposition row (that would misrepresent the audit
@@ -591,6 +606,10 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     if (!decideProposal(db, p.id, 'rejected', LOCKED_BY, note, Date.now())) {
       throw new ApiError(409, 'PROPOSAL_NOT_OPEN', `proposal is ${getProposal(db, p.id)!.status}`);
     }
+    // write-back: reconstruct the live exception for features; fail-open if it's already gone.
+    const live = collectExceptions(db, p.entityId, p.periodId, cfg.exceptionLowConfidence)
+      .find((e) => e.exceptionId === p.exceptionId);
+    if (live) fireAndForgetRemember(p.entityId, buildRecordFromLive(p.entityId, live, p.action, p.reasonCode, 'REJECTED', note));
     return { proposal: getProposal(db, p.id) };
   });
 

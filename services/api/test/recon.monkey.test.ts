@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { openDb, type Db } from '../src/store/db.js';
 import { registerRoutes } from '../src/http/routes.js';
+import { OffMemory } from '../src/triage/memory/offMemory.js';
 import { applyReconDisposition } from '../src/reconciliation/disposition.js';
 import { validateReconRows } from '../src/reconciliation/fixture.js';
 
@@ -18,6 +19,7 @@ function mk(db: Db): FastifyInstance {
     copilotClient: {} as never,
     anchorAdapter: null as never,
     mutex: { run: (_k: string, fn: () => Promise<never>) => fn() },
+    memory: new OffMemory(),
   });
   return app;
 }

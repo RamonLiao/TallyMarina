@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path';
 import { openDb, type Db } from '../../src/store/db.js';
 import { seed } from '../../src/store/seed.js';
 import { registerRoutes } from '../../src/http/routes.js';
+import { OffMemory } from '../../src/triage/memory/offMemory.js';
 import { loadConfig, type ApiConfig } from '../../src/config.js';
 import type { GeminiClient } from '../../src/ai/geminiClient.js';
 import { makeGeminiClient } from '../../src/ai/geminiClient.js';
@@ -49,6 +50,7 @@ export async function buildApp(opts: BuildOpts = {}): Promise<{ app: FastifyInst
   registerRoutes(app, {
     db, cfg, classifyClient, copilotClient: stubClassify,
     anchorAdapter: anchorAdapter as never, mutex: makeEntityMutex(),
+    memory: new OffMemory(),
   });
   await app.ready();
   return { app, db, cfg, grpc };

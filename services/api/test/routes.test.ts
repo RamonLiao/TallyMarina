@@ -3,6 +3,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { openDb, type Db } from '../src/store/db.js';
 import { seed } from '../src/store/seed.js';
 import { registerRoutes } from '../src/http/routes.js';
+import { OffMemory } from '../src/triage/memory/offMemory.js';
 import type { GeminiClient } from '../src/ai/geminiClient.js';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
@@ -63,6 +64,7 @@ beforeEach(async () => {
     db, cfg, classifyClient, copilotClient: classifyClient,
     anchorAdapter: null as never,
     mutex: { run: (_k: string, fn: () => Promise<never>) => fn() },
+    memory: new OffMemory(),
   });
   await app.ready();
 });
@@ -103,6 +105,7 @@ describe('REST contract', () => {
       db, cfg, classifyClient: errClient, copilotClient: errClient,
       anchorAdapter: null as never,
       mutex: { run: (_k: string, fn: () => Promise<never>) => fn() },
+      memory: new OffMemory(),
     });
     await app2.ready();
     const r = await app2.inject({ method: 'POST', url: '/events/evt-001/classify', payload: {} });
@@ -321,6 +324,7 @@ describe('REST contract', () => {
       db, cfg, classifyClient: lowClient, copilotClient: lowClient,
       anchorAdapter: null as never,
       mutex: { run: (_k: string, fn: () => Promise<never>) => fn() },
+      memory: new OffMemory(),
     });
     await app3.ready();
     await app3.inject({ method: 'POST', url: '/events/evt-001/classify', payload: {} });
@@ -386,6 +390,7 @@ describe('anchor routes (I1, I2) — with working fakeAdapter', () => {
       db: anchorDb, cfg: cfgAnchor, classifyClient: classifyClient, copilotClient: classifyClient,
       anchorAdapter: buildFakeAdapter(),
       mutex: { run: (_k: string, fn: () => Promise<never>) => fn() },
+      memory: new OffMemory(),
     });
     await anchorApp.ready();
   });
@@ -430,6 +435,7 @@ describe('anchor routes (I1, I2) — with working fakeAdapter', () => {
       db: anchorDb, cfg: cfgAnchor, classifyClient: classifyClient, copilotClient: classifyClient,
       anchorAdapter: buildFakeAdapter({ seq: 1n }), // getChainState returns seq=1, expectedSeq=1
       mutex: { run: (_k: string, fn: () => Promise<never>) => fn() },
+      memory: new OffMemory(),
     });
     await confirmApp.ready();
     const r = await confirmApp.inject({
@@ -450,6 +456,7 @@ describe('anchor routes (I1, I2) — with working fakeAdapter', () => {
       db: anchorDb, cfg: cfgAnchor, classifyClient: classifyClient, copilotClient: classifyClient,
       anchorAdapter: buildFakeAdapter({ seqMismatch: true }),
       mutex: { run: (_k: string, fn: () => Promise<never>) => fn() },
+      memory: new OffMemory(),
     });
     await mismatchApp.ready();
     const r = await mismatchApp.inject({
@@ -476,6 +483,7 @@ describe('anchor routes (I1, I2) — with working fakeAdapter', () => {
           throw new Error('SECRET internal message do not expose');
         },
       },
+      memory: new OffMemory(),
     });
     await throwingApp.ready();
     const r = await throwingApp.inject({
