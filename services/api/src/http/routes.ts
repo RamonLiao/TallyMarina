@@ -387,10 +387,18 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     if (!periodOpen) {
       throw new ApiError(409, 'PERIOD_LOCKED', `period ${periodId} is locked; reopen it before posting`);
     }
+    // C2 fix: scope candidates to THIS run's period. listByStatus is entity-wide,
+    // so without this filter an event attributed to a different (possibly locked)
+    // period would be evaluated against this request's periodOpen and posted under
+    // its own periodId — bypassing that period's lock. See routes.ts run-rules review.
+    // C2 fix: scope candidates to THIS run's period. listByStatus is entity-wide,
+    // so without this filter an event attributed to a different (possibly locked)
+    // period would be evaluated against this request's periodOpen and posted under
+    // its own periodId — bypassing that period's lock. See routes.ts run-rules review.
     const candidates = [
       ...listByStatus(db, req.params.id, 'APPROVED'),
       ...listByStatus(db, req.params.id, 'AUTO'),
-    ];
+    ].filter((ev) => ev.periodId === periodId);
     let posted = 0, skipped = 0;
     for (const ev of candidates) {
       const output = evaluate(buildRuleInput(ev, { periodId, periodOpen }));
