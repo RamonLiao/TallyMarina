@@ -11,6 +11,7 @@ import {
   listEvents, getEvent, listByStatus, setAiSuggestion, setDecision, markPosted, type EventRow,
 } from '../store/eventStore.js';
 import { insertJournalEntry, listJournal } from '../store/journalStore.js';
+import { listPeriods } from '../store/periodQuery.js';
 import { insertSnapshot, getSnapshot, hasAnchoredSnapshot } from '../store/snapshotStore.js';
 import { collectExceptions } from '../exceptions/collect.js';
 import { applyDisposition } from '../exceptions/disposition.js';
@@ -288,6 +289,12 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
   app.get<{ Params: { id: string } }>('/entities/:id/events', async (req) => {
     requireEntity(db, req.params.id);
     return { events: listEvents(db, req.params.id).map(eventDTO) };
+  });
+
+  // 3a. GET /entities/:id/periods — list periods with lock status (frontend period selector)
+  app.get<{ Params: { id: string } }>('/entities/:id/periods', async (req) => {
+    requireEntity(db, req.params.id);
+    return listPeriods(db, req.params.id);
   });
 
   // 3b. POST /entities/:id/events — ingest gate: refuses+logs events dated into a LOCKED period.
