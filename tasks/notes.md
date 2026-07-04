@@ -69,3 +69,21 @@ spec v2 path 同上；待使用者 review 後進 writing-plans。
 最終數字：anchor-svc 69/69、ingestion 35/35(+2 env-skip)、rules-engine 111/111、snapshot-svc 44/44、api 205/205、web 401/401、Move 20/20，tsc 全乾淨。
 未 commit；未跑 web e2e（Playwright）——commit 前要跑（UI 有小改：policy workspace defaultAccount 顯示）。
 賽後 backlog：C2（period 歸屬）、C4（lot store）、H2（snapshot 持久化）、exception-triage agent + memwal（AI ROI 項）。
+
+## 2026-07-04 Exception-Triage Agent 關鍵決策（why）
+- **accept guard = ANCHORED_READ_ONLY + PERIOD_LOCKED（比 manual disposition 嚴）**：spec B1 原判「與 manual 一致、lock 靠 sweep」，外部獨立 review 證明 sweep 推理不成立（假 periodId 繞過 + LLM await 間隙 TOCTOU）→ 改三層：run route 釘死 DEFAULT_PERIOD（單期 demo，C2 period 歸屬本來就 deferred）、runTriageOnce insert 前重驗 lock/anchored、accept 對 locked 409+stale。manual path 維持原語意（disposition 是 audit overlay 非 journal write）。
+- **materiality gate 是 code 不是 LLM**（CPA F5）：`TRIAGE_MATERIALITY_THRESHOLD`（預設 1000），`Math.abs(amt)`+嚴格 decimal pattern，null/空/非數字 amount 一律 fail-closed 拒絕 dismiss/IMMATERIAL_WAIVED。agent 對 RULES_FAILED 永遠禁提 dismissed（dismiss blocking 例外 = 交易不入帳卻解鎖關帳，留人工）。
+- **假性 resolve 擋法**：accept `resolved`×RULES_FAILED 時 live projection 仍有該 exception = evaluate() 仍 fail（collectExceptions 內建）→ 409 STILL_FAILING，不需額外呼叫 evaluate。
+- **AI provenance 進權威表**（CPA F1）：`exception_disposition(+log)` 加 `source`/`proposal_id`，審計師不用跨表 join 就能抽 AI-assisted population。accept 的 decided_by 記人（demo-controller），proposal id 進 log。
+- **rejected cooldown = 永久跳過（簡化版）**：外部 review 指出實為 kill switch——有意的第一輪簡化，memwal 輪用 context-hash 比對 refine；reject 收 optional note 當訓練訊號。
+- **accept 失敗一律 revert stale（非還原 proposed）**：審計誠實優先（accepted-無-disposition 是說謊）；transient 失敗犧牲該 proposal（stale 不觸發 cooldown，agent 可重提）。prod 前可再細分。
+- **已知 deferred**：/triage/run 無 auth 可燒 LLM quota（全域 mock-until-auth 一致）；TRIAGE_INTERVAL_MS 無下限；mid-round lock 後剩餘迴圈仍呼叫 LLM（正確性無損，浪費 quota）；scheduler 無直接單元測試（default-OFF 由 config 測 + server.ts 才啟動保證）。
+
+## 2026-07-04 Triage Memory 第二輪（memwal）關鍵決策（why）
+- **記憶只進 prompt，不進 gate（核心不變式）**：recall 出的 precedent 只 render 成 few-shot 文字注入 prompt，`validateProposal` deterministic fail-closed gate **完全不碰記憶**。理由：記憶是 advisory（human 過往決策的 precedent），可被污染（memwal 是跨 session 可攜、外部可寫）；若讓它影響 gate，等於把 LLM+外部記憶接進金流放行路徑。被下毒的「always dismiss」precedent 仍過不了 `BLOCKING_DISMISS_FORBIDDEN`（非 vacuous 測試釘死）。
+- **write-back 只在人工 accept/reject 之後（propose-only 保留）**：`remember()` 全 repo 僅 accept route(`routes.ts:584`)、reject route(616) 兩個 call site，且是 fire-and-forget（不擋 API 回應）。recall 路徑（產草稿時）不寫回 → agent 依舊只提案，記憶只從**已人工裁決**的樣本學。訓練訊號：accept=正例、reject(+optional note)=負例。
+- **fail-open 且誠實 provenance**：memwal 逾時/掛掉 → fallback 到 local memory，但 `servedBy` 誠實記 `'local-fallback'` 不謊稱 memwal（`b98c40f`）。理由：記憶是加分項，絕不能因為記憶層故障就擋住 triage 或 API；但 audit 欄位不能說謊（跟第一輪 accept-非原子的審計誠實同原則）。`recall_context` persist 也在 fail-open 時據實記來源、escape/truncate few-shot、bound size 並從 list DTO 剝除（避免大 blob 進列表）。
+- **預設 off**：`TRIAGE_MEMORY_MODE` 預設 `'off'`（OffMemory no-op），非法值才啟動期 fail-loud throw。demo 才設 local/memwal。理由：記憶未經長期驗證，預設不啟動；config 錯要在啟動炸不要 runtime 靜默降級。
+- **Task 1 lock 意外**：`--legacy-peer-deps` 全樹 re-resolve 把 `@testing-library/dom` peer tree 從 root lock 剝掉（`npm ci` 會炸 web render 測試）→ 改 pin `@mysten/seal`+`walrus` 到 exact 1.2.1（peer 接受 ^2.19.0）、restore lock、plain `npm install`（零 ERESOLVE）。順帶消掉 seal/walrus 想要 ^2.20.1 vs 專案 pin 2.19.0 的潛在漂移，且**不需 bump sui**。
+- **已知 deferred**：npm audit 11 vulns（memwal beta 依賴樹，4mod/6high/1crit）——beta SDK 現況，記錄待賽後評估。
+- **⚠️ 流程誠實記**：SDD ledger（`.superpowers/sdd/progress.md`）對 triage-memory 只寫到 Task 1 complete，Task 2–9 逐 task review + 最終 whole-branch/dual-review **無留痕**。git 有全部 task commit + 3 個 review-caught fix commit（`b98c40f`/`1cffe9e`/`ea6f080`）+ monkey suite（`4c2e40e`），且 2026-07-04 於 merged main 補跑 fresh-context verifier PASS（api 311、web 415、tsc 0、build 0，read-back 證 propose-only+fail-open）——但 merge 前逐 task gate 無從追認。
