@@ -42,6 +42,7 @@ import { DEMO_ENTITY_META } from '../onboarding/constants.js';
 import { normalizeSuiAddress } from '@mysten/sui/utils';
 import { getProposal, listProposals, decideProposal, revertAcceptedToStale, markEntityProposalsStale, type ProposalStatus } from '../store/proposalStore.js';
 import { makeTriageRunner, type TriageRunner } from '../triage/scheduler.js';
+import { OffMemory } from '../triage/memory/offMemory.js';
 
 export interface RouteDeps {
   db: Db;
@@ -142,7 +143,11 @@ function reconDTO(db: Db, entityId: string, periodId: string, liveWallet: string
 
 export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
   const { db, cfg } = deps;
-  const triage = deps.triageRunner ?? makeTriageRunner({ db, cfg, client: deps.copilotClient });
+  // NOTE: RouteDeps.memory (write-back on accept/reject, real recall client here) lands in
+  // Task 8. This fallback path (used when a caller doesn't inject its own triageRunner) keeps
+  // round-1 behavior (memory off) until then — many existing test harnesses build a partial
+  // ApiConfig without a `memory` field, so this must not depend on cfg.memory.
+  const triage = deps.triageRunner ?? makeTriageRunner({ db, cfg, client: deps.copilotClient, memory: new OffMemory() });
 
   // Unified error envelope.
   app.setErrorHandler((err, _req, reply) => {

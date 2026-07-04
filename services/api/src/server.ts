@@ -11,6 +11,7 @@ import { makeEntityMutex } from '@subledger/anchor-svc';
 import { makeGrpcAdapter } from './grpcClient.js';
 import type { FixtureBundle } from './deps/ingestion.js';
 import { makeTriageRunner, startTriageScheduler } from './triage/scheduler.js';
+import { createMemoryClient } from './triage/memory/factory.js';
 
 const cfg = loadConfig();
 const db = openDb(cfg.dbPath);
@@ -26,7 +27,10 @@ seed(db, {
 const { adapter } = makeGrpcAdapter(cfg);
 const ai = makeGeminiClient(cfg.geminiApiKey);
 const mutex = makeEntityMutex();
-const triageRunner = makeTriageRunner({ db, cfg, client: ai });
+// NOTE: memory.probe()/close() lifecycle wiring + RouteDeps.memory (write-back) land in Task 8
+// ("server 完整接線"). Task 7 only needs the scheduler's recall path fed a real client.
+const memory = createMemoryClient(cfg, db);
+const triageRunner = makeTriageRunner({ db, cfg, client: ai, memory });
 startTriageScheduler(triageRunner, cfg.triageIntervalMs, cfg.entityId, DEFAULT_PERIOD);
 
 const app = Fastify({ logger: true });

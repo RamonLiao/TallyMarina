@@ -8,6 +8,7 @@ import { applyDisposition } from '../src/exceptions/disposition.js';
 import { lockPeriod } from '../src/periodLock/store.js';
 import { insertProposal, decideProposal, listProposals } from '../src/store/proposalStore.js';
 import { validateProposal, runTriageOnce } from '../src/triage/agent.js';
+import { OffMemory } from '../src/triage/memory/offMemory.js';
 
 const E = 'acme:pilot-001';
 const P = '2026-Q2';
@@ -96,43 +97,43 @@ describe('runTriageOnce', () => {
   });
 
   it('proposes for an open exception and is idempotent while proposal is open', async () => {
-    const s1 = await runTriageOnce({ db, cfg, client: proposingClient() }, E, P);
+    const s1 = await runTriageOnce({ db, cfg, client: proposingClient(), memory: new OffMemory() }, E, P);
     expect(s1.proposed).toBe(1);
     expect(listProposals(db, E, 'proposed').length).toBe(1);
-    const s2 = await runTriageOnce({ db, cfg, client: proposingClient() }, E, P);
+    const s2 = await runTriageOnce({ db, cfg, client: proposingClient(), memory: new OffMemory() }, E, P);
     expect(s2.proposed).toBe(0);
     expect(s2.skipped).toBeGreaterThan(0);
   });
 
   it('skips non-open exceptions (dispositioned) — I1', async () => {
     applyDisposition(db, { entityId: E, category: 'CLASSIFY_REVIEW', eventId: 'ev-1', to: 'resolved', reasonCode: 'RECLASSIFIED', decidedBy: 'demo-controller', now: 1 });
-    const s = await runTriageOnce({ db, cfg, client: proposingClient() }, E, P);
+    const s = await runTriageOnce({ db, cfg, client: proposingClient(), memory: new OffMemory() }, E, P);
     expect(s.proposed).toBe(0);
   });
 
   it('cooldown: skips exceptions with a rejected proposal (CPA F9)', async () => {
     const p = insertProposal(db, { exceptionId: 'CLASSIFY_REVIEW:ev-1', eventId: 'ev-1', entityId: E, periodId: P, action: 'deferred', reasonCode: 'PENDING_DOC', reasonNote: null, rationale: 'r', confidence: 0.5, model: 'm', createdAt: 1 });
     decideProposal(db, p.id, 'rejected', 'demo-controller', null, 2);
-    const s = await runTriageOnce({ db, cfg, client: proposingClient() }, E, P);
+    const s = await runTriageOnce({ db, cfg, client: proposingClient(), memory: new OffMemory() }, E, P);
     expect(s.proposed).toBe(0);
   });
 
   it('whole round skips when period locked (CPA F8c)', async () => {
     // A NEEDS_REVIEW event blocks lock via cockpit lights, so lock the period directly at the store level.
     lockPeriod(db, { entityId: E, periodId: P, lightsSnapshot: '[]', lockedBy: 'demo-controller', now: 1 });
-    const s = await runTriageOnce({ db, cfg, client: proposingClient() }, E, P);
+    const s = await runTriageOnce({ db, cfg, client: proposingClient(), memory: new OffMemory() }, E, P);
     expect(s.roundSkipped).toBe('PERIOD_LOCKED');
     expect(s.scanned).toBe(0);
   });
 
   it('whole round skips when entity anchored (I2)', async () => {
     seedSnapshot(db, { id: 's1', entityId: E, periodId: P, status: 'ANCHORED' });
-    const s = await runTriageOnce({ db, cfg, client: proposingClient() }, E, P);
+    const s = await runTriageOnce({ db, cfg, client: proposingClient(), memory: new OffMemory() }, E, P);
     expect(s.roundSkipped).toBe('ANCHORED');
   });
 
   it('invalid LLM output is discarded (failed++), never stored', async () => {
-    const s = await runTriageOnce({ db, cfg, client: proposingClient({ action: 'nuked', reasonCode: 'YOLO', rationale: 'x', confidence: 99 }) }, E, P);
+    const s = await runTriageOnce({ db, cfg, client: proposingClient({ action: 'nuked', reasonCode: 'YOLO', rationale: 'x', confidence: 99 }), memory: new OffMemory() }, E, P);
     expect(s.failed).toBe(1);
     expect(listProposals(db, E).length).toBe(0);
   });
@@ -149,7 +150,7 @@ describe('runTriageOnce', () => {
         return good as never;
       },
     };
-    const s = await runTriageOnce({ db, cfg, client: lockingClient }, E, P);
+    const s = await runTriageOnce({ db, cfg, client: lockingClient, memory: new OffMemory() }, E, P);
     expect(s.proposed).toBe(0);
     expect(s.skipped).toBeGreaterThan(0);
     expect(listProposals(db, E).length).toBe(0);
@@ -165,7 +166,7 @@ describe('runTriageOnce', () => {
         return good as never;
       },
     };
-    const s = await runTriageOnce({ db, cfg, client: flaky }, E, P);
+    const s = await runTriageOnce({ db, cfg, client: flaky, memory: new OffMemory() }, E, P);
     expect(s.failed).toBe(1);
     expect(s.proposed).toBe(1);
   });
