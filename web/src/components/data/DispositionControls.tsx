@@ -74,9 +74,11 @@ function ReasonSelect({
 export function DispositionControls({
   exception,
   entityId,
+  demoted,
 }: {
   exception: ExceptionDTO;
   entityId: string;
+  demoted?: boolean;
 }) {
   const dispose = useDisposition(entityId);
   const [activePanel, setActivePanel] = useState<ActivePanel>(null);
@@ -148,7 +150,8 @@ export function DispositionControls({
       <div style={{ display: 'flex', gap: 'var(--s-2)', flexWrap: 'wrap' }}>
         {valid.includes('resolved') && (
           <button
-            className="btn-primary"
+            className={demoted ? undefined : 'btn-primary'}
+            style={demoted ? ghostStyle : undefined}
             disabled={dispose.isPending}
             aria-expanded={activePanel === 'resolve'}
             onClick={() => togglePanel('resolve')}

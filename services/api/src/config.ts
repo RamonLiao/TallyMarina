@@ -18,6 +18,10 @@ export interface ApiConfig {
   exceptionLowConfidence: number;
   explorerBase: string;
   reconLiveWallet?: string;
+  /** Triage scheduler tick in ms. 0 (default) = scheduler OFF. */
+  triageIntervalMs: number;
+  /** Agent may not propose dismiss/IMMATERIAL_WAIVED above this amount (deterministic gate, CPA F5). */
+  triageMaterialityThreshold: number;
 }
 
 function req(env: NodeJS.ProcessEnv, key: string): string {
@@ -38,6 +42,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
   }
   const port = Number(req(env, 'PORT'));
   if (!Number.isInteger(port) || port <= 0) throw new Error(`PORT must be a positive integer, got ${env['PORT']}`);
+  const triageIntervalRaw = env['TRIAGE_INTERVAL_MS'];
+  const triageIntervalMs = triageIntervalRaw === undefined || triageIntervalRaw === '' ? 0 : Number(triageIntervalRaw);
+  if (!Number.isInteger(triageIntervalMs) || triageIntervalMs < 0) {
+    throw new Error(`TRIAGE_INTERVAL_MS must be a non-negative integer, got ${triageIntervalRaw}`);
+  }
+  const triageMatRaw = env['TRIAGE_MATERIALITY_THRESHOLD'];
+  const triageMaterialityThreshold = triageMatRaw === undefined || triageMatRaw === '' ? 1000 : Number(triageMatRaw);
+  if (!Number.isFinite(triageMaterialityThreshold) || triageMaterialityThreshold <= 0) {
+    throw new Error(`TRIAGE_MATERIALITY_THRESHOLD must be a positive number, got ${triageMatRaw}`);
+  }
   return {
     port,
     dbPath: req(env, 'DB_PATH'),
@@ -56,5 +70,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     exceptionLowConfidence,
     explorerBase: req(env, 'EXPLORER_BASE'),
     reconLiveWallet: env['RECON_LIVE_WALLET'] && env['RECON_LIVE_WALLET'] !== '' ? env['RECON_LIVE_WALLET'] : undefined,
+    triageIntervalMs,
+    triageMaterialityThreshold,
   };
 }

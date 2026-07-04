@@ -6,7 +6,7 @@ const CAT_META: Record<ExceptionCategory, { glyph: string; label: string }> = {
   LOW_CONFIDENCE_AUTO: { glyph: '◌', label: 'Low confidence' },
 };
 
-function Row({ e, selected, onSelect }: { e: ExceptionDTO; selected: boolean; onSelect(id: string): void }) {
+function Row({ e, selected, onSelect, proposalIds }: { e: ExceptionDTO; selected: boolean; onSelect(id: string): void; proposalIds?: Set<string> }) {
   const blocker = e.severity >= 2;
   const m = CAT_META[e.category];
   return (
@@ -31,6 +31,13 @@ function Row({ e, selected, onSelect }: { e: ExceptionDTO; selected: boolean; on
       <span aria-hidden style={{ fontSize: 18 /* icon */ }}>{m.glyph}</span>
       <span>
         <span style={{ fontSize: 'var(--text-xs)', fontWeight: blocker ? 700 : 500, color: 'var(--ink)' }}>{m.label}</span>
+        {proposalIds?.has(e.exceptionId) && (
+          <span className="mono" style={{
+            marginLeft: 'var(--s-2)', fontSize: 'var(--text-xs)', padding: '1px 8px',
+            borderRadius: 'var(--radius-pill)',
+            background: 'color-mix(in srgb, var(--brass) 12%, transparent)', color: 'var(--brass)',
+          }}>agent</span>
+        )}
         <span
           className="mono"
           style={{ display: 'block', fontSize: 'var(--text-xs)', color: 'var(--ink-soft)' }}
@@ -49,10 +56,12 @@ export function ExceptionList({
   exceptions,
   selectedId,
   onSelect,
+  proposalIds,
 }: {
   exceptions: ExceptionDTO[];
   selectedId: string | null;
   onSelect(id: string): void;
+  proposalIds?: Set<string>;
 }) {
   const blockers = exceptions.filter((e) => e.severity >= 2);
   const rest = exceptions.filter((e) => e.severity < 2);
@@ -77,6 +86,7 @@ export function ExceptionList({
             e={e}
             selected={e.exceptionId === selectedId}
             onSelect={onSelect}
+            proposalIds={proposalIds}
           />
         ))}
       </div>

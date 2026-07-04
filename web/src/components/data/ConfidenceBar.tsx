@@ -48,7 +48,7 @@ export function ConfidenceBar({
     <div
       data-testid="confidence-bar"
       data-routing={routing}
-      style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-3)', minWidth: compact ? 0 : 320 }}
+      style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-3)', minWidth: compact ? 0 : 'min(320px, 100%)' }}
     >
       <div
         style={{

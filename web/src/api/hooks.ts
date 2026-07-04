@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as api from './endpoints';
 import { fetchJson } from './client';
-import type { DispositionState, ExceptionsResponse, ReasonCode } from './types';
+import type { DispositionState, ExceptionsResponse, ProposalsResponse, ReasonCode } from './types';
 
 export const qk = {
   entities: () => ['entities'] as const,
@@ -89,6 +89,10 @@ export function useDecide(entityId: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: qk.events(entityId) });
       qc.invalidateQueries({ queryKey: qk.reviewQueue(entityId) });
+      // A decide can change the CLASSIFY_REVIEW exception's underlying event and outrun a
+      // still-`proposed` agent proposal on it (same reasoning as useDisposition).
+      qc.invalidateQueries({ queryKey: ['exceptions', entityId] });
+      qc.invalidateQueries({ queryKey: ['triage-proposals', entityId] });
     },
   });
 }
@@ -150,6 +154,44 @@ export function useDisposition(entityId: string | undefined) {
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['exceptions', entityId ?? ''] });
+      // A manual disposition can outrun a still-`proposed` agent proposal on the same
+      // exception; without this the list/detail keep showing the stale agent badge.
+      qc.invalidateQueries({ queryKey: ['triage-proposals', entityId ?? ''] });
     },
+  });
+}
+
+// ---- Triage agent hooks ----
+
+export function useTriageProposals(entityId: string | undefined) {
+  return useQuery({
+    queryKey: ['triage-proposals', entityId ?? ''],
+    queryFn: () => fetchJson<ProposalsResponse>(`/entities/${encodeURIComponent(entityId!)}/triage/proposals`),
+    enabled: !!entityId,
+  });
+}
+
+function invalidateTriage(qc: ReturnType<typeof useQueryClient>, entityId: string | undefined) {
+  qc.invalidateQueries({ queryKey: ['triage-proposals', entityId ?? ''] });
+  qc.invalidateQueries({ queryKey: ['exceptions', entityId ?? ''] });
+}
+
+export function useAcceptProposal(entityId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (proposalId: number) =>
+      fetchJson(`/triage/proposals/${proposalId}/accept`, { method: 'POST', body: JSON.stringify({}) }),
+    onSuccess: () => invalidateTriage(qc, entityId),
+    onError: () => invalidateTriage(qc, entityId), // 409 stale → refresh so the card disappears
+  });
+}
+
+export function useRejectProposal(entityId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { proposalId: number; note?: string }) =>
+      fetchJson(`/triage/proposals/${v.proposalId}/reject`, { method: 'POST', body: JSON.stringify({ note: v.note }) }),
+    onSuccess: () => invalidateTriage(qc, entityId),
+    onError: () => invalidateTriage(qc, entityId), // 409 stale → refresh so the card disappears
   });
 }

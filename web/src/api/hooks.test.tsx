@@ -12,6 +12,7 @@ import {
   useDecide,
   useRunRules,
   useConfirmAnchor,
+  useDisposition,
   qk,
 } from './hooks';
 import * as endpoints from './endpoints';
@@ -134,6 +135,24 @@ it('useDecide invalidates events AND review-queue — stale review list would sh
   expect(keys).toContainEqual(qk.reviewQueue(ENTITY_ID));
 });
 
+it('useDecide invalidates exceptions AND triage-proposals — a decide must clear a stale agent proposal badge (F2)', async () => {
+  vi.spyOn(endpoints, 'decide').mockResolvedValue({
+    id: 'evt-1', entityId: ENTITY_ID, status: 'APPROVED', normalized: {}, ai: null, final: null, routing: null,
+  });
+  const { qc, wrapper } = makeWrapper();
+  const spy = vi.spyOn(qc, 'invalidateQueries');
+
+  const { result } = renderHook(() => useDecide(ENTITY_ID), { wrapper });
+  await act(async () => {
+    result.current.mutate({ eventId: 'evt-1', finalEventType: 'TRANSFER', finalPurpose: 'vendor payment' });
+  });
+  await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+  const keys = spy.mock.calls.map((c) => (c[0] as { queryKey: readonly unknown[] }).queryKey);
+  expect(keys).toContainEqual(['exceptions', ENTITY_ID]);
+  expect(keys).toContainEqual(['triage-proposals', ENTITY_ID]);
+});
+
 it('useRunRules invalidates journal AND events — new JEs must appear immediately', async () => {
   vi.spyOn(endpoints, 'runRules').mockResolvedValue({ posted: 2, skipped: 0, journal: [] });
   const { qc, wrapper } = makeWrapper();
@@ -146,6 +165,25 @@ it('useRunRules invalidates journal AND events — new JEs must appear immediate
   const keys = spy.mock.calls.map((c) => (c[0] as { queryKey: readonly unknown[] }).queryKey);
   expect(keys).toContainEqual(qk.journal(ENTITY_ID));
   expect(keys).toContainEqual(qk.events(ENTITY_ID));
+});
+
+it('useDisposition invalidates exceptions AND triage-proposals — a manual disposition must clear a stale agent proposal badge', async () => {
+  const spy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}', { status: 200 }));
+  const { qc, wrapper } = makeWrapper();
+  const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+
+  const { result } = renderHook(() => useDisposition(ENTITY_ID), { wrapper });
+  await act(async () => {
+    result.current.mutate({ exceptionId: 'RULES_FAILED:2', state: 'resolved', reasonCode: 'RECLASSIFIED' });
+  });
+  await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+  const keys = spy.mock.calls; // sanity: it actually hit the disposition endpoint
+  expect(String(keys[0]![0])).toContain('/disposition');
+
+  const invalidatedKeys = invalidateSpy.mock.calls.map((c) => (c[0] as { queryKey: readonly unknown[] }).queryKey);
+  expect(invalidatedKeys).toContainEqual(['exceptions', ENTITY_ID]);
+  expect(invalidatedKeys).toContainEqual(['triage-proposals', ENTITY_ID]);
 });
 
 it('useConfirmAnchor invalidates anchors — on-chain digest must be visible right after confirmation', async () => {

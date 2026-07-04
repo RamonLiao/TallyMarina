@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useEntityCtx } from '../app/EntityContext';
-import { useExceptions } from '../api/hooks';
+import { useExceptions, useTriageProposals } from '../api/hooks';
 import { ExceptionList } from '../components/data/ExceptionList';
 import { ExceptionDetail } from '../components/data/ExceptionDetail';
 import { EmptyState } from '../components/chrome/EmptyState';
@@ -8,9 +8,13 @@ import { EmptyState } from '../components/chrome/EmptyState';
 export function ExceptionsWorkspace() {
   const { entity } = useEntityCtx();
   const { data } = useExceptions(entity?.id);
+  const { data: triage } = useTriageProposals(entity?.id);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const exceptions = data?.exceptions ?? [];
   const selected = exceptions.find((e) => e.exceptionId === selectedId) ?? null;
+  const proposals = (triage?.proposals ?? []).filter((p) => p.status === 'proposed');
+  const proposalIds = new Set(proposals.map((p) => p.exceptionId));
+  const selectedProposal = selected ? proposals.find((p) => p.exceptionId === selected.exceptionId) ?? null : null;
 
   if (exceptions.length === 0) return <EmptyState variant="clear-seas" />;
 
@@ -25,11 +29,21 @@ export function ExceptionsWorkspace() {
       >
         <div style={{ padding: 'var(--s-3)', fontSize: 'var(--text-sm)' }}>
           {data?.summary.open ?? 0} open · {data?.summary.blocking ?? 0} blocking close
+          {proposals.length > 0 && (
+            <span className="mono" style={{
+              marginLeft: 'var(--s-2)', fontSize: 'var(--text-xs)', padding: '1px 8px',
+              borderRadius: 'var(--radius-pill)',
+              background: 'color-mix(in srgb, var(--brass) 12%, transparent)', color: 'var(--brass)',
+            }}>
+              {proposals.length} agent proposal{proposals.length === 1 ? '' : 's'} pending
+            </span>
+          )}
         </div>
         <ExceptionList
           exceptions={exceptions}
           selectedId={selectedId}
           onSelect={setSelectedId}
+          proposalIds={proposalIds}
         />
       </div>
       <div className="exceptions-detail-pane" style={{ flex: '1 1 360px' }}>
@@ -53,7 +67,7 @@ export function ExceptionsWorkspace() {
           </button>
         )}
         {selected ? (
-          <ExceptionDetail exception={selected} entityId={entity!.id} />
+          <ExceptionDetail exception={selected} entityId={entity!.id} proposal={selectedProposal} />
         ) : (
           <EmptyState variant="pick-one" />
         )}

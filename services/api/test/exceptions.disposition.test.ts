@@ -76,4 +76,18 @@ describe('disposition state machine', () => {
       }
     }
   });
+
+  it('records source + proposalId in row and audit log; defaults to HUMAN/null', () => {
+    const agentRow = applyDisposition(db, base({ eventId: 'ev2', to: 'deferred', source: 'AGENT_PROPOSAL', proposalId: 42 }) as never);
+    expect(agentRow.source).toBe('AGENT_PROPOSAL');
+    expect(agentRow.proposalId).toBe(42);
+
+    const humanRow = applyDisposition(db, base({ eventId: 'ev2', to: 'resolved' }) as never);
+    expect(humanRow.source).toBe('HUMAN');
+    expect(humanRow.proposalId).toBeNull();
+
+    const logs = db.prepare('SELECT source, proposal_id FROM exception_disposition_log WHERE event_id = ? ORDER BY seq').all('ev2') as Array<Record<string, unknown>>;
+    expect(logs.at(-2)).toEqual({ source: 'AGENT_PROPOSAL', proposal_id: 42 });
+    expect(logs.at(-1)).toEqual({ source: 'HUMAN', proposal_id: null });
+  });
 });

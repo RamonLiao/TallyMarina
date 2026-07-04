@@ -5,11 +5,12 @@ import { dirname, join } from 'node:path';
 import { loadConfig } from './config.js';
 import { openDb } from './store/db.js';
 import { seed } from './store/seed.js';
-import { registerRoutes } from './http/routes.js';
+import { registerRoutes, DEFAULT_PERIOD } from './http/routes.js';
 import { makeGeminiClient } from './ai/geminiClient.js';
 import { makeEntityMutex } from '@subledger/anchor-svc';
 import { makeGrpcAdapter } from './grpcClient.js';
 import type { FixtureBundle } from './deps/ingestion.js';
+import { makeTriageRunner, startTriageScheduler } from './triage/scheduler.js';
 
 const cfg = loadConfig();
 const db = openDb(cfg.dbPath);
@@ -25,6 +26,8 @@ seed(db, {
 const { adapter } = makeGrpcAdapter(cfg);
 const ai = makeGeminiClient(cfg.geminiApiKey);
 const mutex = makeEntityMutex();
+const triageRunner = makeTriageRunner({ db, cfg, client: ai });
+startTriageScheduler(triageRunner, cfg.triageIntervalMs, cfg.entityId, DEFAULT_PERIOD);
 
 const app = Fastify({ logger: true });
 app.addHook('onRequest', async (_req, reply) => {
@@ -32,7 +35,7 @@ app.addHook('onRequest', async (_req, reply) => {
   reply.header('access-control-allow-headers', 'content-type');
 });
 app.options('/*', async (_req, reply) => reply.code(204).send());
-registerRoutes(app, { db, cfg, classifyClient: ai, copilotClient: ai, anchorAdapter: adapter, mutex });
+registerRoutes(app, { db, cfg, classifyClient: ai, copilotClient: ai, anchorAdapter: adapter, mutex, triageRunner });
 
 app.listen({ port: cfg.port, host: '0.0.0.0' })
   .then(() => app.log.info(`api on :${cfg.port}`))
