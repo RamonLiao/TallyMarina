@@ -30,6 +30,10 @@ describe('memory config', () => {
     expect(() => loadConfig(baseEnv({ TRIAGE_MEMORY_MODE: 'bogus' }))).toThrow(/TRIAGE_MEMORY_MODE/);
   });
 
+  it('empty-string TRIAGE_MEMORY_MODE defaults to off (matches other env fields\' undefined-or-empty convention)', () => {
+    expect(loadConfig(baseEnv({ TRIAGE_MEMORY_MODE: '' })).memory.mode).toBe('off');
+  });
+
   it('mode=local needs no memwal creds and parses defaults', () => {
     const m = loadConfig(baseEnv({ TRIAGE_MEMORY_MODE: 'local' })).memory;
     expect(m.mode).toBe('local');

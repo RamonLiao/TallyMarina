@@ -66,7 +66,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
   if (!Number.isFinite(triageMaterialityThreshold) || triageMaterialityThreshold <= 0) {
     throw new Error(`TRIAGE_MATERIALITY_THRESHOLD must be a positive number, got ${triageMatRaw}`);
   }
-  const memMode = (env['TRIAGE_MEMORY_MODE'] ?? 'off') as string;
+  const memModeRaw = env['TRIAGE_MEMORY_MODE'];
+  const memMode = (memModeRaw === undefined || memModeRaw === '' ? 'off' : memModeRaw) as string;
   if (!['off', 'local', 'memwal'].includes(memMode)) {
     throw new Error(`TRIAGE_MEMORY_MODE must be off|local|memwal, got ${memMode}`);
   }
