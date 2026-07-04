@@ -148,7 +148,8 @@ CREATE TABLE IF NOT EXISTS triage_proposal (
   created_at    INTEGER NOT NULL,
   decided_by    TEXT,
   decided_at    INTEGER,
-  decision_note TEXT
+  decision_note TEXT,
+  recall_context TEXT
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_triage_open ON triage_proposal(exception_id) WHERE status = 'proposed';
 CREATE TABLE IF NOT EXISTS triage_proposal_log (

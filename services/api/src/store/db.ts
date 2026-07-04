@@ -19,6 +19,7 @@ export function openDb(path: string): Db {
     'ALTER TABLE exception_disposition ADD COLUMN proposal_id INTEGER',
     "ALTER TABLE exception_disposition_log ADD COLUMN source TEXT NOT NULL DEFAULT 'HUMAN'",
     'ALTER TABLE exception_disposition_log ADD COLUMN proposal_id INTEGER',
+    'ALTER TABLE triage_proposal ADD COLUMN recall_context TEXT',
   ];
   for (const m of MIGRATIONS) {
     try { db.exec(m); } catch (err) {
