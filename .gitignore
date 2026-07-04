@@ -6,6 +6,9 @@ tasks/lessons.md
 .claude/
 CLAUDE.md
 **/memory/
+# ...but the triage-memory feature has a legit source module at this path; keep it tracked.
+!services/api/src/triage/memory/
+!services/api/src/triage/memory/**
 
 # node / build
 node_modules/
