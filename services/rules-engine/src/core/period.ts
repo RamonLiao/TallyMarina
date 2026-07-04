@@ -6,6 +6,9 @@ export type PeriodId = string; // 'YYYY-Q{1..4}'
  * the quarter algorithm — do not re-implement quarter math anywhere else.
  */
 export function periodOf(eventTime: string | Date): PeriodId {
+  if (eventTime == null || (typeof eventTime !== 'string' && !(eventTime instanceof Date))) {
+    throw new Error(`INVALID_EVENT_TIME: expected string or Date, got '${String(eventTime)}'`);
+  }
   const d = eventTime instanceof Date ? eventTime : new Date(eventTime);
   const ms = d.getTime();
   if (Number.isNaN(ms)) {

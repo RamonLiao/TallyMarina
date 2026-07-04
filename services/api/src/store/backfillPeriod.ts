@@ -7,6 +7,18 @@ import { periodOf } from '@subledger/rules-engine';
  * Fail-loud on unparseable time, residual nulls, or P1 anchor-root change (spec §6.2, §7).
  */
 export function backfillPeriodIds(db: Db): { events: number; journalEntries: number } {
+  // One-time-migration marker: once every event has period_id set (T4's insert
+  // path always sets it), the migration is done — skip backfill, JE-inherit,
+  // residual gate, AND the P1 gate on every subsequent process boot. Without
+  // this, P1 becomes a permanent every-boot invariant and can brick startup
+  // for entities that legitimately span periods after the one-time migration.
+  const pending = db.prepare(`SELECT COUNT(*) AS n FROM events WHERE period_id IS NULL`).get() as {
+    n: number;
+  };
+  if (pending.n === 0) {
+    return { events: 0, journalEntries: 0 };
+  }
+
   const nullEvents = db
     .prepare(`SELECT id, raw_json FROM events WHERE period_id IS NULL`)
     .all() as { id: string; raw_json: string }[];

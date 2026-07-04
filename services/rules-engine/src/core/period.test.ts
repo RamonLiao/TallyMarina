@@ -30,4 +30,13 @@ describe('periodOf', () => {
     expect(() => periodOf('not-a-date')).toThrow(/^INVALID_EVENT_TIME/);
     expect(() => periodOf('')).toThrow(/^INVALID_EVENT_TIME/);
   });
+
+  it('rejects null, undefined, and numeric eventTime instead of silently mapping to epoch', () => {
+    // new Date(null) === epoch 0 and new Date(0) === epoch 0 — both would
+    // otherwise silently resolve to '1970-Q1' with no throw. Dirty legacy
+    // data must fail loud, not misattribute to 1970-Q1.
+    expect(() => periodOf(null as any)).toThrow(/^INVALID_EVENT_TIME/);
+    expect(() => periodOf(undefined as any)).toThrow(/^INVALID_EVENT_TIME/);
+    expect(() => periodOf(0 as any)).toThrow(/^INVALID_EVENT_TIME/);
+  });
 });

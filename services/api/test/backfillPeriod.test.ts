@@ -41,4 +41,41 @@ describe('backfillPeriodIds', () => {
     db.prepare(`INSERT INTO events (id, entity_id, raw_json, status) VALUES ('bad','acme','{"eventTime":"garbage"}','INGESTED')`).run();
     expect(() => backfillPeriodIds(db as any)).toThrow(/INVALID_EVENT_TIME/);
   });
+
+  it('P1 gate: aborts when an anchored entity spans 2 distinct periods', () => {
+    const db = legacyDb(); // e1=Q1, e2=Q2 for entity 'acme', both period_id NULL
+    db.prepare(`INSERT INTO snapshots (id, entity_id, period_id, merkle_root, status) VALUES ('s1','acme',NULL,'root1','ANCHORED')`).run();
+    expect(() => backfillPeriodIds(db as any)).toThrow(/MIGRATION_P1_ANCHOR_ROOT_CHANGED/);
+  });
+
+  it('P1 gate: passes when an anchored entity has events in a single period', () => {
+    const db = legacyDb();
+    // Remove the cross-period event so 'acme' only has e1 (Q1).
+    db.prepare(`DELETE FROM events WHERE id = 'e2'`).run();
+    db.prepare(`INSERT INTO snapshots (id, entity_id, period_id, merkle_root, status) VALUES ('s1','acme',NULL,'root1','ANCHORED')`).run();
+    const result = backfillPeriodIds(db as any);
+    expect(result.events).toBe(1);
+    const e1 = db.prepare(`SELECT period_id FROM events WHERE id='e1'`).get() as { period_id: string };
+    expect(e1.period_id).toBe('2026-Q1');
+  });
+
+  it('one-time skip: once migrated, the gate is dormant on every subsequent boot (Critical fix)', () => {
+    const db = legacyDb();
+    // First boot: successful migration, no anchored entities yet.
+    const first = backfillPeriodIds(db as any);
+    expect(first.events).toBe(2);
+
+    // Simulate a later boot: entity now has an ANCHORED snapshot and a new
+    // second-period event, WITHOUT nulling existing period_ids. Pre-fix, the
+    // P1 gate would run again on every boot and throw here, bricking the API
+    // process on restart. Post-fix, period_id is already fully populated so
+    // the migration marker (COUNT WHERE period_id IS NULL = 0) short-circuits
+    // the whole block before P1 ever runs.
+    db.prepare(`INSERT INTO snapshots (id, entity_id, period_id, merkle_root, status) VALUES ('s1','acme','2026-Q1','root1','ANCHORED')`).run();
+    db.prepare(`INSERT INTO events (id, entity_id, raw_json, status, period_id) VALUES ('e3','acme',?, 'INGESTED', '2026-Q3')`)
+      .run(JSON.stringify({ eventTime: '2026-08-01T00:00:00Z' }));
+
+    const second = backfillPeriodIds(db as any);
+    expect(second).toEqual({ events: 0, journalEntries: 0 });
+  });
 });
