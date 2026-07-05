@@ -13,7 +13,33 @@ export function insertJournalEntry(db: Db, r: JournalRow): 'inserted' | 'duplica
   const result = db
     .prepare('INSERT OR IGNORE INTO journal_entries (id, entity_id, event_id, je_json, idempotency_key, leaf_hash, period_id) VALUES (?, ?, ?, ?, ?, ?, ?)')
     .run(r.id, r.entityId, r.eventId, r.jeJson, r.idempotencyKey, r.leafHash, r.periodId);
-  return result.changes > 0 ? 'inserted' : 'duplicate';
+  if (result.changes > 0) return 'inserted';
+  // No row inserted → idempotency_key already exists. Mirrors insertLotMovement's fail-loud
+  // pattern (commit aa17bf2): a true replay carries an IDENTICAL payload (entity_id, event_id,
+  // je_json) → return 'duplicate' (no-op). A DIFFERENT payload under the same key means two
+  // distinct events collided on the engine JE key (which excludes eventId) — e.g. two OPENING_LOT
+  // ingests sharing (entityId, bookId, rawPayloadHash, txDigest, eventIndex) but different
+  // eventId/openingCostMinor. Silently swallowing that lets a forged event ride in under the
+  // first event's identity while its lot_movement still posts with attacker-chosen basis
+  // (phantom-lot forgery) — fail loud, never silent-drop.
+  const prev = db.prepare(
+    'SELECT entity_id, event_id, je_json FROM journal_entries WHERE idempotency_key = ?',
+  ).get(r.idempotencyKey) as { entity_id: string; event_id: string; je_json: string } | undefined;
+  if (!prev) {
+    throw new Error(
+      `insertJournalEntry: row id=${r.id} idempotency_key=${r.idempotencyKey} was not inserted and no `
+      + `existing row matches this idempotency_key — a non-key constraint (e.g. duplicate id) silently `
+      + `dropped the insert — ledger corruption`,
+    );
+  }
+  if (prev.entity_id !== r.entityId || prev.event_id !== r.eventId || prev.je_json !== r.jeJson) {
+    throw new Error(
+      `insertJournalEntry: idempotency_key ${r.idempotencyKey} already persisted with a DIFFERENT payload `
+      + `(existing entity=${prev.entity_id} ev=${prev.event_id} je=${prev.je_json}; `
+      + `attempted entity=${r.entityId} ev=${r.eventId} je=${r.jeJson}) — ledger corruption`,
+    );
+  }
+  return 'duplicate';
 }
 
 export function listJournal(db: Db, entityId: string, periodId?: string): JournalRow[] {

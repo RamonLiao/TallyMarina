@@ -253,11 +253,44 @@ describe('monkey: lot ledger integrity under garbage, concurrency, restart (C4 T
     await app.close();
   });
 
+  it('monkey: same-key OPENING_LOT ingest with a DIFFERENT eventId/cost FAILS LOUD — phantom-lot forgery blocked (dual-review R1 #1)', async () => {
+    // Two ingests share (entityId, bookId, rawPayloadHash, txDigest, eventIndex) — exactly the
+    // fields the engine's JE idempotency key is built from (eventId is deliberately NOT one of
+    // them, see rules-engine/src/core/idempotency.ts) — but carry a DIFFERENT eventId and
+    // openingCostMinor. This is NOT a replay: it's a forged event riding in under the first
+    // event's JE identity. Before this fix, insertJournalEntry silently no-op'd on the key
+    // collision (anchorJeId stayed null) while the movement insert still went through under a
+    // FRESH key (`${anchorKey}|OPEN-<fj2>`), landing a lot_movement row with je_id NULL and
+    // attacker-chosen basis — a phantom "legacy-looking" lot. It must now fail loud instead.
+    const app = await freshApp();
+    const db = app._db;
+    seedAuto(db, 'fj1', opening({ eventId: 'fj1', txDigest: 'DIG-DUP', eventIndex: 0, openingCostMinor: '500000' }));
+    const r1 = await app.inject({ method: 'POST', url: `/entities/${E}/run-rules`, payload: { periodId: P } });
+    expect(r1.statusCode).toBe(200);
+    expect((r1.json() as { posted: number }).posted).toBe(1);
+
+    seedAuto(db, 'fj2', opening({ eventId: 'fj2', txDigest: 'DIG-DUP', eventIndex: 0, openingCostMinor: '999999' }));
+    const r2 = await app.inject({ method: 'POST', url: `/entities/${E}/run-rules`, payload: { periodId: P } });
+    // Fastify's global error handler (routes.ts setErrorHandler) maps any uncaught store throw to
+    // a 500 with the generic INTERNAL envelope — pin the exact surface so this test breaks loudly
+    // if that mapping ever silently changes back to swallowing the error.
+    expect(r2.statusCode).toBe(500);
+    expect(r2.json()).toEqual({ error: { code: 'INTERNAL', message: 'Internal error' } });
+
+    // No phantom lot, no phantom JE: the whole persist() transaction for fj2 rolled back atomically.
+    expect(listLotMovements(db, E).some((m) => m.lotId === 'OPEN-fj2')).toBe(false);
+    expect(db.prepare('SELECT COUNT(*) AS c FROM journal_entries WHERE entity_id = ?').get(E)).toEqual({ c: 1 });
+    await app.close();
+  });
+
   it('monkey: cross-event duplicate registration double-counts SYMMETRICALLY — documented non-defense (spec §6)', async () => {
-    // Two distinct real-world opening events (different eventIds, different txDigests — the
-    // idempotency key derives from (txDigest, eventIndex), so distinct digests are required or
-    // the second event silently collides with the first instead of exercising the cross-event
-    // case at all) that happen to declare the SAME wallet/coin/cost. The engine has no cross-event
+    // Two distinct real-world opening events (different eventIds, different txDigests, that happen
+    // to declare the SAME wallet/coin/cost). The JE idempotency key derives from (entityId, bookId,
+    // rawPayloadHash, txDigest, eventIndex) — which excludes eventId — so a SHARED (txDigest,
+    // eventIndex, rawPayloadHash) now FAILS LOUD on payload mismatch (insertJournalEntry throws;
+    // see the dedicated forgery test above) rather than silently colliding. Distinct digests are
+    // used here on purpose to exercise the intended cross-event DOUBLE-POST path instead. The
+    // engine has no cross-event
     // dedup for OPENING_LOT — it isn't supposed to, since two truly independent lots CAN share
     // those attributes — so both post, and OBE (the credit side) doubles. This pins that the
     // doubling is SYMMETRIC (both DigitalAssets and OpeningBalanceEquity double together, so the
