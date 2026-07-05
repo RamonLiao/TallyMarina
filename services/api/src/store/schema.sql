@@ -178,3 +178,23 @@ CREATE TABLE IF NOT EXISTS rejected_event_log (
   reason      TEXT NOT NULL,
   rejected_at TEXT NOT NULL
 );
+-- C4 (spec §2): append-only lot movement ledger. Signed deltas mirror the engine's
+-- LotMovement (+acquire/−dispose = quantity direction, NOT debit/credit).
+-- Derived ledger: rows are a materialized audit trail; truth is recomputable from events.
+CREATE TABLE IF NOT EXISTS lot_movement (
+  id TEXT PRIMARY KEY,
+  entity_id TEXT NOT NULL REFERENCES entities(id),
+  event_id TEXT NOT NULL REFERENCES events(id),
+  je_id TEXT REFERENCES journal_entries(id),      -- NULL for OPENING_LOT (no JE this round)
+  lot_id TEXT NOT NULL,
+  lot_seq TEXT NOT NULL,                          -- sortable FIFO key: '<eventTime>|<eventId>' (lot_id is NOT chronological)
+  period_id TEXT NOT NULL,
+  coin_type TEXT NOT NULL,
+  wallet TEXT NOT NULL,
+  delta_qty_minor TEXT NOT NULL,                  -- signed BigInt string
+  delta_cost_minor TEXT NOT NULL,
+  cost_basis_method TEXT NOT NULL,                -- 'FIFO' constant this round; append-only provenance
+  policy_set_version TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL UNIQUE
+);
+CREATE INDEX IF NOT EXISTS idx_lot_movement_pool ON lot_movement (entity_id, wallet, coin_type);
