@@ -7,8 +7,11 @@
  *      '0'/negative/whitespace/scientific-notation qty and a missing cost all reject. Note the
  *      asymmetry the spec calls out: '0' QUANTITY is illegal but '0' COST is legal — a control
  *      case proves a well-formed zero-cost opening lot DOES post.
- *   2. Idempotency under concurrency: 20 rapid-fire run-rules must leave the SAME row count as
- *      one run (INSERT OR IGNORE on idempotency_key — no double-post).
+ *   2. Sequential replay idempotency: 20 stacked run-rules calls must leave the SAME row count as
+ *      one run — the status-transition guard (markPosted flips AUTO→POSTED) stops replays 2-20
+ *      from ever seeing a candidate to post, since the handler body has no internal await and
+ *      Promise.all serializes them in effect. The DB-level INSERT OR IGNORE dedup on
+ *      idempotency_key is exercised separately, directly against the store (see next test).
  *   3. Durability: close the DB file and reopen it, re-run — the persisted movements replay to
  *      a no-op (idempotency survives process restart, not just in-memory state).
  *   4. GET /lots on a zero-event entity returns empty groups, never a 500.
@@ -23,7 +26,7 @@ import { registerRoutes } from '../src/http/routes.js';
 import { OffMemory } from '../src/triage/memory/offMemory.js';
 import { insertEntity } from '../src/store/entityStore.js';
 import { insertEvent, setAiSuggestion } from '../src/store/eventStore.js';
-import { listLotMovements } from '../src/store/lotMovementStore.js';
+import { listLotMovements, insertLotMovement } from '../src/store/lotMovementStore.js';
 
 const E = 'e1';
 const P = '2026-Q2';
@@ -112,7 +115,7 @@ describe('monkey: lot ledger integrity under garbage, concurrency, restart (C4 T
     await app.close();
   });
 
-  it('20× rapid-fire concurrent run-rules → movement count identical to a single run', async () => {
+  it('20× stacked run-rules replay → status guard blocks re-post, movement count identical to a single run', async () => {
     // Reference: one run over a receipt + partial disposal.
     const ref = await freshApp();
     seedAuto(ref._db, 'r1', receipt({ eventId: 'r1' }));
@@ -122,7 +125,11 @@ describe('monkey: lot ledger integrity under garbage, concurrency, restart (C4 T
     expect(singleRunCount).toBeGreaterThan(0);
     await ref.close();
 
-    // Same seed, but fire 20 run-rules at once. Idempotency (INSERT OR IGNORE) must hold.
+    // Same seed, but stack 20 run-rules calls via Promise.all. NOTE: the handler body has no
+    // internal await, so these run sequentially in effect (JS event loop, single-threaded) — run
+    // #1 posts everything and flips AUTO→POSTED via markPosted, so runs #2-20 see zero candidates.
+    // This proves the status-transition guard, NOT the INSERT OR IGNORE dedup (that's exercised
+    // directly against the store below, since this handler-level test can never trigger it).
     const app = await freshApp();
     seedAuto(app._db, 'r1', receipt({ eventId: 'r1' }));
     seedAuto(app._db, 'pay1', payment({ eventId: 'pay1' }));
@@ -130,6 +137,34 @@ describe('monkey: lot ledger integrity under garbage, concurrency, restart (C4 T
       Array.from({ length: 20 }, () => app.inject({ method: 'POST', url: `/entities/${E}/run-rules`, payload: { periodId: P } })),
     );
     expect(listLotMovements(app._db, E)).toHaveLength(singleRunCount);
+    await app.close();
+  });
+
+  it('INSERT OR IGNORE dedup: re-inserting existing idempotency_key rows is a no-op at the DB layer', async () => {
+    // Genuinely exercises the UNIQUE(idempotency_key) dedup path, independent of the status guard
+    // above. Take the movements a real run-rules pass produced, then try to re-insert each one
+    // under a different row id/values but the SAME idempotencyKey — the UNIQUE constraint must
+    // reject every one, proving the dedup layer works even if the status guard were absent.
+    const app = await freshApp();
+    seedAuto(app._db, 'r1', receipt({ eventId: 'r1' }));
+    seedAuto(app._db, 'pay1', payment({ eventId: 'pay1' }));
+    await app.inject({ method: 'POST', url: `/entities/${E}/run-rules`, payload: { periodId: P } });
+    const before = listLotMovements(app._db, E);
+    expect(before.length).toBeGreaterThan(0);
+
+    for (const m of before) {
+      const result = insertLotMovement(app._db, {
+        ...m,
+        id: `${m.id}-replay`,           // different PK
+        deltaQtyMinor: '999999999',     // different payload — dedup must still fire on idempotencyKey alone
+        deltaCostMinor: '999999999',
+      });
+      expect(result, m.idempotencyKey).toBe('duplicate');
+    }
+
+    const after = listLotMovements(app._db, E);
+    expect(after).toHaveLength(before.length);
+    expect(after).toEqual(before);
     await app.close();
   });
 
