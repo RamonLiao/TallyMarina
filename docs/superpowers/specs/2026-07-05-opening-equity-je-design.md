@@ -1,7 +1,7 @@
 # Opening-Equity JE for OPENING_LOT — Design Spec
 
 **Date**: 2026-07-05
-**Status**: Approved (user); CPA review READY-WITH-FIXES — all 4 findings integrated below
+**Status**: Approved (user); CPA correctness review + three-lens review (SUI architect / CPA sufficiency / frontend) all integrated below — adjudication table in §7
 **Predecessor**: `2026-07-05-c4-lot-store-design.md` §7 deferred item #1
 
 ## 1. Problem
@@ -28,11 +28,15 @@ OPENING_LOT events currently take the no-JE branch (`services/rules-engine/src/r
 `buildJeLines` for OPENING_LOT:
 
 - If `openingCostMinor > 0`: return two legs, both with `amountMinor = openingCostMinor`:
-  - `ACQUISITION` — DEBIT (reuses the existing leg name; resolves to the asset control account)
+  - `ACQUISITION` — DEBIT (reuses the existing leg name; resolves to the asset control account). **Pinned (SUI)**: populate `origCoinType = event.coinType` and `origQtyMinor = event.quantityMinor`, following every existing ACQUISITION leg (`receiptRules.ts:34`, `swapRules.ts:61`). The leaf codec anchors these fields, so the declared quantity and coinType of an anchored opening lot enter the merkle leaf too — a strictly stronger guarantee than cost-only (§6 restated accordingly).
   - `OPENING_EQUITY` — CREDIT (new leg name)
 - If `openingCostMinor === '0'`: return `[]` (current JE-less path unchanged).
 
-`lotMovements` output unchanged. Schema validation unchanged (missing/malformed `openingCostMinor` → `SCHEMA_INVALID`, fail-closed, as today).
+`lotMovements` output unchanged.
+
+**`openingCostMinor` semantics (CPA must-add)**: the value is **functional-currency (USD) minor units of historical cost**, never native-token raw units. Its scale is unrelated to `assetDecimals`/coinType decimals. A wrong-scale value stays internally consistent (JE balances, tie-out holds, drift silent) yet is economically wrong and permanently anchored — the doc pins the contract; ingestion UX validation is out of scope.
+
+**Validation hardening (SUI monkey lens)**: current code only checks falsy — `'-5'` would pass and emit a negative-amount leg, breaking Dr=Cr>0 and the movement sign convention. Pin: non-integer / negative / non-BigInt-parseable `openingCostMinor` → `SCHEMA_INVALID` (fail-closed, matching existing style).
 
 ### 3.2 Chart of accounts (`services/api/src/http/policyConstants.ts`)
 
@@ -47,7 +51,9 @@ Expected zero structural change: the existing transaction already persists JE + 
 
 **Must verify**: the JE-less special-case branch near `routes.ts:449` (persisting movements for POSTABLE outputs with no JE) must not also fire for a JE-backed OPENING_LOT — no double-persist, no skip.
 
-**JE idempotency key (CPA — must be pinned before coding)**: the opening JE's `idempotencyKey` is deterministic: `${eventId}|OPEN`. Note the knock-on effect: `routes.ts:473` computes the movement anchor as `output.journalEntries[0]?.idempotencyKey ?? ev.id`, so once OPENING_LOT carries a JE, the movement idempotency key shifts from `${eventId}|${lotId}` to `${eventId}|OPEN|${lotId}`-shaped (`${jeIdempotencyKey}|${lotId}`). Replay semantics are preserved because the JE key is deterministic — same event replayed collides and no-ops. Zero-basis lots (no JE) keep the `${eventId}|${lotId}` anchor. Forward-only (D1) means no persisted legacy row ever changes key.
+**JE idempotency key (revised by SUI review — the earlier `${eventId}|OPEN` literal was unimplementable)**: JE idempotency keys are computed engine-level, not per-rule — `index.ts:73/99` assigns `idempotencyKey(input, null)` (sha256 over event identity + policy versions, `core/idempotency.ts:5-22`); a strategy's `buildJeLines` cannot set the key, so a rule-specific literal would contradict D3. The opening JE simply uses the **engine-standard key**: deterministic per event+policySet, replay collides → REPLAY no-op, no cross-key collision. Nuance: the key folds in policy versions, so a policy bump changes it — no drift path exists because POSTED events are never re-candidates (`routes.ts:439-441`), stated here for the record.
+
+Knock-on on the movement anchor: `routes.ts:473` computes it as `output.journalEntries[0]?.idempotencyKey ?? ev.id`, so a JE-backed OPENING_LOT's movement key becomes `${jeKey}|${lotId}`; zero-basis lots (no JE) keep `${eventId}|${lotId}`. Forward-only (D1) means no persisted legacy row ever changes key. Frontend must never reconstruct these keys client-side (§3.5b).
 
 ### 3.4 Merkle / snapshot
 
@@ -65,34 +71,73 @@ Identity changes from "total − opening basis = GL" to:
 - **Consumed-legacy boundary (documented, not fixed)**: once a JE-less opening lot is consumed, the disposal credit has no matching opening debit; a "remaining"-style check would break by the consumed carrying amount. This round relies on forward-only + re-seedable demo DB to avoid live legacy lots; the boundary gets an explicit test (below), not a repair.
 - Tests: `lots.tieout.test.ts` gains (a) a JE-backed opening fixture proving both regimes coexist, (b) a consume-a-legacy-JE-less-lot case pinning the original-basis identity (and demonstrating why "remaining" fails).
 
-### 3.5b DTO disclosure (CPA must-fix — reconciling items must be visible, not test-only)
+### 3.5b DTO disclosure (CPA must-fix; shape adjudicated by frontend review)
 
-The lots DTO's `origin` field is refined so an auditor can see which opening lots are anchored: `origin: 'opening-anchored' | 'opening-legacy' | 'derived'` (or equivalently, expose the movement's `jeId` and keep `origin: 'opening'`; final shape decided at plan time against the existing DTO/consumers — additive either way, no removal). Discrimination source: `lot_movement.je_id IS NULL`. Zero-basis lots report as `opening-legacy` (unanchored by D2).
+The lots DTO keeps `origin: 'opening' | 'derived'` **unchanged** and adds a lot-level field:
+
+> `acquireJeId: string | null` — the acquire movement's `je_id`. Real JE id for derived and JE-backed opening lots; `null` for legacy and zero-basis opening lots.
+
+Why not a three-way `origin` enum (`opening-anchored | opening-legacy | derived`): that would silently break every existing `o === 'opening'` predicate (`lots.tieout.test.ts:133-134`, `lots.route.test.ts:73/133`) — not additive; and origin (opening vs derived) and anchoring (JE-backed or not) are orthogonal axes that don't belong in one enum. The nullable-id shape also matches the existing `movements[].jeId: string | null` convention (`dto.ts:23`).
+
+Navigation contract: `acquireJeId` is the **join key** into `GET /entities/:id/journal`, where the proof triple (idempotencyKey / leafHash / lineageHash) already lives — no proof fields are duplicated onto the lots DTO, and the frontend must never reconstruct idempotency keys client-side. Discrimination source: `lot_movement.je_id IS NULL`. Badge derivation is one line: `origin === 'opening' && acquireJeId === null → unanchored`.
 
 ### 3.6 Forward-only mechanics
 
-No migration, no backfill script. Pre-existing JE-less opening movements remain permanently on the exclusion side; the discriminator is encoded in data (D4), not documentation memory. C4 spec §7 to be updated: gap narrows to "legacy + zero-basis lots".
+No migration, no backfill script. Pre-existing JE-less opening movements remain permanently on the exclusion side; the discriminator is encoded in data (D4), not documentation memory. C4 spec §7 to be updated: gap narrows to "legacy + zero-basis lots" (housekeeping while editing: C4's `routes.ts:696` manifest-stub line reference is stale, now ~786).
+
+### 3.7 Period attribution governance (CPA must-add — documented rule, guard deferred)
+
+An opening balance is a ledger-start declaration; it belongs **only to the entity's inception period**. Today nothing enforces this — `periodOf(eventTime)` (`period.ts:8`) attributes OPENING_LOT to whatever open period matches, so a mid-life Q3 injection of asset basis + OBE credit is technically possible (only locked periods reject, `routes.ts:429`). Injecting opening basis into an operating period pollutes period comparability and makes "brought-in" indistinguishable from "acquired this period."
+
+This round pins the rule at the document/fixture level: **demo uses a single inception period for all OPENING_LOT events; fixtures must not mix opening events into operating periods.** A hard guard (reject OPENING_LOT whose period is not the entity's first period) is deferred (§6).
 
 ## 4. Out of scope
 
 - Backfill/migration of any kind (D1).
 - Anchoring zero-basis lots (D2).
-- Frontend UI changes — the DTO disclosure (§3.5b) is backend-only and additive; no UI work this round.
+- Frontend UI changes — the DTO disclosure (§3.5b) is backend-only and additive; no UI work this round (verified: `web/src` has zero non-test consumers of the lots endpoint).
 - OBE close-out entry to Retained Earnings (§3.2 disclosure) — deferred.
+- **Future lot-panel visual language (frontend review, recorded for the UI round)**: anchored opening lot = solid-border pill badge (`.ob-badge` convention) in `--aqua-bright`, "anchored · JE #", clicking joins journal via `acquireJeId` and expands the existing four-state `ProofBadge`. Unanchored (legacy/zero-basis) = same pill, **dashed border + `--ink-soft`** — dashed is the codebase's established "provisional" signal (`.light--mock`, export draft card, AgentProposalCard) — copy "unanchored · opening basis excluded from GL tie-out" (says why, not just what). Not `--debit` red (unanchored is an adjudicated design state, not an error) and not `--brass` (reserved for primary actions).
 - Move contract changes — zero `.move` diff; `sui move test` not applicable (stated, not skipped).
 
 ## 5. Testing
 
 - **rules-engine unit**: legs balance (Dr = Cr = openingCostMinor); `'0'` → `[]`; missing `openingCostMinor` still `SCHEMA_INVALID`.
 - **api tie-out**: dual-regime fixture — one JE-backed opening lot (included in GL identity) + one legacy/zero-basis (excluded at original basis); identity holds. Plus the consumed-legacy boundary case (§3.5).
-- **api DTO**: origin refinement / jeId disclosure asserted for all three lot classes (§3.5b).
+- **api DTO**: `acquireJeId` asserted for all three lot classes — derived (real id), JE-backed opening (real id), legacy/zero-basis opening (null) (§3.5b).
 - **snapshot**: known-answer test with an opening JE leaf in the merkle root.
-- **monkey** (repo rule): hostile payloads — negative, huge numbers, `'0'` boundary, same-event replay (idempotency), COA mapping removed → MAPPING_MISSING.
+- **monkey** (repo rule): hostile payloads — negative / non-integer → `SCHEMA_INVALID` (§3.1 hardening), huge numbers (BigInt range), `'0'` boundary, same-event replay (idempotency), COA mapping removed → MAPPING_MISSING.
+
+## 7. Review adjudication table
+
+| Lens | Verdict | Finding | Disposition |
+|------|---------|---------|-------------|
+| CPA correctness (round 1) | READY-WITH-FIXES | Tie-out identity must exclude *original* (not remaining) JE-less opening basis | Accepted — §3.5 |
+| CPA correctness | | DTO must disclose anchoring (reconciling item, not test-only) | Accepted — §3.5b |
+| CPA correctness | | OBE is a clearing account; permanent balance is an audit flag | Accepted — §3.2 disclosure + §6 |
+| CPA correctness | | JE idempotencyKey undefined; proposed `${eventId}\|OPEN` | Superseded by SUI finding (below) |
+| SUI architect | READY-WITH-FIXES | `${eventId}\|OPEN` literal unimplementable — key is engine-level sha256, rules can't set it | Accepted — §3.3 uses engine-standard key |
+| SUI architect | | ACQUISITION leg must pin `origCoinType`/`origQtyMinor`; "anchors cost only" claim false once pinned | Accepted — §3.1 + §6 restated (stronger guarantee) |
+| SUI architect | | `'-5'` passes today → negative JE leg; pin SCHEMA_INVALID | Accepted — §3.1 hardening |
+| SUI architect | OK | Merkle/anchoring claims, forward-only × anchored roots, manifest declaration all verified true | No change |
+| CPA sufficiency | SUFFICIENT-WITH-ADDITIONS | Inception-period attribution rule undefined | Accepted — §3.7 (doc rule; hard guard deferred) |
+| CPA sufficiency | | `openingCostMinor` currency/scale semantics unpinned | Accepted — §3.1 |
+| CPA sufficiency | | Correction path / cross-event duplicate / substantiation / SoD | Accepted as documented deferred items — §6 |
+| CPA sufficiency | | OBE-nonzero close warning should NOT be added now | Confirmed — §6 |
+| Frontend | READY-WITH-FIXES | Three-way origin enum is breaking, not additive; adopt `acquireJeId: string \| null` | Accepted — §3.5b |
+| Frontend | | jeId is the join key to journal proof triple; never reconstruct keys client-side | Accepted — §3.5b |
+| Frontend | | Future badge visual language | Recorded — §4 deferred |
 
 ## 6. Risks / known gaps (honest)
 
 - Zero-basis lots remain unanchored by design (D2) — documented residual gap.
 - Legacy opening lots remain unanchored forever (D1) — acceptable because demo DB is re-seedable.
-- JE anchors cost only, never quantity; quantity tampering on any lot is caught only by drift recompute, unchanged from C4.
+- **What the opening JE anchors (corrected by SUI review)**: with `origCoinType`/`origQtyMinor` on the ACQUISITION leg (§3.1), the leaf anchors declared cost, quantity, and coinType — stronger than cost-only. Still unanchored regardless: lot identity/linkage (`lot_movement.je_id` join is DB-only; `lotId` is not in the leaf), wallet, and the lot **fold** (the leaf anchors declared amounts, not that movement rows still match them — drift recompute carries that, unchanged from C4).
 - `OpeningBalanceEquity` carries a permanent balance this round (no close-out to Retained Earnings) — audit-noted, deferred (§3.2).
 - Consumed legacy JE-less lots break the "remaining"-style intuition; the invariant is stated at original basis and the boundary is test-pinned, but GL for such lots is structurally one-sided forever (§3.5).
+- **Correction/reversal path missing (CPA)**: a fat-fingered opening amount, once posted and anchored, has no reversal/correcting-entry strategy — deferred; demo relies on re-seed.
+- **Cross-event duplicate registration is a known non-defense (CPA)**: idempotency keys only stop replay of the *same* event. Registering the same (wallet, coinType) holding under two different eventIds double-counts basis and OBE symmetrically — tie-out still balances, nothing alerts. Explicitly not defended this round.
+- **Basis substantiation reference missing (CPA)**: no field carries the source of the opening basis (prior-period books, external statement); `txDigest` is a placeholder for pre-history lots. Audit-grade blocker, demo-acceptable — deferred.
+- **Inception-period hard guard deferred (§3.7)**: rule is documented + fixture-enforced only; no code rejects an OPENING_LOT in a non-first period.
+- SoD/authorization for opening entries: inherits the system-wide no-auth demo posture; no opening-specific handling (already flagged blocking-for-production elsewhere).
+- OBE-nonzero close warning **intentionally not added**: since close-out itself is deferred, such a light would be permanently red and block every close — adding it now would be wrong (CPA-confirmed).
