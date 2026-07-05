@@ -33,7 +33,10 @@ function opening(over: RawOver = {}): RawOver {
   return baseEvent({ eventType: 'OPENING_LOT', economicPurpose: 'OPENING_BALANCE', openingCostMinor: '500000', ...over });
 }
 function payment(over: RawOver = {}): RawOver {
-  return baseEvent({ eventType: 'DIGITAL_ASSET_PAYMENT', economicPurpose: 'VENDOR_PAYMENT', quantityMinor: '400000000', ...over });
+  // Distinct txDigest from opening(): the JE/movement idempotency key derives from
+  // (txDigest, eventIndex) alone, never eventId — since OPENING_LOT now ALSO posts a JE
+  // (Task 1+2), sharing 'DIG' would collide the payment consume with the opening acquire.
+  return baseEvent({ eventType: 'DIGITAL_ASSET_PAYMENT', economicPurpose: 'VENDOR_PAYMENT', quantityMinor: '400000000', txDigest: 'DIGPAY', ...over });
 }
 
 async function freshApp(): Promise<FastifyInstance & { _db: Db }> {

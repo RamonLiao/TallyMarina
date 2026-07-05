@@ -11,10 +11,11 @@
  * not a coincidence. A test that computes both sides from the SAME persisted rows and asserts
  * equality is the canary that catches any drift between the JE writer and the lot writer.
  *
- * Opening lots break the naive identity by design (spec §3): an OPENING_LOT loads historical
- * basis into the subledger with NO journal entry — its cost never hits DigitalAssets this
- * round. So with opening lots the identity becomes an EXCLUSION identity:
- *   Σ remaining − openingBasisRemaining === DigitalAssets balance.
+ * Opening lots (Task 1+2, opening-equity JE): a non-zero OPENING_LOT ALSO posts a real JE
+ * (Dr DigitalAssets / Cr OpeningBalanceEquity, both amountMinor === openingCostMinor) —
+ * its cost DOES hit DigitalAssets, so the plain identity holds even with opening lots in
+ * the mix; no exclusion term is needed. (Only a zero-basis opening lot stays JE-less, and
+ * contributes 0 to both sides, so it doesn't need excluding either.)
  */
 import { describe, it, expect } from 'vitest';
 import type { FastifyInstance } from 'fastify';
@@ -112,13 +113,12 @@ describe('subledger ↔ GL tie-out invariant (C4 Task 6, spec §8)', () => {
     expect(subledger).toBe(gl);
   });
 
-  it('WITH an opening lot: Σ remaining − openingBasisRemaining === DigitalAssets (opening has no GL entry)', async () => {
-    // The opening lot loads historical basis into the SUBLEDGER only — spec §3: it produces
-    // NO journal entry, so its cost never touches the DigitalAssets control account this round.
-    // We keep the opening lot UNCONSUMED (the disposal is fully covered by the older receipt
-    // lot via FIFO) so openingBasisRemaining == its full loaded basis, making the exclusion
-    // term exactly the un-booked opening cost. That is the WHY: excluding it reconciles the
-    // subledger back to the GL.
+  it('WITH an opening lot: Σ remaining lot costMinor === DigitalAssets GL balance (opening now posts its own GL entry)', async () => {
+    // The opening lot's historical basis now ALSO lands in the GL (Task 1+2: Dr DigitalAssets /
+    // Cr OpeningBalanceEquity), so no exclusion term is needed — the plain identity from the
+    // "WITHOUT opening lots" test above holds unchanged. We keep the opening lot UNCONSUMED (the
+    // disposal is fully covered by the older receipt lot via FIFO) to prove the identity holds
+    // even when an untouched opening lot's basis sits in both the subledger and the GL at once.
     const app = await freshApp();
     const db = app._db;
     seedAuto(db, 'r1', receipt({ eventId: 'r1', txDigest: 'DIG-R1', quantityMinor: '1000000000', eventTime: '2026-04-10T00:00:00Z' }));
@@ -138,6 +138,7 @@ describe('subledger ↔ GL tie-out invariant (C4 Task 6, spec §8)', () => {
     expect(nonOpening > 0n).toBe(true);
 
     const gl = glBalance(db, 'DigitalAssets');
-    expect(total - openingBasisRemaining).toBe(gl);
+    // No exclusion needed: the opening lot's basis is booked to DigitalAssets too now.
+    expect(total).toBe(gl);
   });
 });
