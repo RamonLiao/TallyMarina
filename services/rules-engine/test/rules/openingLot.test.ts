@@ -79,4 +79,10 @@ describe('OPENING_LOT strategy', () => {
     const out = evaluate(openingInput({ openingCostMinor: '-1' }));
     expect(out.decision).not.toBe('POSTABLE');
   });
+  it('allows zero-cost opening lots (e.g. airdrop/fork with zero historical basis, spec §3)', () => {
+    const out = evaluate(openingInput({ openingCostMinor: '0' }));
+    expect(out.decision).toBe('POSTABLE');
+    expect(out.lotMovements).toHaveLength(1);
+    expect(out.lotMovements[0]!.deltaCostMinor).toBe('0');
+  });
 });

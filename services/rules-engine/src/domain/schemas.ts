@@ -31,11 +31,12 @@ export const normalizedEventSchema = z.object({
   eventIndex: z.number().int().min(0),
   openingCostMinor: z.string().regex(/^[0-9]+$/).optional(),
 }).superRefine((event, ctx) => {
-  // OPENING_LOT fail-closed (spec §3): historical cost must be present & strictly positive;
-  // quantityMinor already gated positive by qtyMinorStr above.
+  // OPENING_LOT fail-closed (spec §3): historical cost must be present (zero allowed,
+  // e.g. airdrop/fork lots with zero historical basis); quantityMinor already gated
+  // strictly positive by qtyMinorStr above.
   if (event.eventType === 'OPENING_LOT') {
-    if (!event.openingCostMinor || !/^[1-9]\d*$/.test(event.openingCostMinor)) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['openingCostMinor'], message: 'OPENING_LOT requires a strictly positive openingCostMinor' });
+    if (!event.openingCostMinor || !/^[0-9]+$/.test(event.openingCostMinor)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['openingCostMinor'], message: 'OPENING_LOT requires an openingCostMinor (non-negative minor-unit integer string)' });
     }
   }
 });
