@@ -1,7 +1,7 @@
 // Canonical event codes (paid-pilot 5; 其餘暫不支援)
 export type EventType =
   | 'DIGITAL_ASSET_RECEIPT' | 'DIGITAL_ASSET_PAYMENT'
-  | 'INTERNAL_TRANSFER' | 'SPOT_TRADE_SWAP' | 'GAS_FEE';
+  | 'INTERNAL_TRANSFER' | 'SPOT_TRADE_SWAP' | 'GAS_FEE' | 'OPENING_LOT';
 
 export type RunMode = 'PREVIEW' | 'POST' | 'REPLAY';
 export type Decision = 'POSTABLE' | 'REVIEW_REQUIRED' | 'REJECTED';
@@ -36,6 +36,7 @@ export interface NormalizedEvent {
   rawPayloadHash: string;
   txDigest: string;
   eventIndex: number;
+  openingCostMinor?: string;            // OPENING_LOT only: historical cost basis, minor units
 }
 
 export interface ResolvedPolicySet {

@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 export const eventTypeSchema = z.enum([
   'DIGITAL_ASSET_RECEIPT', 'DIGITAL_ASSET_PAYMENT',
-  'INTERNAL_TRANSFER', 'SPOT_TRADE_SWAP', 'GAS_FEE',
+  'INTERNAL_TRANSFER', 'SPOT_TRADE_SWAP', 'GAS_FEE', 'OPENING_LOT',
 ]);
 
 // 事件數量為正整數 minor-unit；零量無意義且產生空 JE，fail-closed 在此擋下。
@@ -29,6 +29,15 @@ export const normalizedEventSchema = z.object({
   rawPayloadHash: z.string().min(1),
   txDigest: z.string().min(1),
   eventIndex: z.number().int().min(0),
+  openingCostMinor: z.string().regex(/^[0-9]+$/).optional(),
+}).superRefine((event, ctx) => {
+  // OPENING_LOT fail-closed (spec §3): historical cost must be present & strictly positive;
+  // quantityMinor already gated positive by qtyMinorStr above.
+  if (event.eventType === 'OPENING_LOT') {
+    if (!event.openingCostMinor || !/^[1-9]\d*$/.test(event.openingCostMinor)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['openingCostMinor'], message: 'OPENING_LOT requires a strictly positive openingCostMinor' });
+    }
+  }
 });
 
 export const runContextSchema = z.object({
