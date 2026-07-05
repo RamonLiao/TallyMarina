@@ -29,13 +29,13 @@ export const normalizedEventSchema = z.object({
   rawPayloadHash: z.string().min(1),
   txDigest: z.string().min(1),
   eventIndex: z.number().int().min(0),
-  openingCostMinor: z.string().regex(/^[0-9]+$/).optional(),
+  openingCostMinor: z.string().regex(/^(0|[1-9][0-9]*)$/).optional(),
 }).superRefine((event, ctx) => {
   // OPENING_LOT fail-closed (spec §3): historical cost must be present (zero allowed,
   // e.g. airdrop/fork lots with zero historical basis); quantityMinor already gated
   // strictly positive by qtyMinorStr above.
   if (event.eventType === 'OPENING_LOT') {
-    if (!event.openingCostMinor || !/^[0-9]+$/.test(event.openingCostMinor)) {
+    if (!event.openingCostMinor || !/^(0|[1-9][0-9]*)$/.test(event.openingCostMinor)) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['openingCostMinor'], message: 'OPENING_LOT requires an openingCostMinor (non-negative minor-unit integer string)' });
     }
   }

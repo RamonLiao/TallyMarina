@@ -6,7 +6,11 @@ import { balanceCheck } from './receiptRules.js';
 // positive movement. Non-zero historical cost ALSO emits Dr <asset>/Cr <opening equity> so the
 // declared basis (and qty/coinType via the leaf codec) is merkle-anchored. Zero-basis lots
 // (airdrops) stay JE-less by design (spec D2) — the §7.8.3 JE-less POSTABLE branch remains.
-const COST_RE = /^[0-9]+$/;
+// Canonical form only (no leading zeros): a loose /^[0-9]+$/ would accept '00', which passes
+// this regex but fails the `cost === '0'` zero-basis check below, emitting a ZERO-amount JE
+// that wrongly enters the merkle spine — and would accept '007', anchoring a non-canonical
+// amount string verbatim via the leaf codec.
+const COST_RE = /^(0|[1-9][0-9]*)$/;
 
 export const openingLotStrategy: EventStrategy = {
   ruleIds: ['opening-lot-origination-v1', 'opening-equity-je-v1'],

@@ -304,6 +304,8 @@ describe('monkey: lot ledger integrity under garbage, concurrency, restart (C4 T
       ['negative', '-5'],
       ['non-integer decimal', '1.5'],
       ['scientific notation', '1e9'],
+      ['leading-zero double-zero', '00'],
+      ['leading-zero non-canonical', '007'],
     ];
     for (const [label, cost] of badCosts) {
       const app = await freshApp();

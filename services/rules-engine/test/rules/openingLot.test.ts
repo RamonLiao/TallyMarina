@@ -93,6 +93,13 @@ describe('OPENING_LOT strategy', () => {
     const out = evaluate(openingInput({ openingCostMinor: '-1' }));
     expect(out.decision).not.toBe('POSTABLE');
   });
+  it('fail-closed: leading-zero openingCostMinor rejected (non-canonical — would defeat the zero-basis JE boundary or anchor a non-canonical amount, final-review I1)', () => {
+    for (const cost of ['00', '007']) {
+      const out = evaluate(openingInput({ openingCostMinor: cost }));
+      expect(out.decision).not.toBe('POSTABLE');
+      expect(out.journalEntries).toHaveLength(0);
+    }
+  });
   it('allows zero-cost opening lots (e.g. airdrop/fork with zero historical basis, spec §3)', () => {
     const out = evaluate(openingInput({ openingCostMinor: '0' }));
     expect(out.decision).toBe('POSTABLE');
