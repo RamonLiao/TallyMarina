@@ -487,10 +487,14 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
             idempotencyKey: `${anchorKey}|${m.lotId}`,
           });
         }
+        // markPosted joins the SAME transaction (spec §6 #2): a crash between commit and the
+        // status flip would leave the event AUTO with movements committed → next run folds the
+        // drained pool, FIFO picks a different lot → new idempotency key → double consume. Atomic
+        // flip closes that window (better-sqlite3 transactions are synchronous).
+        markPosted(db, ev.id);
       });
       persist();
       posted += postedHere; skipped += skippedHere;
-      markPosted(db, ev.id);
     }
     return { posted, skipped, journal: journalDTO(db, req.params.id) };
   });

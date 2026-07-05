@@ -95,6 +95,9 @@ describe('run-rules persists lot movements atomically (C4 Task 3)', () => {
     expect(r.statusCode).toBe(500); // fail-loud, not partial
     // The JE inserted earlier in the same transaction must have been rolled back.
     expect(db.prepare('SELECT COUNT(*) c FROM journal_entries WHERE entity_id = ?').get(E)).toMatchObject({ c: 0 });
+    // markPosted joins the SAME transaction (spec §6 #2) — the status flip must roll back too, else a
+    // crash window leaves the event AUTO-with-committed-movements OR POSTED-with-no-JE → double consume.
+    expect(getEvent(db, 'pay1')!.status).not.toBe('POSTED');
   });
 
   it('ingest: OPENING_LOT bypasses the LLM and lands APPROVED deterministically (spec §3, model-vs-code rule)', async () => {
