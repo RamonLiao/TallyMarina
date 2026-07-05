@@ -51,7 +51,7 @@ New table `lot_movement` in `services/api/src/store/schema.sql`:
 - Index: `(entity_id, wallet, coin_type)` — the buildRuleInput fold scans per event. [SUI M5]
 - Values stored as strings (minor units), matching engine BigInt-string convention and `je_json` practice.
 - **Sign semantics**: the sign of `delta_qty_minor` encodes quantity direction (inflow/outflow), NOT debit/credit — an acquisition is a debit to the asset yet a positive delta. Future UI must not map sign to `--debit`/`--credit` tokens blindly. [FE F5]
-- **Snapshot manifest stays JE-only, intentionally**: the current `lotMovements: []` stub in the snapshot route (`routes.ts:786`) remains empty after C4. Adding movements to the manifest would change merkle roots of already-anchored periods. Do not "helpfully" wire it. [SUI M4]
+- **Snapshot manifest stays JE-only, intentionally**: the current `lotMovements: []` stub in the snapshot route (`routes.ts:788`) remains empty after C4. Adding movements to the manifest would change merkle roots of already-anchored periods. Do not "helpfully" wire it. [SUI M4]
 - **Atomicity**: movements are inserted in the same SQLite transaction as `insertJournalEntry`. A crash can never leave a JE without its consumption record (or vice versa). This closes the `routes.ts:403` gap.
 - **Idempotency**: UNIQUE `idempotency_key` makes replay a no-op, same pattern as `journal_entries.idempotency_key`.
 
