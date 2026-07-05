@@ -23,8 +23,11 @@ import {
   listEvents, setAiSuggestion, setDecision, markPosted, listByStatus,
 } from '../src/store/eventStore.js';
 import { insertJournalEntry, listJournal } from '../src/store/journalStore.js';
+import { insertLotMovement, acquireLotSeq } from '../src/store/lotMovementStore.js';
 import { insertSnapshot } from '../src/store/snapshotStore.js';
 import { buildRuleInput } from '../src/http/buildRuleInput.js';
+import { lotsForEvent } from '../src/http/lotsForEvent.js';
+import { DEMO_POLICY_SET } from '../src/http/policyConstants.js';
 import { evaluate, leafHash, type JournalEntry } from '../src/deps/rulesEngine.js';
 import { buildSnapshot, InMemorySnapshotRepo } from '../src/deps/snapshotSvc.js';
 import { prepareAnchor, confirmAnchor } from '../src/http/anchorService.js';
@@ -85,30 +88,56 @@ async function main(): Promise<void> {
     });
   }
 
-  // ── 3. Run rules → journal entries ──
+  // ── 3. Run rules → journal entries + lot movements ──
+  // Mirror the run-rules route: sort chronologically so originating lots (OPENING_LOT, receipts)
+  // persist before consumers fold them, and persist lot movements atomically alongside JEs so a
+  // payment leg folds a REAL, non-empty pool instead of INSUFFICIENT_LOT-skipping.
+  const eventTimeOf = (ev: { rawJson: string }) => (JSON.parse(ev.rawJson) as { eventTime: string }).eventTime;
   const approved = [
     ...listByStatus(db, cfg.entityId, 'APPROVED'),
     ...listByStatus(db, cfg.entityId, 'AUTO'),
-  ];
+  ].sort((a, b) => eventTimeOf(a).localeCompare(eventTimeOf(b)) || a.id.localeCompare(b.id));
   for (const ev of approved) {
     // Fresh in-memory DB — the demo period is never locked here.
-    const out = evaluate(buildRuleInput(ev, { periodId, periodOpen: true }));
+    const out = evaluate(buildRuleInput(ev, { periodId, periodOpen: true, lots: lotsForEvent(db, ev) }));
     if (out.decision !== 'POSTABLE') {
-      console.warn(`  SKIP ${ev.id}: ${out.decision} ${JSON.stringify(out.exceptions)}`);
-      continue;
+      // Fail loud: the curated fixture is all happy-path, a skip here means a real regression.
+      throw new Error(`demo-e2e: expected POSTABLE for ${ev.id} but got ${out.decision} ${JSON.stringify(out.exceptions)}`);
     }
-    for (const je of out.journalEntries) {
-      insertJournalEntry(db, {
-        id: `je-${ev.id}-${je.idempotencyKey}`,
-        entityId: cfg.entityId,
-        eventId: ev.id,
-        jeJson: JSON.stringify(je),
-        idempotencyKey: je.idempotencyKey,
-        leafHash: leafHash(je),
-      });
-    }
-    markPosted(db, ev.id);
-    console.log(`  posted ${ev.id}: ${out.journalEntries.length} JE(s)`);
+    const acquireStamp = `${eventTimeOf(ev)}|${ev.id}`;
+    // JE + movements + status flip are one atomic unit — a movement failure rolls the JE back too.
+    const persist = db.transaction(() => {
+      let anchorJeId: string | null = null;
+      for (const je of out.journalEntries) {
+        const jeId = `je-${ev.id}-${je.idempotencyKey}`;
+        insertJournalEntry(db, {
+          id: jeId,
+          entityId: cfg.entityId,
+          eventId: ev.id,
+          jeJson: JSON.stringify(je),
+          idempotencyKey: je.idempotencyKey,
+          leafHash: leafHash(je),
+          periodId: ev.periodId ?? periodId,
+        });
+        if (anchorJeId === null) anchorJeId = jeId;
+      }
+      const anchorKey = out.journalEntries[0]?.idempotencyKey ?? ev.id;
+      for (const m of out.lotMovements) {
+        const isAcquire = !m.deltaQtyMinor.startsWith('-');
+        insertLotMovement(db, {
+          id: `lm-${anchorKey}-${m.lotId}`,
+          entityId: ev.entityId, eventId: ev.id, jeId: anchorJeId,
+          lotId: m.lotId, lotSeq: isAcquire ? acquireStamp : acquireLotSeq(db, ev.entityId, m.lotId),
+          periodId: ev.periodId ?? periodId, coinType: m.coinType, wallet: m.wallet,
+          deltaQtyMinor: m.deltaQtyMinor, deltaCostMinor: m.deltaCostMinor,
+          costBasisMethod: 'FIFO', policySetVersion: DEMO_POLICY_SET.policySetVersion,
+          idempotencyKey: `${anchorKey}|${m.lotId}`,
+        });
+      }
+      markPosted(db, ev.id);
+    });
+    persist();
+    console.log(`  posted ${ev.id}: ${out.journalEntries.length} JE(s), ${out.lotMovements.length} movement(s)`);
   }
 
   const jeRows = listJournal(db, cfg.entityId);

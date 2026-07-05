@@ -5,7 +5,7 @@ import type {
 } from '../deps/rulesEngine.js';
 import { DEMO_POLICY_SET, buildCoaMapping } from './policyConstants.js';
 
-export function buildRuleInput(event: EventRow, opts: { periodId: string; periodOpen: boolean }): RuleInput {
+export function buildRuleInput(event: EventRow, opts: { periodId: string; periodOpen: boolean; lots: PositionLot[] }): RuleInput {
   const raw = JSON.parse(event.rawJson) as NormalizedEvent;
   // Human review decision (spec §6.9) overrides the raw event classification; the AI
   // suggestion is never read here — it stays suggestion-only. An invalid finalEventType
@@ -32,9 +32,8 @@ export function buildRuleInput(event: EventRow, opts: { periodId: string; period
     asOfDate: ne.eventTime.slice(0, 10), unitPriceMinor: '100',
   }];
   const fxRates: FxRate[] = [];
-  const lots: PositionLot[] = [{
-    lotId: 'lot-1', seq: 1, coinType: ne.coinType, wallet: ne.wallet,
-    remainingQtyMinor: '1000000000000', costMinor: '1000000',
-  }];
-  return { runContext, event: ne, policySet, assetAssessment, lots, prices, fxRates, coaMapping };
+  // Real lots fold from the persisted lot_movement ledger (spec §4, Task 4). The caller
+  // supplies them via lotsForEvent — an empty pool now legitimately fails-closed with
+  // INSUFFICIENT_LOT rather than posting against a fabricated demo lot.
+  return { runContext, event: ne, policySet, assetAssessment, lots: opts.lots, prices, fxRates, coaMapping };
 }

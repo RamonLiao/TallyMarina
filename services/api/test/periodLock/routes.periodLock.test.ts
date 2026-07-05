@@ -60,10 +60,10 @@ const classifyClient: GeminiClient = {
 let app: FastifyInstance;
 let db: Db;
 
-/** Run the full "all-green" recipe: classify both events → run-rules → dismiss recon breaks. */
+/** Run the full "all-green" recipe: ingest ALL events (classifies the two txns, bypasses the
+ *  OPENING_LOT → APPROVED so no event is left stuck at INGESTED) → run-rules → dismiss recon. */
 async function makeAllGreen() {
-  await app.inject({ method: 'POST', url: '/events/evt-001/classify', payload: {} });
-  await app.inject({ method: 'POST', url: '/events/evt-002/classify', payload: {} });
+  await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/ingest', payload: {} });
   await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/run-rules', payload: { periodId: '2026-Q2' } });
   dismissReconBreaks(db, 'acme:pilot-001', '2026-Q2');
 }

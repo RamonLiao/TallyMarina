@@ -152,8 +152,9 @@ describe('REST contract', () => {
   });
 
   it('full main line: classify both → run-rules posts JEs → lock → snapshot FROZEN', async () => {
-    await app.inject({ method: 'POST', url: '/events/evt-001/classify', payload: {} });
-    await app.inject({ method: 'POST', url: '/events/evt-002/classify', payload: {} });
+    // Ingest ALL fixture events: classifies the two txns and bypasses the OPENING_LOT →
+    // APPROVED, so no event is left stuck at INGESTED (which would red the completeness light).
+    await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/ingest', payload: {} });
     const rr = await app.inject({
       method: 'POST', url: '/entities/acme:pilot-001/run-rules',
       payload: { periodId: '2026-Q2' },
@@ -180,8 +181,9 @@ describe('REST contract', () => {
     // WHY: snapshot id is content-deterministic, and the UI re-POSTs on page
     // refresh / repeated clicks. A naive INSERT throws SQLITE UNIQUE → 500 and
     // blocks the whole anchor flow. Re-freeze must return the existing FROZEN row.
-    await app.inject({ method: 'POST', url: '/events/evt-001/classify', payload: {} });
-    await app.inject({ method: 'POST', url: '/events/evt-002/classify', payload: {} });
+    // Ingest ALL fixture events: classifies the two txns and bypasses the OPENING_LOT →
+    // APPROVED, so no event is left stuck at INGESTED (which would red the completeness light).
+    await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/ingest', payload: {} });
     await app.inject({
       method: 'POST', url: '/entities/acme:pilot-001/run-rules', payload: { periodId: '2026-Q2' },
     });
@@ -209,8 +211,9 @@ describe('REST contract', () => {
     // path must verify entityId + periodId on the resolved row before returning, or it
     // leaks another entity/period's snapshot metadata. Simulate the collision by
     // repointing the row's period_id (period_id has no FK, unlike entity_id).
-    await app.inject({ method: 'POST', url: '/events/evt-001/classify', payload: {} });
-    await app.inject({ method: 'POST', url: '/events/evt-002/classify', payload: {} });
+    // Ingest ALL fixture events: classifies the two txns and bypasses the OPENING_LOT →
+    // APPROVED, so no event is left stuck at INGESTED (which would red the completeness light).
+    await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/ingest', payload: {} });
     await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/run-rules', payload: { periodId: '2026-Q2' } });
     dismissReconBreaks(db, 'acme:pilot-001', '2026-Q2');
     // Lock the period before snapshot (required since Phase 2 B1: PERIOD_NOT_LOCKED gate).
@@ -227,8 +230,9 @@ describe('REST contract', () => {
   it('re-freeze of an already-ANCHORED period fails loud (409 ALREADY_ANCHORED)', async () => {
     // WHY: once anchored the snapshot is immutable. Returning it as a freezable FROZEN
     // row would let the UI offer Anchor again, and prepare would then 409 cryptically.
-    await app.inject({ method: 'POST', url: '/events/evt-001/classify', payload: {} });
-    await app.inject({ method: 'POST', url: '/events/evt-002/classify', payload: {} });
+    // Ingest ALL fixture events: classifies the two txns and bypasses the OPENING_LOT →
+    // APPROVED, so no event is left stuck at INGESTED (which would red the completeness light).
+    await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/ingest', payload: {} });
     await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/run-rules', payload: { periodId: '2026-Q2' } });
     dismissReconBreaks(db, 'acme:pilot-001', '2026-Q2');
     // Lock the period before snapshot (required since Phase 2 B1: PERIOD_NOT_LOCKED gate).

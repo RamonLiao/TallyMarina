@@ -53,7 +53,9 @@ describe('locked period rejects postings (C1)', () => {
     const app = await buildTestApp();
     await app.inject({ method: 'POST', url: `/entities/${ENTITY}/ingest`, payload: {} });
     const ev = getEvent(app._db, 'evt-001')!;
-    const out = evaluate(buildRuleInput(ev, { periodId: PERIOD, periodOpen: false }));
+    // evt-001 is a receipt (acquires, never consumes) — the PERIOD_CLOSED gate fires
+    // before valuation, so an empty lot pool is irrelevant here.
+    const out = evaluate(buildRuleInput(ev, { periodId: PERIOD, periodOpen: false, lots: [] }));
     expect(out.decision).not.toBe('POSTABLE');
     expect(out.exceptions.map((e) => e.code)).toContain('PERIOD_CLOSED');
   });

@@ -58,8 +58,9 @@ let app: FastifyInstance;
 let db: Db;
 
 async function makeAllGreen() {
-  await app.inject({ method: 'POST', url: '/events/evt-001/classify', payload: {} });
-  await app.inject({ method: 'POST', url: '/events/evt-002/classify', payload: {} });
+  // Ingest ALL events (classifies the two txns, bypasses OPENING_LOT → APPROVED) so nothing is
+  // left stuck at INGESTED to red the completeness light.
+  await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/ingest', payload: {} });
   await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/run-rules', payload: { periodId: '2026-Q2' } });
   dismissReconBreaks(db, 'acme:pilot-001', '2026-Q2');
 }
