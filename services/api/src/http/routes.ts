@@ -11,6 +11,7 @@ import {
   listEvents, getEvent, listByStatus, setAiSuggestion, setDecision, markPosted, type EventRow,
 } from '../store/eventStore.js';
 import { insertJournalEntry, listJournal } from '../store/journalStore.js';
+import { insertLotMovement, acquireLotSeq } from '../store/lotMovementStore.js';
 import { listPeriods } from '../store/periodQuery.js';
 import { insertSnapshot, getSnapshot, hasAnchoredSnapshot } from '../store/snapshotStore.js';
 import { collectExceptions } from '../exceptions/collect.js';
@@ -74,6 +75,37 @@ function eventDTO(e: EventRow) {
 }
 
 export const DEFAULT_PERIOD = '2026-Q2';
+
+// Events have no eventTime column — it lives in rawJson (same source deriveEventPeriod
+// parses). insertEvent already gated it as a valid time, so absence here is corruption.
+function eventTimeOf(ev: EventRow): string {
+  const t = (JSON.parse(ev.rawJson) as { eventTime?: unknown }).eventTime;
+  if (typeof t !== 'string' || t.length === 0) {
+    throw new ApiError(500, 'INTERNAL', `event ${ev.id} has no eventTime`);
+  }
+  return t;
+}
+
+// Raw (ingestion-normalized) event type, before any human/AI decision.
+function rawEventTypeOf(rawJson: string): string | null {
+  const t = (JSON.parse(rawJson) as { eventType?: unknown }).eventType;
+  return typeof t === 'string' ? t : null;
+}
+
+// Consume rows stamp the ACQUIRE lot's lot_seq (spec §2). Pre-Task-4, buildRuleInput
+// injects a fabricated demo lot ('lot-1') with NO persisted acquire row, so acquireLotSeq
+// legitimately finds nothing — fall back to the consume event's own stamp (provisional,
+// harmless: no real acquire exists yet). Task 4 folds real lots (OPEN-…) that DO have an
+// acquire row, so the fallback stops firing. Any OTHER failure (e.g. dropped table) is a
+// real fault and must propagate — never swallowed.
+function consumeLotSeq(db: Db, entityId: string, lotId: string, fallback: string): string {
+  try {
+    return acquireLotSeq(db, entityId, lotId);
+  } catch (err) {
+    if (err instanceof Error && /no acquire row/.test(err.message)) return fallback;
+    throw err;
+  }
+}
 
 function exceptionDTO(db: Db, entityId: string, periodId: string, lowConf: number) {
   const anchored = hasAnchoredSnapshot(db, entityId);
@@ -270,6 +302,29 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     requireEntity(db, req.params.id);
     let classified = 0, degraded = 0;
     for (const ev of listByStatus(db, req.params.id, 'INGESTED')) {
+      // Model-vs-code rule: a raw OPENING_LOT is self-describing (historical cost + qty
+      // come straight from the payload) — there is nothing for the LLM to judge. Approve
+      // it deterministically WITHOUT touching the AI module. The state machine has no
+      // INGESTED→APPROVED edge, so we take the same two hops the review path uses
+      // (→NEEDS_REVIEW then →APPROVED via setDecision), stamping a deterministic marker
+      // that records the LLM was bypassed.
+      if (rawEventTypeOf(ev.rawJson) === 'OPENING_LOT') {
+        try {
+          const purpose = (JSON.parse(ev.rawJson) as { economicPurpose?: unknown }).economicPurpose;
+          const finalPurpose = typeof purpose === 'string' && purpose.length > 0 ? purpose : 'OPENING_LOT';
+          setAiSuggestion(db, ev.id, {
+            aiEventType: 'OPENING_LOT', aiPurpose: finalPurpose, aiCounterparty: null,
+            aiConfidence: 1, aiReasoning: 'deterministic OPENING_LOT ingest — LLM bypassed (model-vs-code rule)',
+            nextStatus: 'NEEDS_REVIEW',
+          });
+          setDecision(db, ev.id, { finalEventType: 'OPENING_LOT', finalPurpose });
+          classified++;
+        } catch (err) {
+          if (err instanceof StateError) continue; // concurrent transition — someone else handled it
+          throw err;
+        }
+        continue;
+      }
       try {
         const r = await classifyAndStore(ev);
         classified++;
@@ -391,26 +446,60 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     // so without this filter an event attributed to a different (possibly locked)
     // period would be evaluated against this request's periodOpen and posted under
     // its own periodId — bypassing that period's lock. See routes.ts run-rules review.
+    // Sort candidates chronologically by eventTime so originators (OPENING_LOT, receipts)
+    // post before the consumers that draw down their lots (spec §2). id breaks ties for a
+    // deterministic order.
     const candidates = [
       ...listByStatus(db, req.params.id, 'APPROVED'),
       ...listByStatus(db, req.params.id, 'AUTO'),
-    ].filter((ev) => ev.periodId === periodId);
+    ]
+      .filter((ev) => ev.periodId === periodId)
+      .sort((a, b) => eventTimeOf(a).localeCompare(eventTimeOf(b)) || a.id.localeCompare(b.id));
     let posted = 0, skipped = 0;
     for (const ev of candidates) {
       const output = evaluate(buildRuleInput(ev, { periodId, periodOpen }));
-      if (output.decision !== 'POSTABLE' || output.journalEntries.length === 0) { skipped++; continue; }
-      for (const je of output.journalEntries) {
-        const res = insertJournalEntry(db, {
-          id: `je-${ev.id}-${je.idempotencyKey}`,
-          entityId: req.params.id,
-          eventId: ev.id,
-          jeJson: JSON.stringify(je),
-          idempotencyKey: je.idempotencyKey,
-          leafHash: leafHash(je),
-          periodId: ev.periodId, // inherit from source event (spec §5.2.4)
-        });
-        if (res === 'inserted') posted++; else skipped++;
-      }
+      // JE-less POSTABLE outputs (OPENING_LOT, spec §3) still carry lot movements that
+      // must persist — the old `journalEntries.length === 0 → skip` guard is gone.
+      if (output.decision !== 'POSTABLE') { skipped++; continue; }
+      const acquireStamp = `${eventTimeOf(ev)}|${ev.id}`;
+      // JE + movements are one atomic unit (spec §2): an injected movement failure must
+      // roll the JE back too — no partial post. Counters mutate only after commit.
+      let postedHere = 0, skippedHere = 0;
+      const persist = db.transaction(() => {
+        postedHere = 0; skippedHere = 0;
+        let anchorJeId: string | null = null;
+        for (const je of output.journalEntries) {
+          const jeId = `je-${ev.id}-${je.idempotencyKey}`;
+          const res = insertJournalEntry(db, {
+            id: jeId,
+            entityId: req.params.id,
+            eventId: ev.id,
+            jeJson: JSON.stringify(je),
+            idempotencyKey: je.idempotencyKey,
+            leafHash: leafHash(je),
+            periodId: ev.periodId, // inherit from source event (spec §5.2.4)
+          });
+          if (res === 'inserted') { postedHere++; if (anchorJeId === null) anchorJeId = jeId; } else skippedHere++;
+        }
+        // Movement idempotency root: the first JE's key (a JE-less opening lot roots on the
+        // event id). Guarantees replay collides on idempotency_key → INSERT OR IGNORE no-op.
+        const anchorKey = output.journalEntries[0]?.idempotencyKey ?? ev.id;
+        for (const m of output.lotMovements) {
+          const isAcquire = !m.deltaQtyMinor.startsWith('-');
+          insertLotMovement(db, {
+            id: `lm-${anchorKey}-${m.lotId}`,
+            entityId: ev.entityId, eventId: ev.id, jeId: anchorJeId,
+            lotId: m.lotId,
+            lotSeq: isAcquire ? acquireStamp : consumeLotSeq(db, ev.entityId, m.lotId, acquireStamp),
+            periodId: ev.periodId!, coinType: m.coinType, wallet: m.wallet,
+            deltaQtyMinor: m.deltaQtyMinor, deltaCostMinor: m.deltaCostMinor,
+            costBasisMethod: 'FIFO', policySetVersion: DEMO_POLICY_SET.policySetVersion,
+            idempotencyKey: `${anchorKey}|${m.lotId}`,
+          });
+        }
+      });
+      persist();
+      posted += postedHere; skipped += skippedHere;
       markPosted(db, ev.id);
     }
     return { posted, skipped, journal: journalDTO(db, req.params.id) };
