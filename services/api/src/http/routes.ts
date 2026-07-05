@@ -32,6 +32,7 @@ import { classifyEvent } from '../ai/classify.js';
 import { reviewCopilot } from '../ai/copilot.js';
 import { buildRuleInput } from './buildRuleInput.js';
 import { lotsForEvent } from './lotsForEvent.js';
+import { buildLotsDTO } from '../lots/dto.js';
 import { evaluate, buildMerkle, leafHash, inclusionProof, eventTypeSchema, type JournalEntry } from '../deps/rulesEngine.js';
 import { buildSnapshot, InMemorySnapshotRepo } from '../deps/snapshotSvc.js';
 import { prepareAnchor, confirmAnchor, type AnchorServiceDeps } from './anchorService.js';
@@ -498,6 +499,13 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
   app.get<{ Params: { id: string } }>('/entities/:id/journal', async (req) => {
     requireEntity(db, req.params.id);
     return { journal: journalDTO(db, req.params.id) };
+  });
+
+  // 9a. GET /entities/:id/lots — folded remaining lots with provenance, movement history,
+  // and fail-loud drift objects (persisted fold vs recompute-on-read). READ-ONLY.
+  app.get<{ Params: { id: string } }>('/entities/:id/lots', async (req) => {
+    requireEntity(db, req.params.id);
+    return buildLotsDTO(db, req.params.id);
   });
 
   // Exception Queue (Phase 1 A-1)
