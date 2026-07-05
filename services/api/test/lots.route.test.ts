@@ -79,6 +79,63 @@ describe('GET /entities/:id/lots (C4 Task 5)', () => {
     expect(lot.movements).toHaveLength(2);
     expect(lot.movements.some((m) => m.deltaQtyMinor === '1000000000')).toBe(true);
     expect(lot.movements.some((m) => m.deltaQtyMinor.startsWith('-'))).toBe(true);
+    // Clean state: top-level gaps list is always present and empty.
+    expect((body as unknown as { simulationGaps: string[] }).simulationGaps).toEqual([]);
+  });
+
+  it('gap-affected recompute: lot missing from sim is flagged recomputedIncomplete, never a fake zero', async () => {
+    const app = await freshApp();
+    const db = app._db;
+    await seedAndPost(app);
+
+    // Make the OPENING event unreplayable under current rules by corrupting its raw so
+    // evaluate goes non-POSTABLE (missing openingCostMinor → OPENING_LOT can't post).
+    // Persisted lot rows stay intact; only the sim replay hits a gap for this lot.
+    db.prepare(`UPDATE events SET raw_json = json_remove(raw_json, '$.openingCostMinor') WHERE id = 'open1'`).run();
+
+    const r = await app.inject({ method: 'GET', url: `/entities/${E}/lots` });
+    expect(r.statusCode).toBe(200);
+    const body = r.json() as {
+      simulationGaps: string[];
+      groups: Array<{ lots: Array<{ lotId: string; drift: null | { recomputed: { qtyMinor: string; costMinor: string }; persisted: { qtyMinor: string; costMinor: string }; recomputedIncomplete?: boolean } }> }>;
+    };
+    expect(body.simulationGaps.length).toBeGreaterThan(0);
+    expect(body.simulationGaps).toContain('open1');
+    const lot = body.groups[0]!.lots.find((l) => l.lotId === 'OPEN-open1')!;
+    expect(lot.drift).not.toBeNull();
+    // The {0,0} recompute is honestly flagged, not presented as a confident empty lot.
+    expect(lot.drift!.recomputedIncomplete).toBe(true);
+    expect(lot.drift!.persisted).toEqual({ qtyMinor: '600000000', costMinor: '300000' });
+  });
+
+  it('sim-only drift: deleting a persisted lot surfaces the sim lot with persisted 0/0', async () => {
+    const app = await freshApp();
+    const db = app._db;
+    await seedAndPost(app);
+
+    // Nuke the persisted lot entirely (all its movement rows). The recompute still
+    // produces it, so the union scan must emit it as a sim-only drift entry.
+    const before = db.prepare(`SELECT delta_qty_minor FROM lot_movement WHERE lot_id = 'OPEN-open1' AND delta_qty_minor NOT LIKE '-%'`).get();
+    expect(before).toBeTruthy();
+    db.prepare(`DELETE FROM lot_movement WHERE lot_id = 'OPEN-open1'`).run();
+
+    const r = await app.inject({ method: 'GET', url: `/entities/${E}/lots` });
+    expect(r.statusCode).toBe(200);
+    const body = r.json() as {
+      simulationGaps: string[];
+      groups: Array<{ wallet: string; coinType: string; lots: Array<{ lotId: string; remainingQtyMinor: string; costMinor: string; originEventId: string; origin: string; movements: unknown[]; drift: null | { recomputed: { qtyMinor: string; costMinor: string }; persisted: { qtyMinor: string; costMinor: string } } }> }>;
+    };
+    expect(body.simulationGaps).toEqual([]); // replay is clean; the lot's recompute is honest
+    const g = body.groups.find((x) => x.wallet === '0xacme' && x.coinType === '0x2::sui::SUI')!;
+    const lot = g.lots.find((l) => l.lotId === 'OPEN-open1')!;
+    expect(lot.remainingQtyMinor).toBe('0'); // persisted side is genuinely empty
+    expect(lot.costMinor).toBe('0');
+    expect(lot.origin).toBe('opening');
+    expect(lot.originEventId).toBe('open1'); // from the sim replay, not fabricated
+    expect(lot.movements).toEqual([]);
+    expect(lot.drift).not.toBeNull();
+    expect(lot.drift!.recomputed).toEqual({ qtyMinor: '600000000', costMinor: '300000' });
+    expect(lot.drift!.persisted).toEqual({ qtyMinor: '0', costMinor: '0' });
   });
 
   it('drift: a tampered persisted row surfaces a drift object with BOTH values; the read mutates nothing', async () => {

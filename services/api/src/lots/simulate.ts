@@ -6,10 +6,12 @@ import { listByStatus } from '../store/eventStore.js';
 import { evaluate } from '../deps/rulesEngine.js';
 import { buildRuleInput } from '../http/buildRuleInput.js';
 
-export interface SimLot { qtyMinor: string; costMinor: string; wallet: string; coinType: string }
-export interface SimulateResult { lots: Map<string, SimLot>; simulationGaps: string[] }
+export interface SimLot { qtyMinor: string; costMinor: string; wallet: string; coinType: string; originEventId: string }
+// gapPools: `${wallet}|${coinType}` keys whose replay hit a gap — recompute for any lot in
+// that pool is partial (a consume/acquire never applied), so the DTO flags it as incomplete.
+export interface SimulateResult { lots: Map<string, SimLot>; simulationGaps: string[]; gapPools: Set<string> }
 
-interface PoolLot { qty: bigint; cost: bigint; wallet: string; coinType: string; seq: number }
+interface PoolLot { qty: bigint; cost: bigint; wallet: string; coinType: string; seq: number; originEventId: string }
 
 // Drift probe (spec §1): replay ALL POSTED events chronologically (eventTime asc) through
 // evaluate with the CURRENT policy and periodOpen: true — even over locked periods; that IS
@@ -22,6 +24,7 @@ export function simulateLots(db: Db, entityId: string): SimulateResult {
 
   const pool = new Map<string, PoolLot>();
   const simulationGaps: string[] = [];
+  const gapPools = new Set<string>();
   let nextSeq = 0;
 
   for (const ev of posted) {
@@ -35,9 +38,10 @@ export function simulateLots(db: Db, entityId: string): SimulateResult {
       output = evaluate(buildRuleInput(ev, { periodId: ev.periodId ?? raw.eventTime.slice(0, 4), periodOpen: true, lots }));
     } catch {
       simulationGaps.push(ev.id); // a throw during replay is an honest gap, not a zero
+      gapPools.add(`${raw.wallet}|${raw.coinType}`);
       continue;
     }
-    if (output.decision !== 'POSTABLE') { simulationGaps.push(ev.id); continue; }
+    if (output.decision !== 'POSTABLE') { simulationGaps.push(ev.id); gapPools.add(`${raw.wallet}|${raw.coinType}`); continue; }
 
     for (const m of output.lotMovements) {
       const cur = pool.get(m.lotId);
@@ -45,16 +49,16 @@ export function simulateLots(db: Db, entityId: string): SimulateResult {
         cur.qty += BigInt(m.deltaQtyMinor);
         cur.cost += BigInt(m.deltaCostMinor);
       } else {
-        pool.set(m.lotId, { qty: BigInt(m.deltaQtyMinor), cost: BigInt(m.deltaCostMinor), wallet: m.wallet, coinType: m.coinType, seq: nextSeq++ });
+        pool.set(m.lotId, { qty: BigInt(m.deltaQtyMinor), cost: BigInt(m.deltaCostMinor), wallet: m.wallet, coinType: m.coinType, seq: nextSeq++, originEventId: ev.id });
       }
     }
   }
 
   const lots = new Map<string, SimLot>();
   for (const [lotId, l] of pool) {
-    lots.set(lotId, { qtyMinor: l.qty.toString(), costMinor: l.cost.toString(), wallet: l.wallet, coinType: l.coinType });
+    lots.set(lotId, { qtyMinor: l.qty.toString(), costMinor: l.cost.toString(), wallet: l.wallet, coinType: l.coinType, originEventId: l.originEventId });
   }
-  return { lots, simulationGaps };
+  return { lots, simulationGaps, gapPools };
 }
 
 function eventTimeOf(ev: EventRow): string {
