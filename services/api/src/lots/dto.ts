@@ -100,6 +100,10 @@ export function buildLotsDTO(db: Db, entityId: string): LotsDTO {
     // or its rows were deleted). Emit it with the persisted side at 0/0 — honest, not faked.
     for (const [lotId, s] of sim) {
       if (`${s.wallet}|${s.coinType}` !== key || foldedIds.has(lotId)) continue;
+      // A lot both sides agree is gone (sim drained to 0/0, same as the dropped persisted
+      // fold) has no drift to report — emitting it here would be a phantom {0,0}-vs-{0,0}
+      // entry, a false-positive drift on an actually-drained pool.
+      if (s.qtyMinor === '0' && s.costMinor === '0') continue;
       const moves = groupMoves.filter((m) => m.lotId === lotId);
       const acquire = moves.find((m) => !m.deltaQtyMinor.startsWith('-'));
       lots.push({

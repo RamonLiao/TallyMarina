@@ -163,6 +163,29 @@ describe('GET /entities/:id/lots (C4 Task 5)', () => {
     expect(after).toEqual(before);
   });
 
+  it('drained pool: a lot fully consumed in BOTH ledgers yields no phantom drift entry', async () => {
+    const app = await freshApp();
+    const db = app._db;
+    // Opening lot (1000000000 qty) consumed by two payments that together exhaust it
+    // exactly, in both the persisted fold and the sim replay. Neither side has anything
+    // left — a lot both agree is gone must produce zero drift noise.
+    seedAuto(db, 'open1', opening({ eventId: 'open1', eventTime: '2026-04-01T00:00:00Z' }));
+    seedAuto(db, 'pay1', payment({ eventId: 'pay1', eventTime: '2026-04-05T00:00:00Z', quantityMinor: '400000000' }));
+    seedAuto(db, 'pay2', payment({ eventId: 'pay2', eventTime: '2026-04-06T00:00:00Z', quantityMinor: '600000000', txDigest: 'DIG2', eventIndex: 1 }));
+    await app.inject({ method: 'POST', url: `/entities/${E}/run-rules`, payload: { periodId: P } });
+
+    const r = await app.inject({ method: 'GET', url: `/entities/${E}/lots` });
+    expect(r.statusCode).toBe(200);
+    const body = r.json() as {
+      simulationGaps: string[];
+      groups: Array<{ wallet: string; coinType: string; lots: Array<{ lotId: string }> }>;
+    };
+    expect(body.simulationGaps).toEqual([]); // clean replay, no gaps
+    // The drained pool must not surface a phantom {0,0}-vs-{0,0} drift entry for OPEN-open1.
+    const g = body.groups.find((x) => x.wallet === '0xacme' && x.coinType === '0x2::sui::SUI');
+    expect(g === undefined || g.lots.every((l) => l.lotId !== 'OPEN-open1')).toBe(true);
+  });
+
   it('zero-events entity: empty groups, no 500', async () => {
     const app = await freshApp();
     insertEntity(app._db, { id: 'empty', displayName: 'Empty', chainObjectId: '0xe', capObjectId: '0xf', originalPackageId: '0xp' });
