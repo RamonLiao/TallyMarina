@@ -33,6 +33,23 @@
         "eventTime": "2026-06-02T09:00:00Z", "economicPurpose": "VENDOR_PAYMENT",
         "ownershipChange": true, "considerationAsset": null, "considerationQtyMinor": null, "considerationDecimals": null
       }
+    },
+    {
+      "raw": {
+        "digest": "DEMOOpening000",
+        "checkpoint": "099",
+        "timestampMs": "1711929600000",
+        "status": "success",
+        "rawJson": { "balanceChanges": [{ "coinType": "0x2::sui::SUI", "amount": "1000000000000", "owner": { "AddressOwner": "0xacmeTreasury" } }] }
+      },
+      "normalized": {
+        "schemaVersion": "v1", "eventId": "evt-000-opening", "eventType": "OPENING_LOT", "eventGroupId": null,
+        "entityId": "acme:pilot-001", "bookId": "main", "wallet": "0xacmeTreasury", "counterparty": null,
+        "coinType": "0x2::sui::SUI", "assetDecimals": 9, "quantityMinor": "1000000000000",
+        "eventTime": "2026-04-01T00:00:00Z", "economicPurpose": "OPENING_BALANCE",
+        "ownershipChange": false, "considerationAsset": null, "considerationQtyMinor": null, "considerationDecimals": null,
+        "openingCostMinor": "1000000"
+      }
     }
   ]
 }

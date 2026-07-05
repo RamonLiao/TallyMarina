@@ -25,6 +25,7 @@ import {
 import { insertJournalEntry, listJournal } from '../src/store/journalStore.js';
 import { insertSnapshot } from '../src/store/snapshotStore.js';
 import { buildRuleInput } from '../src/http/buildRuleInput.js';
+import { lotsForEvent } from '../src/http/lotsForEvent.js';
 import { evaluate, leafHash, type JournalEntry } from '../src/deps/rulesEngine.js';
 import { buildSnapshot, InMemorySnapshotRepo } from '../src/deps/snapshotSvc.js';
 import { prepareAnchor, confirmAnchor } from '../src/http/anchorService.js';
@@ -92,7 +93,7 @@ async function main(): Promise<void> {
   ];
   for (const ev of approved) {
     // Fresh in-memory DB — the demo period is never locked here.
-    const out = evaluate(buildRuleInput(ev, { periodId, periodOpen: true }));
+    const out = evaluate(buildRuleInput(ev, { periodId, periodOpen: true, lots: lotsForEvent(db, ev) }));
     if (out.decision !== 'POSTABLE') {
       console.warn(`  SKIP ${ev.id}: ${out.decision} ${JSON.stringify(out.exceptions)}`);
       continue;

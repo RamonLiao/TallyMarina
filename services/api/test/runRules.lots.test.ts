@@ -113,8 +113,8 @@ describe('run-rules persists lot movements atomically (C4 Task 3)', () => {
     expect(ev.finalEventType).toBe('OPENING_LOT');
   });
 
-  // ---- Enabled in Task 4 (real-lot fold); pre-Task-4 buildRuleInput returns the hardcoded 'lot-1'. ----
-  it.skip('consume rows carry the ACQUIRE lot_seq and provenance stamps (spec §2) — enabled in Task 4', async () => {
+  // ---- Enabled in Task 4 (real-lot fold): buildRuleInput now folds persisted lots. ----
+  it('consume rows carry the ACQUIRE lot_seq and provenance stamps (spec §2)', async () => {
     const app = await freshApp();
     const db = app._db;
     seedAuto(db, 'open1', opening({ eventId: 'open1', eventTime: '2026-04-01T00:00:00Z' }));
@@ -126,7 +126,7 @@ describe('run-rules persists lot movements atomically (C4 Task 3)', () => {
     expect(consume.policySetVersion).toBe('demo-ps-1');
   });
 
-  it.skip('candidates process in eventTime order (payment cannot precede its opening lot) — enabled in Task 4', async () => {
+  it('candidates process in eventTime order (payment cannot precede its opening lot)', async () => {
     const app = await freshApp();
     const db = app._db;
     // Payment inserted BEFORE the opening in the events table but dated LATER.
@@ -134,5 +134,25 @@ describe('run-rules persists lot movements atomically (C4 Task 3)', () => {
     seedAuto(db, 'open1', opening({ eventId: 'open1', eventTime: '2026-04-01T00:00:00Z' }));
     const r = await app.inject({ method: 'POST', url: `/entities/${E}/run-rules`, payload: { periodId: P } });
     expect(r.json().posted).toBe(1); // payment JE (opening has no JE); no INSUFFICIENT_LOT exception
+  });
+
+  // Task 3 left a transitional consumeLotSeq() fallback that, when acquireLotSeq found no
+  // acquire row, stamped the consume with the CONSUME event's own '<eventTime>|<eventId>'.
+  // Task 4 deleted it (the hardcoded lot with no acquire row is gone). This test proves the
+  // fallback is gone: the consume must carry the OPENING acquire's stamp, never a provisional
+  // self-stamp — and acquireLotSeq (which routes.ts now calls unguarded) fails loud for a lot
+  // with no acquire row rather than inventing a seq.
+  it('consume stamps the ACQUIRE seq — the deleted provisional self-stamp is gone; missing acquire fails loud', async () => {
+    const app = await freshApp();
+    const db = app._db;
+    seedAuto(db, 'open1', opening({ eventId: 'open1', eventTime: '2026-04-01T00:00:00Z' }));
+    seedAuto(db, 'pay1', payment({ eventId: 'pay1', eventTime: '2026-04-05T00:00:00Z' }));
+    await app.inject({ method: 'POST', url: `/entities/${E}/run-rules`, payload: { periodId: P } });
+    const consume = listLotMovements(db, E).find((m) => m.deltaQtyMinor.startsWith('-'))!;
+    // Carries the OPENING acquire's stamp, NOT the payment's own (the old fallback value).
+    expect(consume.lotSeq).toBe('2026-04-01T00:00:00Z|open1');
+    expect(consume.lotSeq).not.toBe('2026-04-05T00:00:00Z|pay1');
+    // The primitive the consume path relies on: no acquire row → throw, never a fabricated seq.
+    expect(() => acquireLotSeq(db, E, 'OPEN-ghost')).toThrow(/no acquire row/i);
   });
 });

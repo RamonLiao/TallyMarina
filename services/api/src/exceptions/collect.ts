@@ -3,6 +3,7 @@ import type { Db } from '../store/db.js';
 import { listEventsByPeriod } from '../store/eventStore.js';
 import type { EventRow } from '../store/eventStore.js';
 import { buildRuleInput } from '../http/buildRuleInput.js';
+import { lotsForEvent } from '../http/lotsForEvent.js';
 import { evaluate } from '../deps/rulesEngine.js';
 import { getPeriodLock } from '../periodLock/store.js';
 import { type Exception, type ExceptionCategory, severityRank } from './types.js';
@@ -51,7 +52,7 @@ export function collectExceptions(db: Db, entityId: string, periodId: string, lo
     if (e.status === 'APPROVED' || e.status === 'AUTO') {
       let reason = '';
       try {
-        const o = evaluate(buildRuleInput(e, { periodId, periodOpen }));
+        const o = evaluate(buildRuleInput(e, { periodId, periodOpen, lots: lotsForEvent(db, e) }));
         if (o.decision !== 'POSTABLE' || o.journalEntries.length === 0) {
           reason = o.exceptions[0]?.code ?? (o.decision === 'POSTABLE' ? 'NO_JOURNAL_ENTRIES' : o.decision);
         }

@@ -16,9 +16,11 @@ const ENTITY = encodeURIComponent(TEST_ENTITY_ID);
 
 describe('human decision feeds the posting path (F2)', () => {
   it('run-rules posts using finalEventType, not the raw event type', async () => {
-    // Low-confidence client → NEEDS_REVIEW so we can exercise decide.
+    // Low-confidence client → NEEDS_REVIEW so we can exercise decide. Ingest all events so the
+    // OPENING_LOT posts its acquire lot (bypassed → APPROVED); the overridden PAYMENT needs that
+    // basis to fold — with the hardcoded demo lot gone, an unposted opening means INSUFFICIENT_LOT.
     const app = await buildTestApp(true, needsReviewClient);
-    await app.inject({ method: 'POST', url: '/events/evt-001/classify', payload: {} });
+    await app.inject({ method: 'POST', url: `/entities/${ENTITY}/ingest`, payload: {} });
     // Raw fixture event is DIGITAL_ASSET_RECEIPT; the human overrides to PAYMENT.
     const d = await app.inject({
       method: 'POST', url: '/reviews/evt-001/decide',
@@ -91,10 +93,13 @@ describe('classification runs automatically on ingest (F1)', () => {
     const r = await app.inject({ method: 'POST', url: `/entities/${ENTITY}/ingest`, payload: {} });
     expect(r.statusCode).toBe(200);
     const body = r.json() as { classified: number; degraded: number; events: { status: string }[] };
-    expect(body.classified).toBe(2);
+    // 3 events: the two txns classify via the stub, the OPENING_LOT is bypassed deterministically
+    // (LLM never consulted) — both count toward `classified`.
+    expect(body.classified).toBe(3);
     expect(body.degraded).toBe(0);
-    // Stub confidence 0.92 ≥ 0.85 threshold → AUTO for all.
-    expect(body.events.map((e) => e.status)).toEqual(['AUTO', 'AUTO']);
+    // Ordered by id: evt-000-opening (OPENING_LOT → APPROVED via bypass), then the two txns
+    // at stub confidence 0.92 ≥ 0.85 threshold → AUTO.
+    expect(body.events.map((e) => e.status)).toEqual(['APPROVED', 'AUTO', 'AUTO']);
   });
 
   it('ingest is idempotent: second call classifies nothing new', async () => {

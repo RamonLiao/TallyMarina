@@ -31,6 +31,7 @@ import { hasAnchoredSnapshotForPeriod } from '../store/snapshotStore.js';
 import { classifyEvent } from '../ai/classify.js';
 import { reviewCopilot } from '../ai/copilot.js';
 import { buildRuleInput } from './buildRuleInput.js';
+import { lotsForEvent } from './lotsForEvent.js';
 import { evaluate, buildMerkle, leafHash, inclusionProof, eventTypeSchema, type JournalEntry } from '../deps/rulesEngine.js';
 import { buildSnapshot, InMemorySnapshotRepo } from '../deps/snapshotSvc.js';
 import { prepareAnchor, confirmAnchor, type AnchorServiceDeps } from './anchorService.js';
@@ -90,21 +91,6 @@ function eventTimeOf(ev: EventRow): string {
 function rawEventTypeOf(rawJson: string): string | null {
   const t = (JSON.parse(rawJson) as { eventType?: unknown }).eventType;
   return typeof t === 'string' ? t : null;
-}
-
-// Consume rows stamp the ACQUIRE lot's lot_seq (spec §2). Pre-Task-4, buildRuleInput
-// injects a fabricated demo lot ('lot-1') with NO persisted acquire row, so acquireLotSeq
-// legitimately finds nothing — fall back to the consume event's own stamp (provisional,
-// harmless: no real acquire exists yet). Task 4 folds real lots (OPEN-…) that DO have an
-// acquire row, so the fallback stops firing. Any OTHER failure (e.g. dropped table) is a
-// real fault and must propagate — never swallowed.
-function consumeLotSeq(db: Db, entityId: string, lotId: string, fallback: string): string {
-  try {
-    return acquireLotSeq(db, entityId, lotId);
-  } catch (err) {
-    if (err instanceof Error && /no acquire row/.test(err.message)) return fallback;
-    throw err;
-  }
 }
 
 function exceptionDTO(db: Db, entityId: string, periodId: string, lowConf: number) {
@@ -457,7 +443,7 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
       .sort((a, b) => eventTimeOf(a).localeCompare(eventTimeOf(b)) || a.id.localeCompare(b.id));
     let posted = 0, skipped = 0;
     for (const ev of candidates) {
-      const output = evaluate(buildRuleInput(ev, { periodId, periodOpen }));
+      const output = evaluate(buildRuleInput(ev, { periodId, periodOpen, lots: lotsForEvent(db, ev) }));
       // JE-less POSTABLE outputs (OPENING_LOT, spec §3) still carry lot movements that
       // must persist — the old `journalEntries.length === 0 → skip` guard is gone.
       if (output.decision !== 'POSTABLE') { skipped++; continue; }
@@ -490,7 +476,10 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
             id: `lm-${anchorKey}-${m.lotId}`,
             entityId: ev.entityId, eventId: ev.id, jeId: anchorJeId,
             lotId: m.lotId,
-            lotSeq: isAcquire ? acquireStamp : consumeLotSeq(db, ev.entityId, m.lotId, acquireStamp),
+            // Consume rows stamp the ACQUIRE lot's own lot_seq (spec §2). acquireLotSeq
+            // fails loud if the referenced lot has no persisted acquire row — the Task-3
+            // provisional fallback is gone now that buildRuleInput folds real lots.
+            lotSeq: isAcquire ? acquireStamp : acquireLotSeq(db, ev.entityId, m.lotId),
             periodId: ev.periodId!, coinType: m.coinType, wallet: m.wallet,
             deltaQtyMinor: m.deltaQtyMinor, deltaCostMinor: m.deltaCostMinor,
             costBasisMethod: 'FIFO', policySetVersion: DEMO_POLICY_SET.policySetVersion,
