@@ -96,8 +96,11 @@ describe('subledger ↔ GL tie-out invariant (C4 Task 6, spec §8)', () => {
     // lot subledger's remaining basis MUST equal the GL control account to the cent.
     const app = await freshApp();
     const db = app._db;
-    seedAuto(db, 'r1', receipt({ eventId: 'r1', quantityMinor: '1000000000', eventTime: '2026-04-10T00:00:00Z' }));
-    seedAuto(db, 'pay1', payment({ eventId: 'pay1', quantityMinor: '400000000', eventTime: '2026-04-20T00:00:00Z' }));
+    // Distinct txDigest per event: real on-chain events are uniquely referenced, and the JE
+    // idempotency key derives from (txDigest, eventIndex) — sharing it would collide the receipt's
+    // acquire movement with the payment's consume, silently dropping the disposal (fail-loud now).
+    seedAuto(db, 'r1', receipt({ eventId: 'r1', txDigest: 'DIG-R1', quantityMinor: '1000000000', eventTime: '2026-04-10T00:00:00Z' }));
+    seedAuto(db, 'pay1', payment({ eventId: 'pay1', txDigest: 'DIG-PAY1', quantityMinor: '400000000', eventTime: '2026-04-20T00:00:00Z' }));
     const rr = await app.inject({ method: 'POST', url: `/entities/${E}/run-rules`, payload: { periodId: P } });
     expect(rr.statusCode).toBe(200);
 
@@ -118,9 +121,9 @@ describe('subledger ↔ GL tie-out invariant (C4 Task 6, spec §8)', () => {
     // subledger back to the GL.
     const app = await freshApp();
     const db = app._db;
-    seedAuto(db, 'r1', receipt({ eventId: 'r1', quantityMinor: '1000000000', eventTime: '2026-04-10T00:00:00Z' }));
-    seedAuto(db, 'open1', opening({ eventId: 'open1', openingCostMinor: '500000', eventTime: '2026-04-15T00:00:00Z' }));
-    seedAuto(db, 'pay1', payment({ eventId: 'pay1', quantityMinor: '400000000', eventTime: '2026-04-20T00:00:00Z' }));
+    seedAuto(db, 'r1', receipt({ eventId: 'r1', txDigest: 'DIG-R1', quantityMinor: '1000000000', eventTime: '2026-04-10T00:00:00Z' }));
+    seedAuto(db, 'open1', opening({ eventId: 'open1', txDigest: 'DIG-OPEN1', openingCostMinor: '500000', eventTime: '2026-04-15T00:00:00Z' }));
+    seedAuto(db, 'pay1', payment({ eventId: 'pay1', txDigest: 'DIG-PAY1', quantityMinor: '400000000', eventTime: '2026-04-20T00:00:00Z' }));
     const rr = await app.inject({ method: 'POST', url: `/entities/${E}/run-rules`, payload: { periodId: P } });
     expect(rr.statusCode).toBe(200);
 

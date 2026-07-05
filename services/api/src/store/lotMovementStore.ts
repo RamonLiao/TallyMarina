@@ -17,7 +17,23 @@ export function insertLotMovement(db: Db, r: LotMovementRow): 'inserted' | 'dupl
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(r.id, r.entityId, r.eventId, r.jeId, r.lotId, r.lotSeq, r.periodId,
     r.coinType, r.wallet, r.deltaQtyMinor, r.deltaCostMinor, r.costBasisMethod, r.policySetVersion, r.idempotencyKey);
-  return result.changes > 0 ? 'inserted' : 'duplicate';
+  if (result.changes > 0) return 'inserted';
+  // No row inserted → the idempotency_key already exists. A true replay carries an IDENTICAL
+  // economic payload (lot_id, signed deltas, event_id) → return 'duplicate' (no-op). A DIFFERENT
+  // payload under the same key is corruption / a key-collision bug — fail loud, never silent-drop.
+  const prev = db.prepare(
+    'SELECT lot_id, delta_qty_minor, delta_cost_minor, event_id FROM lot_movement WHERE idempotency_key = ?',
+  ).get(r.idempotencyKey) as
+    { lot_id: string; delta_qty_minor: string; delta_cost_minor: string; event_id: string } | undefined;
+  if (prev && (prev.lot_id !== r.lotId || prev.delta_qty_minor !== r.deltaQtyMinor
+      || prev.delta_cost_minor !== r.deltaCostMinor || prev.event_id !== r.eventId)) {
+    throw new Error(
+      `insertLotMovement: idempotency_key ${r.idempotencyKey} already persisted with a DIFFERENT payload `
+      + `(existing lot=${prev.lot_id} dq=${prev.delta_qty_minor} dc=${prev.delta_cost_minor} ev=${prev.event_id}; `
+      + `attempted lot=${r.lotId} dq=${r.deltaQtyMinor} dc=${r.deltaCostMinor} ev=${r.eventId}) — ledger corruption`,
+    );
+  }
+  return 'duplicate';
 }
 
 export function listLotMovements(db: Db, entityId: string, f: { wallet?: string; coinType?: string; periodId?: string } = {}): LotMovementRow[] {

@@ -140,11 +140,10 @@ describe('monkey: lot ledger integrity under garbage, concurrency, restart (C4 T
     await app.close();
   });
 
-  it('INSERT OR IGNORE dedup: re-inserting existing idempotency_key rows is a no-op at the DB layer', async () => {
-    // Genuinely exercises the UNIQUE(idempotency_key) dedup path, independent of the status guard
-    // above. Take the movements a real run-rules pass produced, then try to re-insert each one
-    // under a different row id/values but the SAME idempotencyKey — the UNIQUE constraint must
-    // reject every one, proving the dedup layer works even if the status guard were absent.
+  it('dedup: same key + IDENTICAL payload is a no-op; same key + DIFFERENT payload THROWS (fail-loud)', async () => {
+    // Exercises the UNIQUE(idempotency_key) dedup path directly, independent of the status guard
+    // above. A true replay (identical economic payload) must no-op; a same-key row with a DIFFERENT
+    // payload must throw rather than silently drop — a silent drop would diverge subledger from GL.
     const app = await freshApp();
     seedAuto(app._db, 'r1', receipt({ eventId: 'r1' }));
     seedAuto(app._db, 'pay1', payment({ eventId: 'pay1' }));
@@ -153,13 +152,12 @@ describe('monkey: lot ledger integrity under garbage, concurrency, restart (C4 T
     expect(before.length).toBeGreaterThan(0);
 
     for (const m of before) {
-      const result = insertLotMovement(app._db, {
-        ...m,
-        id: `${m.id}-replay`,           // different PK
-        deltaQtyMinor: '999999999',     // different payload — dedup must still fire on idempotencyKey alone
-        deltaCostMinor: '999999999',
-      });
-      expect(result, m.idempotencyKey).toBe('duplicate');
+      // True replay: identical payload, different PK → 'duplicate' no-op.
+      expect(insertLotMovement(app._db, { ...m, id: `${m.id}-replay` }), m.idempotencyKey).toBe('duplicate');
+      // Same key, DIFFERENT payload → must throw, never silent-drop.
+      expect(() => insertLotMovement(app._db, {
+        ...m, id: `${m.id}-corrupt`, deltaQtyMinor: '999999999', deltaCostMinor: '999999999',
+      }), m.idempotencyKey).toThrow(/DIFFERENT payload/i);
     }
 
     const after = listLotMovements(app._db, E);

@@ -25,10 +25,16 @@ describe('lot_movement store', () => {
   let db: Db;
   beforeEach(() => { db = mkDb(); });
 
-  it('insert is idempotent by idempotency_key (replay = no-op, spec §6 #3)', () => {
+  it('true replay (same key, IDENTICAL payload) is a no-op (spec §6 #3)', () => {
     expect(insertLotMovement(db, row())).toBe('inserted');
-    expect(insertLotMovement(db, row({ id: 'lm-1b', deltaQtyMinor: '9999' }))).toBe('duplicate');
+    expect(insertLotMovement(db, row({ id: 'lm-1b' }))).toBe('duplicate'); // different PK, same economic payload
     expect(listLotMovements(db, 'e1')).toHaveLength(1); // second write did NOT alter the ledger
+  });
+
+  it('same key, DIFFERENT payload throws — silent-drop would diverge subledger from GL (fail-loud)', () => {
+    expect(insertLotMovement(db, row())).toBe('inserted');
+    expect(() => insertLotMovement(db, row({ id: 'lm-1b', deltaQtyMinor: '9999' }))).toThrow(/DIFFERENT payload/i);
+    expect(listLotMovements(db, 'e1')).toHaveLength(1); // rejected write left the ledger untouched
   });
 
   it('fold: remaining = Σ signed deltas per lot; zero-remaining lots dropped', () => {
