@@ -62,6 +62,35 @@ async function freshApp(): Promise<FastifyInstance & { _db: Db }> {
   insertEntity(app._db, { id: E, displayName: 'Acme', chainObjectId: '0xc', capObjectId: '0xk', originalPackageId: '0xp' });
   return app;
 }
+interface JeLine { account: string; side: 'DEBIT' | 'CREDIT'; amountMinor: string }
+/** GL balance of a control account, folded from persisted je_json (DEBIT − CREDIT). All BigInt. */
+function glBalance(db: Db, account: string): bigint {
+  const rows = db.prepare('SELECT je_json FROM journal_entries WHERE entity_id = ?').all(E) as { je_json: string }[];
+  let bal = 0n;
+  for (const r of rows) {
+    const je = JSON.parse(r.je_json) as { lines: JeLine[] };
+    for (const l of je.lines) {
+      if (l.account !== account) continue;
+      bal += l.side === 'DEBIT' ? BigInt(l.amountMinor) : -BigInt(l.amountMinor);
+    }
+  }
+  return bal;
+}
+interface LotsBody {
+  groups: Array<{ wallet: string; coinType: string; lots: Array<{ origin: string; remainingQtyMinor: string; costMinor: string }> }>;
+  simulationGaps: string[];
+}
+async function getLots(app: FastifyInstance & { _db: Db }): Promise<LotsBody> {
+  const r = await app.inject({ method: 'GET', url: `/entities/${E}/lots` });
+  expect(r.statusCode).toBe(200);
+  return r.json() as LotsBody;
+}
+function sumRemainingCost(body: LotsBody, filter?: (o: string) => boolean): bigint {
+  let s = 0n;
+  for (const g of body.groups) for (const l of g.lots) if (!filter || filter(l.origin)) s += BigInt(l.costMinor);
+  return s;
+}
+
 /** Same wiring as buildTestApp but over an already-open (file-backed) Db — for the reopen test. */
 function appOnDb(db: Db): FastifyInstance & { _db: Db } {
   const app = Fastify() as unknown as FastifyInstance & { _db: Db };
@@ -201,5 +230,96 @@ describe('monkey: lot ledger integrity under garbage, concurrency, restart (C4 T
     expect(r.statusCode).toBe(200);
     expect((r.json() as { groups: unknown[] }).groups).toEqual([]);
     await app.close();
+  });
+
+  // --- Task 5 extensions: opening-equity JE hostile cases (spec §3.4, §6) ---
+
+  it('monkey: run-rules replay is a no-op — second run posts 0, GL/OBE unchanged', async () => {
+    const app = await freshApp();
+    const db = app._db;
+    seedAuto(db, 'open1', opening({ eventId: 'open1', txDigest: 'DIG-OPEN1', openingCostMinor: '500000' }));
+    const r1 = await app.inject({ method: 'POST', url: `/entities/${E}/run-rules`, payload: { periodId: P } });
+    expect(r1.statusCode).toBe(200);
+    expect((r1.json() as { posted: number }).posted).toBe(1);
+    const daBefore = glBalance(db, 'DigitalAssets');
+    const obeBefore = glBalance(db, 'OpeningBalanceEquity');
+    expect(daBefore).toBeGreaterThan(0n); // guard against a vacuous 0n === 0n pass below
+
+    const r2 = await app.inject({ method: 'POST', url: `/entities/${E}/run-rules`, payload: { periodId: P } });
+    expect(r2.statusCode).toBe(200);
+    expect((r2.json() as { posted: number }).posted).toBe(0); // markPosted already flipped AUTO→POSTED
+    expect(glBalance(db, 'DigitalAssets')).toBe(daBefore);
+    expect(glBalance(db, 'OpeningBalanceEquity')).toBe(obeBefore);
+    await app.close();
+  });
+
+  it('monkey: cross-event duplicate registration double-counts SYMMETRICALLY — documented non-defense (spec §6)', async () => {
+    // Two distinct real-world opening events (different eventIds, different txDigests — the
+    // idempotency key derives from (txDigest, eventIndex), so distinct digests are required or
+    // the second event silently collides with the first instead of exercising the cross-event
+    // case at all) that happen to declare the SAME wallet/coin/cost. The engine has no cross-event
+    // dedup for OPENING_LOT — it isn't supposed to, since two truly independent lots CAN share
+    // those attributes — so both post, and OBE (the credit side) doubles. This pins that the
+    // doubling is SYMMETRIC (both DigitalAssets and OpeningBalanceEquity double together, so the
+    // subledger↔GL identity still holds) rather than a defense nobody should rely on.
+    const app = await freshApp();
+    const db = app._db;
+    const cost = 500000n;
+    seedAuto(db, 'open1', opening({ eventId: 'open1', txDigest: 'DIG-OPEN1', openingCostMinor: cost.toString() }));
+    seedAuto(db, 'open2', opening({ eventId: 'open2', txDigest: 'DIG-OPEN2', openingCostMinor: cost.toString() }));
+    const rr = await app.inject({ method: 'POST', url: `/entities/${E}/run-rules`, payload: { periodId: P } });
+    expect(rr.statusCode).toBe(200);
+    expect((rr.json() as { posted: number }).posted).toBe(2); // both post — no cross-event dedup
+
+    expect(glBalance(db, 'OpeningBalanceEquity')).toBe(-2n * cost);
+    expect(glBalance(db, 'DigitalAssets')).toBe(2n * cost);
+
+    // Full tie-out identity still holds — the doubling is symmetric, not a books/subledger split.
+    const lotsBody = await getLots(app);
+    expect(lotsBody.simulationGaps).toEqual([]);
+    expect(sumRemainingCost(lotsBody)).toBe(glBalance(db, 'DigitalAssets'));
+    await app.close();
+  });
+
+  it('monkey: huge openingCostMinor (>2^63) survives BigInt end-to-end', async () => {
+    const huge = '99999999999999999999999999';
+    const app = await freshApp();
+    const db = app._db;
+    seedAuto(db, 'open1', opening({ eventId: 'open1', txDigest: 'DIG-HUGE1', openingCostMinor: huge }));
+    const rr = await app.inject({ method: 'POST', url: `/entities/${E}/run-rules`, payload: { periodId: P } });
+    expect(rr.statusCode).toBe(200);
+    expect((rr.json() as { posted: number }).posted).toBe(1);
+
+    expect(glBalance(db, 'DigitalAssets')).toBe(BigInt(huge));
+    expect(glBalance(db, 'OpeningBalanceEquity')).toBe(-BigInt(huge));
+
+    const lotsBody = await getLots(app);
+    expect(lotsBody.simulationGaps).toEqual([]);
+    expect(sumRemainingCost(lotsBody)).toBe(glBalance(db, 'DigitalAssets')); // tie-out identity holds at extreme scale
+    await app.close();
+  });
+
+  it('monkey: negative and non-integer openingCostMinor never post', async () => {
+    const badCosts: Array<[string, string]> = [
+      ['negative', '-5'],
+      ['non-integer decimal', '1.5'],
+      ['scientific notation', '1e9'],
+    ];
+    for (const [label, cost] of badCosts) {
+      const app = await freshApp();
+      const db = app._db;
+      seedAuto(db, 'bad1', opening({ eventId: 'bad1', txDigest: `DIG-BAD-${label}`, openingCostMinor: cost }));
+      const rr = await app.inject({ method: 'POST', url: `/entities/${E}/run-rules`, payload: { periodId: P } });
+      expect(rr.statusCode, label).toBe(200);
+      // posted=0 AND skipped=1: the event WAS a run candidate and was actively rejected
+      // (SCHEMA_INVALID → non-POSTABLE → skipped++), not merely absent from the run.
+      const rrBody = rr.json() as { posted: number; skipped: number };
+      expect(rrBody.posted, label).toBe(0);
+      expect(rrBody.skipped, label).toBe(1);
+      expect(listLotMovements(db, E), label).toHaveLength(0);
+      expect(db.prepare('SELECT COUNT(*) AS c FROM journal_entries WHERE entity_id = ?').get(E), label)
+        .toEqual({ c: 0 });
+      await app.close();
+    }
   });
 });
