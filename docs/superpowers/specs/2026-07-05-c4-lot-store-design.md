@@ -51,7 +51,7 @@ New table `lot_movement` in `services/api/src/store/schema.sql`:
 - Index: `(entity_id, wallet, coin_type)` — the buildRuleInput fold scans per event. [SUI M5]
 - Values stored as strings (minor units), matching engine BigInt-string convention and `je_json` practice.
 - **Sign semantics**: the sign of `delta_qty_minor` encodes quantity direction (inflow/outflow), NOT debit/credit — an acquisition is a debit to the asset yet a positive delta. Future UI must not map sign to `--debit`/`--credit` tokens blindly. [FE F5]
-- **Snapshot manifest stays JE-only, intentionally**: the current `lotMovements: []` stub in the snapshot route (`routes.ts:696`) remains empty after C4. Adding movements to the manifest would change merkle roots of already-anchored periods. Do not "helpfully" wire it. [SUI M4]
+- **Snapshot manifest stays JE-only, intentionally**: the current `lotMovements: []` stub in the snapshot route (`routes.ts:786`) remains empty after C4. Adding movements to the manifest would change merkle roots of already-anchored periods. Do not "helpfully" wire it. [SUI M4]
 - **Atomicity**: movements are inserted in the same SQLite transaction as `insertJournalEntry`. A crash can never leave a JE without its consumption record (or vice versa). This closes the `routes.ts:403` gap.
 - **Idempotency**: UNIQUE `idempotency_key` makes replay a no-op, same pattern as `journal_entries.idempotency_key`.
 
@@ -95,7 +95,7 @@ All defenses above are **app-level** (route guards, transactions, constraints), 
 
 ## 7. Deferred (honest, not silently skipped)
 
-- **Opening-equity JE for OPENING_LOT** (Dr asset / Cr opening equity) — lot origination only this round. **Elevated priority — this deferral carries two documented costs**: ① opening lots have zero cryptographic anchoring (no JE → no leaf → no merkle → tampering with an opening event+movement pair after lock poisons all downstream cost basis and the anchor cannot detect it; the drift comparator recomputes from the same tamperable SQLite rows) [SUI I2]; ② GL tie-out excludes opening lots (§3) [CPA C2]. First candidate for the next round.
+- **Opening-equity JE for OPENING_LOT** (Dr asset / Cr opening equity) — **DONE**, delivered by `docs/superpowers/specs/2026-07-05-opening-equity-je-design.md`: non-zero-basis OPENING_LOT now posts `Dr DigitalAssets / Cr OpeningBalanceEquity` and its JE enters the merkle spine like any other JE. The anchoring gap narrows to **legacy (`lot_movement.je_id IS NULL`) + zero-basis opening lots** — these remain unanchored (no JE → no leaf → no merkle) and excluded from GL tie-out at original loaded basis [SUI I2] [CPA C2]. Anchoring zero-basis lots is the next candidate.
 - Lot-level realized gain/loss capture (proceeds + realized G/L per disposal movement; accounting-spec §4.4 disposal analysis). G/L lives in the JE this round. [CPA I1]
 - Drift-resolution workflow (forward correcting JE in an open period; §1 only surfaces). [CPA I3]
 - Existence assertion (lot remaining qty vs live on-chain wallet balance; partially overlaps the recon workspace's live chain-balance column). [CPA M1]
