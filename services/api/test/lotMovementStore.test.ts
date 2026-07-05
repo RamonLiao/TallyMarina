@@ -37,6 +37,14 @@ describe('lot_movement store', () => {
     expect(listLotMovements(db, 'e1')).toHaveLength(1); // rejected write left the ledger untouched
   });
 
+  it('same id, DIFFERENT idempotency key throws — PK collision must not be mistaken for a key replay', () => {
+    expect(insertLotMovement(db, row())).toBe('inserted');
+    // same PK 'lm-1' but a different idempotency_key: INSERT OR IGNORE drops it on the PK constraint,
+    // changes=0, and the idempotency_key lookup finds no matching row → must throw, not 'duplicate'.
+    expect(() => insertLotMovement(db, row({ idempotencyKey: 'k-other' }))).toThrow(/no existing row matches/i);
+    expect(listLotMovements(db, 'e1')).toHaveLength(1); // dropped insert left the ledger untouched
+  });
+
   it('fold: remaining = Σ signed deltas per lot; zero-remaining lots dropped', () => {
     insertLotMovement(db, row());                                                        // +1000/500
     insertLotMovement(db, row({ id: 'lm-2', idempotencyKey: 'k2', eventId: 'ev2', deltaQtyMinor: '-400', deltaCostMinor: '-200' }));

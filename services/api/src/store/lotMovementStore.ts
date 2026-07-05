@@ -25,8 +25,17 @@ export function insertLotMovement(db: Db, r: LotMovementRow): 'inserted' | 'dupl
     'SELECT lot_id, delta_qty_minor, delta_cost_minor, event_id FROM lot_movement WHERE idempotency_key = ?',
   ).get(r.idempotencyKey) as
     { lot_id: string; delta_qty_minor: string; delta_cost_minor: string; event_id: string } | undefined;
-  if (prev && (prev.lot_id !== r.lotId || prev.delta_qty_minor !== r.deltaQtyMinor
-      || prev.delta_cost_minor !== r.deltaCostMinor || prev.event_id !== r.eventId)) {
+  if (!prev) {
+    // changes=0 but no row matches idempotency_key → INSERT OR IGNORE swallowed a DIFFERENT
+    // unique/PK violation (e.g. id collision) and silently dropped the row — fail loud.
+    throw new Error(
+      `insertLotMovement: row id=${r.id} idempotency_key=${r.idempotencyKey} was not inserted and no `
+      + `existing row matches this idempotency_key — a non-key constraint (e.g. duplicate id) silently `
+      + `dropped the insert — ledger corruption`,
+    );
+  }
+  if (prev.lot_id !== r.lotId || prev.delta_qty_minor !== r.deltaQtyMinor
+      || prev.delta_cost_minor !== r.deltaCostMinor || prev.event_id !== r.eventId) {
     throw new Error(
       `insertLotMovement: idempotency_key ${r.idempotencyKey} already persisted with a DIFFERENT payload `
       + `(existing lot=${prev.lot_id} dq=${prev.delta_qty_minor} dc=${prev.delta_cost_minor} ev=${prev.event_id}; `
