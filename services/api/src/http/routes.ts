@@ -445,8 +445,10 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     let posted = 0, skipped = 0;
     for (const ev of candidates) {
       const output = evaluate(buildRuleInput(ev, { periodId, periodOpen, lots: lotsForEvent(db, ev) }));
-      // JE-less POSTABLE outputs (OPENING_LOT, spec §3) still carry lot movements that
-      // must persist — the old `journalEntries.length === 0 → skip` guard is gone.
+      // JE-less POSTABLE outputs still carry lot movements that must persist — the old
+      // `journalEntries.length === 0 → skip` guard is gone. Non-zero OPENING_LOT now posts
+      // a real JE (Dr ACQUISITION / Cr OPENING_EQUITY, Task 1+2); the JE-less branch now
+      // applies only to zero-basis opening lots and same-wallet INTERNAL_TRANSFER legs.
       if (output.decision !== 'POSTABLE') { skipped++; continue; }
       const acquireStamp = `${eventTimeOf(ev)}|${ev.id}`;
       // JE + movements are one atomic unit (spec §2): an injected movement failure must

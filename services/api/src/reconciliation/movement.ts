@@ -32,8 +32,21 @@ export function walletAssetMovements(db: Db, entityId: string): MovementResult {
   for (const r of listJournal(db, entityId)) {
     const ev = getEvent(db, r.eventId);
     if (!ev) throw new Error(`recon: JE ${r.id} references missing event ${r.eventId}`);
-    const wallet = (JSON.parse(ev.rawJson) as { wallet?: string }).wallet;
+    const rawEvent = JSON.parse(ev.rawJson) as { wallet?: string; eventType?: string };
+    const wallet = rawEvent.wallet;
     if (!wallet) throw new Error(`recon: event ${ev.id} has no wallet`);
+    // OPENING_LOT declares pre-history holdings, not period activity: its chain-side
+    // counterpart is the recon fixture's openingMinor, not a book movement. Folding its
+    // ACQUISITION leg (which carries origQtyMinor/origCoinType for merkle anchoring, per
+    // openingLotRules.ts) in here would double-count the same holding on both sides of
+    // computed = opening + movement. Zero-basis OPENING_LOT (JE-less) is already excluded
+    // from this fold by construction, so skipping non-zero OPENING_LOT JEs here restores
+    // that symmetry. Discriminator: (finalEventType ?? rawEvent.eventType) — must mirror the
+    // exact precedence buildRuleInput.ts uses to pick the type the engine actually posted
+    // under (spec §6.9 human review override). Reading rawEvent.eventType alone would exclude
+    // a reclassified-away-from-OPENING_LOT JE's real movement (masking genuine breaks) or
+    // fold in a reclassified-into-OPENING_LOT JE's leg as double-counted movement.
+    if ((ev.finalEventType ?? rawEvent.eventType) === 'OPENING_LOT') continue;
     const je = JSON.parse(r.jeJson) as { lines: JeLine[] };
     const net = netByCoinType(je.lines);
     for (const [coinType, qty] of Object.entries(net)) {

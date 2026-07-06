@@ -15,6 +15,7 @@ export interface LotsDTO {
     lots: Array<{
       lotId: string; lotSeq: string; origin: 'opening' | 'derived';
       remainingQtyMinor: string; costMinor: string; originEventId: string;
+      acquireJeId: string | null; // join key into GET /entities/:id/journal — null = unanchored (legacy/zero-basis opening)
       drift: null | {
         recomputed: { qtyMinor: string; costMinor: string };
         persisted: { qtyMinor: string; costMinor: string };
@@ -84,6 +85,7 @@ export function buildLotsDTO(db: Db, entityId: string): LotsDTO {
         remainingQtyMinor: lot.remainingQtyMinor,
         costMinor: lot.costMinor,
         originEventId: acquire.eventId,
+        acquireJeId: acquire.jeId,
         drift: equal ? null : {
           recomputed: { qtyMinor: recomputedQty, costMinor: recomputedCost },
           persisted: { qtyMinor: lot.remainingQtyMinor, costMinor: lot.costMinor },
@@ -115,6 +117,7 @@ export function buildLotsDTO(db: Db, entityId: string): LotsDTO {
         remainingQtyMinor: '0',
         costMinor: '0',
         originEventId: acquire?.eventId ?? s.originEventId, // sim knows the originating event
+        acquireJeId: acquire?.jeId ?? null,
         drift: {
           recomputed: { qtyMinor: s.qtyMinor, costMinor: s.costMinor },
           persisted: { qtyMinor: '0', costMinor: '0' },

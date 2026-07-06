@@ -24,6 +24,8 @@ export const DEMO_COA_RULES: CoaRule[] = [
   { eventType: 'GAS_FEE', leg: 'DISPOSAL', account: 'DigitalAssets' },
   { eventType: 'GAS_FEE', leg: 'DISPOSAL_GAIN', account: 'DisposalGain' },
   { eventType: 'GAS_FEE', leg: 'DISPOSAL_LOSS', account: 'DisposalLoss' },
+  { eventType: 'OPENING_LOT', leg: 'ACQUISITION', account: 'DigitalAssets' },
+  { eventType: 'OPENING_LOT', leg: 'OPENING_EQUITY', account: 'OpeningBalanceEquity' },
   { eventType: 'SPOT_TRADE_SWAP', leg: 'ACQUISITION', account: 'DigitalAssets' },
   { eventType: 'SPOT_TRADE_SWAP', leg: 'DISPOSAL', account: 'DigitalAssets' },
   { eventType: 'SPOT_TRADE_SWAP', leg: 'DISPOSAL_GAIN', account: 'DisposalGain' },

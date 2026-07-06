@@ -1,7 +1,11 @@
 /**
  * Task 3 (C4 lot store): run-rules persists lot movements atomically alongside JEs,
- * handles JE-less POSTABLE outputs (OPENING_LOT), and the ingest OPENING_LOT bypass
- * approves deterministically without consulting the LLM.
+ * and the ingest OPENING_LOT bypass approves deterministically without consulting the LLM.
+ *
+ * Task 1+2 (opening-equity JE): a non-zero OPENING_LOT now ALSO posts a real JE
+ * (Dr ACQUISITION / Cr OPENING_EQUITY, both amountMinor === openingCostMinor) — the
+ * JE-less POSTABLE branch (spec §7.8.3) now applies only to zero-basis opening lots and
+ * same-wallet INTERNAL_TRANSFER legs.
  *
  * COUPLING (plan-explicit): until Task 4 flips buildRuleInput to fold REAL lots, a
  * payment consume references the hardcoded demo lot ('lot-1'), which has no persisted
@@ -37,7 +41,11 @@ function opening(over: RawOver = {}): RawOver {
   return baseEvent({ eventType: 'OPENING_LOT', economicPurpose: 'OPENING_BALANCE', openingCostMinor: '500000', ...over });
 }
 function payment(over: RawOver = {}): RawOver {
-  return baseEvent({ eventType: 'DIGITAL_ASSET_PAYMENT', economicPurpose: 'VENDOR_PAYMENT', quantityMinor: '400000000', ...over });
+  // Distinct txDigest from opening(): the JE/movement idempotency key derives from
+  // (txDigest, eventIndex) alone (never eventId) — now that OPENING_LOT ALSO posts a JE,
+  // sharing 'DIG' would collide the payment's consume idempotency key with the opening's
+  // acquire (both key on the same lotId) and fail loud as ledger corruption.
+  return baseEvent({ eventType: 'DIGITAL_ASSET_PAYMENT', economicPurpose: 'VENDOR_PAYMENT', quantityMinor: '400000000', txDigest: 'DIGPAY', ...over });
 }
 
 async function freshApp(client?: GeminiClient): Promise<FastifyInstance & { _db: Db }> {
@@ -72,7 +80,7 @@ describe('run-rules persists lot movements atomically (C4 Task 3)', () => {
     expect(listLotMovements(db, E)).toHaveLength(movesAfterRun1.length); // replay: zero new rows
   });
 
-  it('OPENING_LOT posts movements with NO JE and je_id NULL (spec §3)', async () => {
+  it('non-zero OPENING_LOT posts ONE anchored JE (Dr ACQUISITION / Cr OPENING_EQUITY) and a real je_id (Task 1+2)', async () => {
     const app = await freshApp();
     const db = app._db;
     seedAuto(db, 'open1', opening({ eventId: 'open1', eventTime: '2026-04-01T00:00:00Z' }));
@@ -80,8 +88,17 @@ describe('run-rules persists lot movements atomically (C4 Task 3)', () => {
     await app.inject({ method: 'POST', url: `/entities/${E}/run-rules`, payload: { periodId: P } });
     const openingMoves = listLotMovements(db, E).filter((m) => m.lotId.startsWith('OPEN-'));
     expect(openingMoves).toHaveLength(1);
-    expect(openingMoves[0]!.jeId).toBeNull();
-    expect(db.prepare('SELECT COUNT(*) c FROM journal_entries WHERE event_id = ?').get('open1')).toMatchObject({ c: 0 });
+    // Anchored to a real JE now — never null, never a hardcoded hash (the sha256 idempotencyKey
+    // is an implementation detail; only the `je-<eventId>-<key>` shape is a stable contract).
+    expect(openingMoves[0]!.jeId).not.toBeNull();
+    expect(openingMoves[0]!.jeId).toMatch(/^je-open1-/);
+    const jeRow = db.prepare('SELECT je_json FROM journal_entries WHERE event_id = ?').get('open1') as { je_json: string } | undefined;
+    expect(jeRow).toBeTruthy();
+    const je = JSON.parse(jeRow!.je_json) as { lines: Array<{ account: string; side: string; amountMinor: string; leg: string }> };
+    expect(je.lines).toEqual([
+      { account: 'DigitalAssets', side: 'DEBIT', amountMinor: '500000', origCoinType: '0x2::sui::SUI', origQtyMinor: '1000000000', priceRef: null, fxRef: null, leg: 'ACQUISITION' },
+      { account: 'OpeningBalanceEquity', side: 'CREDIT', amountMinor: '500000', origCoinType: null, origQtyMinor: null, priceRef: null, fxRef: null, leg: 'OPENING_EQUITY' },
+    ]);
   });
 
   it('atomicity: injected movement-insert failure rolls back the JE too (spec §6 #5)', async () => {
@@ -136,7 +153,10 @@ describe('run-rules persists lot movements atomically (C4 Task 3)', () => {
     seedAuto(db, 'pay1', payment({ eventId: 'pay1', eventTime: '2026-04-20T00:00:00Z' }));
     seedAuto(db, 'open1', opening({ eventId: 'open1', eventTime: '2026-04-01T00:00:00Z' }));
     const r = await app.inject({ method: 'POST', url: `/entities/${E}/run-rules`, payload: { periodId: P } });
-    expect(r.json().posted).toBe(1); // payment JE (opening has no JE); no INSUFFICIENT_LOT exception
+    // Both post a JE now (opening's Dr/Cr anchor + the payment's disposal JE) — the point of
+    // this test is the ORDER (opening must post before the payment can find a lot to consume),
+    // not the count; posted=2 (not an INSUFFICIENT_LOT exception) proves that ordering held.
+    expect(r.json().posted).toBe(2);
   });
 
   // Task 3 left a transitional consumeLotSeq() fallback that, when acquireLotSeq found no

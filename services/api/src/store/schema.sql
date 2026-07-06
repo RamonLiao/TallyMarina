@@ -185,7 +185,7 @@ CREATE TABLE IF NOT EXISTS lot_movement (
   id TEXT PRIMARY KEY,
   entity_id TEXT NOT NULL REFERENCES entities(id),
   event_id TEXT NOT NULL REFERENCES events(id),
-  je_id TEXT REFERENCES journal_entries(id),      -- NULL for OPENING_LOT (no JE this round)
+  je_id TEXT REFERENCES journal_entries(id),      -- NULL for zero-basis OPENING_LOT (no JE) and pre-feature legacy rows; non-zero OPENING_LOT does get a JE
   lot_id TEXT NOT NULL,
   lot_seq TEXT NOT NULL,                          -- sortable FIFO key: '<eventTime>|<eventId>' (lot_id is NOT chronological)
   period_id TEXT NOT NULL,

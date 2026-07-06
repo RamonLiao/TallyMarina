@@ -1,7 +1,8 @@
 // services/api/test/recon.collect.test.ts
 import { describe, it, expect, beforeEach } from 'vitest';
 import { openDb, type Db } from '../src/store/db.js';
-import { insertEvent } from '../src/store/eventStore.js';
+import { insertEntity } from '../src/store/entityStore.js';
+import { insertEvent, setAiSuggestion, setDecision } from '../src/store/eventStore.js';
 import { insertJournalEntry } from '../src/store/journalStore.js';
 import { collectBreaks } from '../src/reconciliation/collect.js';
 import { validateReconRows } from '../src/reconciliation/fixture.js';
@@ -61,6 +62,81 @@ describe('collectBreaks', () => {
     const usdc = rows.find((r) => r.coinType === '0xusdc::usdc::USDC')!;
     expect(usdc.breakMinor).toBe('-500000');
     expect(usdc.material).toBe(true);
+  });
+});
+
+describe('collectBreaks — OPENING_LOT legs excluded from book movement (dual-review R1 #3)', () => {
+  // WHY: OPENING_LOT declares a pre-history holding. Its chain-side counterpart is the recon
+  // fixture's openingMinor (which already includes the holding), NOT period movement. Folding
+  // the opening JE's ACQUISITION leg into book movements double-counts the same holding on both
+  // sides of computed = opening + movement, manufacturing a material break every close.
+  const OPEN_ENTITY = 'opening-lot-recon-test:entity';
+  const WALLET = '0xopenwallet';
+  const COIN = '0xopen::tok::TOK';
+  let db: Db;
+  beforeEach(() => {
+    db = openDb(':memory:');
+    db.prepare(
+      "INSERT INTO entities (id, display_name, chain_object_id, cap_object_id, original_package_id) VALUES (?, 'OpenLotTest', '0x1', '0x2', '0x3')",
+    ).run(OPEN_ENTITY);
+  });
+
+  it('non-zero OPENING_LOT already covered by fixture openingMinor produces NO material break', () => {
+    insertEvent(db, {
+      id: 'open-evt-1', entityId: OPEN_ENTITY,
+      rawJson: JSON.stringify({ wallet: WALLET, coinType: COIN, eventType: 'OPENING_LOT', eventTime: '2026-05-01T00:00:00Z' }),
+    });
+    // Mirrors openingLotRules.buildJeLines: ACQUISITION leg carries origQtyMinor/origCoinType
+    // (merkle anchoring); OPENING_EQUITY leg does not.
+    insertJournalEntry(db, {
+      id: 'je-open-evt-1', entityId: OPEN_ENTITY, eventId: 'open-evt-1',
+      jeJson: JSON.stringify({
+        idempotencyKey: 'open-evt-1', lineageHash: 'h', reversalOf: null,
+        lines: [
+          { account: 'DigitalAssets', side: 'DEBIT', amountMinor: '1000', origCoinType: COIN, origQtyMinor: '300000000', priceRef: null, fxRef: null, leg: 'ACQUISITION' },
+          { account: 'OpeningBalanceEquity', side: 'CREDIT', amountMinor: '1000', origCoinType: null, origQtyMinor: null, priceRef: null, fxRef: null, leg: 'OPENING_EQUITY' },
+        ],
+      }),
+      idempotencyKey: 'open-evt-1', leafHash: 'leaf-open-evt-1',
+    });
+    const rows = collectBreaks(db, OPEN_ENTITY, '2026-Q2');
+    const row = rows.find((r) => r.wallet === WALLET && r.coinType === COIN)!;
+    expect(row).toBeDefined();
+    expect(row.movementMinor).toBe('0');          // OPENING_LOT leg excluded from book movement
+    expect(row.computedMinor).toBe('300000000');  // opening(fixture) + movement(0)
+    expect(row.material).toBe(false);              // computed matches statement exactly — no break
+  });
+
+  it('raw OPENING_LOT reclassified via human review to DIGITAL_ASSET_RECEIPT: its JE movement IS counted (re-review F1)', () => {
+    // WHY: the posted JE is built from (finalEventType ?? rawEvent.eventType) — see
+    // buildRuleInput.ts. If recon's exclusion checked only rawEvent.eventType, a raw
+    // OPENING_LOT reclassified to a real receipt would still be treated as opening-only
+    // and its genuine period movement would be silently dropped from the fold, masking
+    // a real break. finalEventType must win here exactly like it wins for posting.
+    insertEvent(db, {
+      id: 'open-evt-reclass', entityId: OPEN_ENTITY,
+      rawJson: JSON.stringify({ wallet: WALLET, coinType: COIN, eventType: 'OPENING_LOT', eventTime: '2026-05-01T00:00:00Z' }),
+    });
+    setAiSuggestion(db, 'open-evt-reclass', {
+      aiEventType: 'OPENING_LOT', aiPurpose: 'X', aiCounterparty: null, aiConfidence: 0.4,
+      aiReasoning: 'r', nextStatus: 'NEEDS_REVIEW',
+    });
+    setDecision(db, 'open-evt-reclass', { finalEventType: 'DIGITAL_ASSET_RECEIPT', finalPurpose: 'RECEIVABLE_SETTLEMENT' });
+    insertJournalEntry(db, {
+      id: 'je-open-evt-reclass', entityId: OPEN_ENTITY, eventId: 'open-evt-reclass',
+      jeJson: JSON.stringify({
+        idempotencyKey: 'open-evt-reclass', lineageHash: 'h', reversalOf: null,
+        lines: [
+          { account: '1000', side: 'DEBIT', amountMinor: '500000000', origCoinType: COIN, origQtyMinor: '500000000', priceRef: null, fxRef: null, leg: 'MAIN' },
+          { account: '4000', side: 'CREDIT', amountMinor: '0', origCoinType: COIN, origQtyMinor: '0', priceRef: null, fxRef: null, leg: 'MAIN' },
+        ],
+      }),
+      idempotencyKey: 'open-evt-reclass', leafHash: 'leaf-open-evt-reclass',
+    }); // net +500000000
+    const rows = collectBreaks(db, OPEN_ENTITY, '2026-Q2');
+    const row = rows.find((r) => r.wallet === WALLET && r.coinType === COIN)!;
+    expect(row).toBeDefined();
+    expect(row.movementMinor).toBe('500000000'); // counted, not excluded — finalEventType overrides raw OPENING_LOT
   });
 });
 

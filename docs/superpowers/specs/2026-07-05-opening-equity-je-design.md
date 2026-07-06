@@ -55,6 +55,10 @@ Expected zero structural change: the existing transaction already persists JE + 
 
 Knock-on on the movement anchor: `routes.ts:473` computes it as `output.journalEntries[0]?.idempotencyKey ?? ev.id`, so a JE-backed OPENING_LOT's movement key becomes `${jeKey}|${lotId}`; zero-basis lots (no JE) keep `${eventId}|${lotId}`. Forward-only (D1) means no persisted legacy row ever changes key. Frontend must never reconstruct these keys client-side (§3.5b).
 
+### 3.3b Reconciliation (added post-implementation, dual-review R1 #3, user-adjudicated)
+
+The recon book-movement fold **excludes OPENING_LOT journal legs**. An opening declaration is pre-history: its chain-side counterpart is the recon fixture's `openingMinor`, not period activity; counting the opening JE's `origQtyMinor` as a period movement double-counts holdings and forces a manual material-break dismissal every close. Exclusion also restores symmetry with zero-basis lots, which are JE-less and therefore never counted.
+
 ### 3.4 Merkle / snapshot
 
 No code change. Non-zero opening lots' JEs enter the spine naturally, closing the evidence gap. The `EMPTY_SNAPSHOT` edge (run containing only zero-basis opening lots) is retained as-is: it is already fail-loud, and zero-basis lots are adjudicated unanchored (D2).
@@ -141,3 +145,5 @@ This round pins the rule at the document/fixture level: **demo uses a single inc
 - **Inception-period hard guard deferred (§3.7)**: rule is documented + fixture-enforced only; no code rejects an OPENING_LOT in a non-first period.
 - SoD/authorization for opening entries: inherits the system-wide no-auth demo posture; no opening-specific handling (already flagged blocking-for-production elsewhere).
 - OBE-nonzero close warning **intentionally not added**: since close-out itself is deferred, such a light would be permanently red and block every close — adding it now would be wrong (CPA-confirmed).
+- **Identical-payload double-ingest fails loud with an unfriendly 500 (dual-review R1 #2, deferred)**: re-ingesting a byte-identical OPENING_LOT payload creates a second event row whose run-rules persist collides in `insertJournalEntry` — same idempotency key, different `event_id` — and throws ledger-corruption-style; the duplicate event stays AUTO, so subsequent run-rules for that period keep 500ing until the duplicate row is removed. Loud, not corrupting — but the root fix is ingest-level dedup on `(entityId, txDigest, eventIndex)`, which is the already-deferred C4 item. Receipts share this path (pre-existing); this branch extends it to OPENING_LOT.
+- **`skipped` counter conflates swallowed-duplicate JE with benign skip (R1 #4, accepted)**: after the R1 #1 fail-loud fix the silent-swallow branch is unreachable for mismatched payloads; the counter ambiguity remains only for true replays, where "skipped" is accurate.

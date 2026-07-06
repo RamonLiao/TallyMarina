@@ -29,7 +29,10 @@ function opening(over: RawOver = {}): RawOver {
   return baseEvent({ eventType: 'OPENING_LOT', economicPurpose: 'OPENING_BALANCE', openingCostMinor: '500000', ...over });
 }
 function payment(over: RawOver = {}): RawOver {
-  return baseEvent({ eventType: 'DIGITAL_ASSET_PAYMENT', economicPurpose: 'VENDOR_PAYMENT', quantityMinor: '400000000', ...over });
+  // Distinct txDigest from opening(): the JE/movement idempotency key derives from
+  // (txDigest, eventIndex) alone, never eventId — since OPENING_LOT now ALSO posts a JE
+  // (Task 1+2), sharing 'DIG' would collide the payment consume with the opening acquire.
+  return baseEvent({ eventType: 'DIGITAL_ASSET_PAYMENT', economicPurpose: 'VENDOR_PAYMENT', quantityMinor: '400000000', txDigest: 'DIGPAY', ...over });
 }
 
 async function freshApp(): Promise<FastifyInstance & { _db: Db }> {
@@ -49,6 +52,15 @@ async function seedAndPost(app: FastifyInstance & { _db: Db }): Promise<void> {
   seedAuto(db, 'open1', opening({ eventId: 'open1', eventTime: '2026-04-01T00:00:00Z' }));
   seedAuto(db, 'pay1', payment({ eventId: 'pay1', eventTime: '2026-04-05T00:00:00Z' }));
   await app.inject({ method: 'POST', url: `/entities/${E}/run-rules`, payload: { periodId: P } });
+}
+
+interface LotsBody {
+  groups: Array<{ wallet: string; coinType: string; lots: Array<{ origin: string; costMinor: string; acquireJeId: string | null }> }>;
+}
+async function getLots(app: FastifyInstance & { _db: Db }): Promise<LotsBody> {
+  const r = await app.inject({ method: 'GET', url: `/entities/${E}/lots` });
+  expect(r.statusCode).toBe(200);
+  return r.json() as LotsBody;
 }
 
 describe('GET /entities/:id/lots (C4 Task 5)', () => {
@@ -192,6 +204,27 @@ describe('GET /entities/:id/lots (C4 Task 5)', () => {
     const r = await app.inject({ method: 'GET', url: `/entities/empty/lots` });
     expect(r.statusCode).toBe(200);
     expect((r.json() as { groups: unknown[] }).groups).toEqual([]);
+  });
+
+  it('acquireJeId discloses anchoring: real id for JE-backed lots, null for zero-basis opening (spec §3.5b)', async () => {
+    const app = await freshApp();
+    const db = app._db;
+    // Receipt → derived lot; non-zero OPENING_LOT → JE-backed opening lot; zero-basis
+    // OPENING_LOT → stays JE-less (Task 1+2). Distinct txDigest per event: the JE/movement
+    // idempotency key derives from (txDigest, eventIndex) alone, never eventId.
+    seedAuto(db, 'r1', baseEvent({ eventId: 'r1', txDigest: 'DIG-R1', eventTime: '2026-04-01T00:00:00Z' }));
+    seedAuto(db, 'open1', opening({ eventId: 'open1', txDigest: 'DIG-OPEN1', eventTime: '2026-04-02T00:00:00Z' }));
+    seedAuto(db, 'open2', opening({ eventId: 'open2', txDigest: 'DIG-OPEN2', openingCostMinor: '0', eventTime: '2026-04-03T00:00:00Z' }));
+    await app.inject({ method: 'POST', url: `/entities/${E}/run-rules`, payload: { periodId: P } });
+
+    const body = await getLots(app);
+    const lots = body.groups.flatMap((g) => g.lots);
+    const derived = lots.find((l) => l.origin === 'derived')!;
+    const anchored = lots.find((l) => l.origin === 'opening' && l.costMinor !== '0')!;
+    const zeroBasis = lots.find((l) => l.origin === 'opening' && l.costMinor === '0')!;
+    expect(derived.acquireJeId).toMatch(/^je-/);
+    expect(anchored.acquireJeId).toMatch(/^je-/);   // JE-backed opening lot is anchored
+    expect(zeroBasis.acquireJeId).toBeNull();        // D2: zero basis unanchored, disclosed as such
   });
 
   it('unknown entity → 404 (mirrors other GET routes)', async () => {
