@@ -41,9 +41,12 @@ export function walletAssetMovements(db: Db, entityId: string): MovementResult {
     // openingLotRules.ts) in here would double-count the same holding on both sides of
     // computed = opening + movement. Zero-basis OPENING_LOT (JE-less) is already excluded
     // from this fold by construction, so skipping non-zero OPENING_LOT JEs here restores
-    // that symmetry. Discriminator: the event's own eventType (join via r.eventId), not
-    // `leg === 'ACQUISITION'` — that leg name is reused by receipts/swaps too.
-    if (rawEvent.eventType === 'OPENING_LOT') continue;
+    // that symmetry. Discriminator: (finalEventType ?? rawEvent.eventType) — must mirror the
+    // exact precedence buildRuleInput.ts uses to pick the type the engine actually posted
+    // under (spec §6.9 human review override). Reading rawEvent.eventType alone would exclude
+    // a reclassified-away-from-OPENING_LOT JE's real movement (masking genuine breaks) or
+    // fold in a reclassified-into-OPENING_LOT JE's leg as double-counted movement.
+    if ((ev.finalEventType ?? rawEvent.eventType) === 'OPENING_LOT') continue;
     const je = JSON.parse(r.jeJson) as { lines: JeLine[] };
     const net = netByCoinType(je.lines);
     for (const [coinType, qty] of Object.entries(net)) {
