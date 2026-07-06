@@ -26,7 +26,6 @@ import { buildTestApp } from './helpers/app.js';
 import type { Db } from '../src/store/db.js';
 import { insertEntity } from '../src/store/entityStore.js';
 import { insertEvent, setAiSuggestion } from '../src/store/eventStore.js';
-import { upsertReconDisposition } from '../src/store/reconBreakStore.js';
 import { lockPeriod } from '../src/periodLock/store.js';
 
 const E = 'e1';
@@ -60,17 +59,6 @@ function seedAuto(db: Db, id: string, raw: RawOver): void {
     aiConfidence: 0.9, aiReasoning: 'seed', nextStatus: 'AUTO',
   });
 }
-/** Dismisses the recon break the opening JE's DigitalAssets debit leg creates for this
- *  wallet/coinType (no recon fixture is seeded for entity 'e1', so the raw computed movement
- *  IS the break, and it is material by construction — see reconciliation/collect.ts). */
-function dismissOwnWalletBreak(db: Db, periodId: string): void {
-  upsertReconDisposition(db, {
-    entityId: E, periodId, wallet: '0xacme', coinType: SUI,
-    state: 'dismissed', reasonCode: 'unidentified', reasonNote: null,
-    decidedBy: 'test', decidedAt: Date.now(),
-  });
-}
-
 describe('snapshot inclusion of the opening-equity JE (Task 5, spec §3.4/D2)', () => {
   it('a period with only a non-zero opening lot now snapshots (JE entered the spine)', async () => {
     const app = await freshApp();
@@ -80,7 +68,6 @@ describe('snapshot inclusion of the opening-equity JE (Task 5, spec §3.4/D2)', 
     expect(rr.statusCode).toBe(200);
     expect((rr.json() as { posted: number }).posted).toBe(1); // the opening equity JE actually posted
 
-    dismissOwnWalletBreak(db, P);
     const lockR = await app.inject({ method: 'POST', url: `/entities/${E}/period/lock`, payload: { periodId: P } });
     expect(lockR.statusCode, JSON.stringify(lockR.json())).toBe(200);
 
