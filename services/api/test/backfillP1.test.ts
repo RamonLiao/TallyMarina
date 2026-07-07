@@ -49,9 +49,23 @@ describe('P1 gate precision + escape-hatch', () => {
     expect(listMigrationOverrides(db)).toHaveLength(0);
   });
 
-  it('an anchored snapshot whose period has zero current JEs is skipped (no throw, no abort) — absence is not evidence of mismatch', () => {
-    seedAnchoredSnapshotEmptyPeriod(db);
-    expect(() => runP1Gate(db)).not.toThrow();
+  it('an anchored snapshot whose period has ZERO current JEs ABORTS (R1: stored root proves N>0 leaves existed, so zero now = leaves re-sliced away = real divergence)', () => {
+    // buildSnapshot throws EMPTY_SNAPSHOT on zero JEs, so an empty period can never be
+    // anchored — an ANCHORED snapshot always had leaves. Zero current period-JEs is a
+    // genuine re-slice divergence, NOT a benign "nothing to recompute" skip. Must fail loud.
+    const { snapshotId } = seedAnchoredSnapshotEmptyPeriod(db);
+    expect(() => runP1Gate(db)).toThrow(/MIGRATION_P1_ANCHOR_ROOT_CHANGED/);
+    expect(() => runP1Gate(db)).toThrow(new RegExp(`${snapshotId}.*EMPTY`));
     expect(listMigrationOverrides(db)).toHaveLength(0);
+  });
+
+  it('escape-hatch covers the zero-JE divergence too: allow-listed empty-period snapshot passes AND writes an override row', () => {
+    const { snapshotId } = seedAnchoredSnapshotEmptyPeriod(db);
+    process.env.C2_MIGRATION_ACCEPT_ROOT_CHANGE = snapshotId;
+    expect(() => runP1Gate(db)).not.toThrow();
+    const log = listMigrationOverrides(db);
+    expect(log).toHaveLength(1);
+    expect(log[0]!.snapshotId).toBe(snapshotId);
+    expect(log[0]!.recomputedRoot).toMatch(/EMPTY/);
   });
 });

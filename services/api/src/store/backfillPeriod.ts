@@ -20,24 +20,38 @@ export function runP1Gate(db: Db): void {
   ).all() as { id: string; entity_id: string; period_id: string; merkle_root: string }[];
 
   const violations: string[] = [];
+  // Shared escape-hatch: an operator may accept a specific divergence via the env
+  // allow-list; each acceptance is persisted (not console-only).
+  const acceptOverride = (id: string, oldRoot: string, recomputed: string): boolean => {
+    if (!accept.has(id)) return false;
+    insertMigrationOverride(db, {
+      snapshotId: id, oldRoot, recomputedRoot: recomputed,
+      operator: 'env:C2_MIGRATION_ACCEPT_ROOT_CHANGE',
+      acceptedAt: new Date().toISOString(),
+      justification: 'operator-accepted via env allow-list',
+    });
+    console.warn(`[c2-migration] P1 override: snapshot ${id} old=${oldRoot} recomputed=${recomputed} operator-accepted via env`);
+    return true;
+  };
   for (const s of anchored) {
     const rows = db.prepare(
       `SELECT je_json FROM journal_entries WHERE entity_id = ? AND period_id = ?`,
     ).all(s.entity_id, s.period_id) as { je_json: string }[];
-    if (rows.length === 0) continue; // no period JEs to recompute against — nothing to contradict
+    // R1 dual-review: an ANCHORED snapshot's stored root was computed over N>0 leaves
+    // (buildSnapshot throws EMPTY_SNAPSHOT on zero JEs, so an empty period can never be
+    // anchored). Zero CURRENT period-JEs therefore means every leaf re-sliced to a
+    // different period — the stored on-chain root categorically cannot be reproduced.
+    // That is a real divergence the gate must fail loud on (Rule 12), NOT a benign
+    // "nothing to recompute" skip. Route it through the same escape-hatch as a mismatch.
+    if (rows.length === 0) {
+      if (acceptOverride(s.id, s.merkle_root, 'EMPTY(0 period JEs)')) continue;
+      violations.push(`${s.id} (stored=${s.merkle_root} recomputed=EMPTY — 0 period JEs, leaves re-sliced away)`);
+      continue;
+    }
     const jes = rows.map((r) => JSON.parse(r.je_json) as JournalEntry);
     const recomputed = buildMerkle(jes).manifest.merkleRoot;
     if (recomputed === s.merkle_root) continue; // precise pass
-    if (accept.has(s.id)) {
-      insertMigrationOverride(db, {
-        snapshotId: s.id, oldRoot: s.merkle_root, recomputedRoot: recomputed,
-        operator: 'env:C2_MIGRATION_ACCEPT_ROOT_CHANGE',
-        acceptedAt: new Date().toISOString(),
-        justification: 'operator-accepted via env allow-list',
-      });
-      console.warn(`[c2-migration] P1 override: snapshot ${s.id} old=${s.merkle_root} recomputed=${recomputed} operator-accepted via env`);
-      continue;
-    }
+    if (acceptOverride(s.id, s.merkle_root, recomputed)) continue;
     violations.push(`${s.id} (stored=${s.merkle_root} recomputed=${recomputed})`);
   }
   if (violations.length > 0) {
