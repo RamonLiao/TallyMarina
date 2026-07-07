@@ -117,7 +117,6 @@ CREATE TABLE IF NOT EXISTS period_lock (
   restatement_reason      TEXT,
   reason_code             TEXT,
   affected_amount_estimate TEXT,
-  was_anchored_at_reopen  INTEGER,
   requested_by            TEXT,
   approved_by             TEXT,
   PRIMARY KEY (entity_id, period_id)

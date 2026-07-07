@@ -30,13 +30,12 @@ it('lock on already-LOCKED throws ILLEGAL_TRANSITION', () => {
 
 it('reopen flips to OPEN, bumps count, records restatement fields', () => {
   lockPeriod(db, { entityId: 'e1', periodId: 'P1', lightsSnapshot: '{}', lockedBy: 'x', now: 1 });
-  const r = reopenPeriod(db, { entityId: 'e1', periodId: 'P1', restatementReason: 'fix fx', reasonCode: 'ERROR_CORRECTION', affectedAmountEstimate: '500', wasAnchored: true, requestedBy: 'demo-controller', approvedBy: 'demo-controller', now: 2 });
+  const r = reopenPeriod(db, { entityId: 'e1', periodId: 'P1', restatementReason: 'fix fx', reasonCode: 'ERROR_CORRECTION', affectedAmountEstimate: '500', requestedBy: 'demo-controller', approvedBy: 'demo-controller', now: 2 });
   expect(r.status).toBe('OPEN');
   expect(r.reopenCount).toBe(1);
   expect(r.reasonCode).toBe('ERROR_CORRECTION');
-  expect(r.wasAnchoredAtReopen).toBe(1);
 });
 
 it('reopen on OPEN throws ILLEGAL_TRANSITION', () => {
-  expect(() => reopenPeriod(db, { entityId: 'e1', periodId: 'P1', restatementReason: 'x', reasonCode: 'OTHER', affectedAmountEstimate: null, wasAnchored: false, requestedBy: 'a', approvedBy: 'b', now: 1 })).toThrow(/ILLEGAL_TRANSITION/);
+  expect(() => reopenPeriod(db, { entityId: 'e1', periodId: 'P1', restatementReason: 'x', reasonCode: 'OTHER', affectedAmountEstimate: null, requestedBy: 'a', approvedBy: 'b', now: 1 })).toThrow(/ILLEGAL_TRANSITION/);
 });

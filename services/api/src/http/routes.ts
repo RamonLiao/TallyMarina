@@ -27,7 +27,6 @@ import { encodeReconBreakId, decodeReconBreakId, ReconBreakIdError } from '../re
 import { REOPEN_REASON_CODES, type ReopenReasonCode } from '../periodLock/state.js';
 import { getPeriodLock, lockPeriod, reopenPeriod } from '../periodLock/store.js';
 import { buildCockpit } from '../periodLock/cockpit.js';
-import { hasAnchoredSnapshotForPeriod } from '../store/snapshotStore.js';
 import { classifyEvent } from '../ai/classify.js';
 import { reviewCopilot } from '../ai/copilot.js';
 import { buildRuleInput } from './buildRuleInput.js';
@@ -582,13 +581,12 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     if (!b.reasonCode || !REOPEN_REASON_CODES.includes(b.reasonCode as ReopenReasonCode)) {
       throw new ApiError(400, 'VALIDATION', `unknown reasonCode ${b.reasonCode}`);
     }
-    const wasAnchored = hasAnchoredSnapshotForPeriod(db, req.params.id, periodId);
     try {
       const row = reopenPeriod(db, {
         entityId: req.params.id, periodId, restatementReason: reason,
         reasonCode: b.reasonCode as ReopenReasonCode,
         affectedAmountEstimate: b.affectedAmountEstimate ?? null,
-        wasAnchored, requestedBy: LOCKED_BY, approvedBy: LOCKED_BY, now: Date.now(),
+        requestedBy: LOCKED_BY, approvedBy: LOCKED_BY, now: Date.now(),
       });
       return { lock: row };
     } catch (err) {

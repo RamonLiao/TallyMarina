@@ -83,9 +83,9 @@ export function buildCockpit(db: Db, entityId: string, periodId: string, lowConf
   const lock = getPeriodLock(db, entityId, periodId);
   const anchored = hasAnchoredSnapshotForPeriod(db, entityId, periodId);
   // staleAnchor: deterministic STALE_ANCHOR derivation (root-compare) — recompute the current
-  //   period's merkle root and compare to the latest ANCHORED snapshot's root. Replaces the
-  //   coarse proxy (reopenCount>0 && wasAnchoredAtReopen===1 && status==='OPEN'), which went
-  //   dark after re-lock even while the anchor was still stale (Rule 7: one source of truth).
+  //   period's merkle root and compare to the latest ANCHORED snapshot's root. Replaces a
+  //   coarse reopen-count proxy, which went dark after re-lock even while the anchor was still
+  //   stale (Rule 7: one source of truth).
   const anchorStaleness = deriveAnchorStaleness(db, entityId, periodId);
   const staleAnchor = anchorStaleness?.stale ?? false;
   const closeable = lights.filter((l) => l.status !== 'mock').every((l) => l.status === 'green');

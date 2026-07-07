@@ -6,7 +6,7 @@ export interface PeriodLockRow {
   lockedAt: number | null; lockedBy: string | null; lightsSnapshot: string | null;
   reopenedAt: number | null; reopenCount: number;
   restatementReason: string | null; reasonCode: ReopenReasonCode | null;
-  affectedAmountEstimate: string | null; wasAnchoredAtReopen: number | null;
+  affectedAmountEstimate: string | null;
   requestedBy: string | null; approvedBy: string | null;
 }
 
@@ -19,7 +19,6 @@ function map(r: Record<string, unknown>): PeriodLockRow {
     restatementReason: (r.restatement_reason as string | null) ?? null,
     reasonCode: (r.reason_code as ReopenReasonCode | null) ?? null,
     affectedAmountEstimate: (r.affected_amount_estimate as string | null) ?? null,
-    wasAnchoredAtReopen: (r.was_anchored_at_reopen as number | null) ?? null,
     requestedBy: (r.requested_by as string | null) ?? null, approvedBy: (r.approved_by as string | null) ?? null,
   };
 }
@@ -31,7 +30,7 @@ export function getPeriodLock(db: Db, entityId: string, periodId: string): Perio
   return {
     entityId, periodId, status: 'OPEN', lockedAt: null, lockedBy: null, lightsSnapshot: null,
     reopenedAt: null, reopenCount: 0, restatementReason: null, reasonCode: null,
-    affectedAmountEstimate: null, wasAnchoredAtReopen: null, requestedBy: null, approvedBy: null,
+    affectedAmountEstimate: null, requestedBy: null, approvedBy: null,
   };
 }
 
@@ -60,7 +59,7 @@ export function lockPeriod(
 export function reopenPeriod(
   db: Db,
   a: { entityId: string; periodId: string; restatementReason: string; reasonCode: ReopenReasonCode;
-       affectedAmountEstimate: string | null; wasAnchored: boolean; requestedBy: string; approvedBy: string; now: number },
+       affectedAmountEstimate: string | null; requestedBy: string; approvedBy: string; now: number },
 ): PeriodLockRow {
   let out!: PeriodLockRow;
   db.transaction(() => {
@@ -68,10 +67,10 @@ export function reopenPeriod(
     assertPeriodTransition(cur.status, 'reopen'); // CAS: throws if not LOCKED
     db.prepare(
       `UPDATE period_lock SET status='OPEN', reopened_at=?, reopen_count=?, restatement_reason=?, reason_code=?,
-         affected_amount_estimate=?, was_anchored_at_reopen=?, requested_by=?, approved_by=?
+         affected_amount_estimate=?, requested_by=?, approved_by=?
        WHERE entity_id=? AND period_id=?`,
     ).run(a.now, cur.reopenCount + 1, a.restatementReason, a.reasonCode, a.affectedAmountEstimate,
-          a.wasAnchored ? 1 : 0, a.requestedBy, a.approvedBy, a.entityId, a.periodId);
+          a.requestedBy, a.approvedBy, a.entityId, a.periodId);
     out = getPeriodLock(db, a.entityId, a.periodId);
   })();
   return out;
