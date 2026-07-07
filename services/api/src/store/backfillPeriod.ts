@@ -1,5 +1,49 @@
 import type { Database as Db } from 'better-sqlite3';
 import { periodOf } from '@subledger/rules-engine';
+import { buildMerkle, type JournalEntry } from '../deps/rulesEngine.js';
+import { insertMigrationOverride } from './migrationOverrideLog.js';
+
+/**
+ * P1 (spec §3.3): for each ANCHORED snapshot, recompute the merkle root from the
+ * backfilled period-scoped JEs and byte-compare to the stored root. Abort only on a
+ * real mismatch (precise — no entity-wide false positive for entities that legitimately
+ * span multiple periods after the one-time migration). An operator may accept specific
+ * mismatches via C2_MIGRATION_ACCEPT_ROOT_CHANGE (comma-separated snapshot ids); each
+ * acceptance is written to migration_override_log (console is not the only evidence).
+ */
+export function runP1Gate(db: Db): void {
+  const accept = new Set(
+    (process.env.C2_MIGRATION_ACCEPT_ROOT_CHANGE ?? '').split(',').map((s) => s.trim()).filter(Boolean),
+  );
+  const anchored = db.prepare(
+    `SELECT id, entity_id, period_id, merkle_root FROM snapshots WHERE status = 'ANCHORED'`,
+  ).all() as { id: string; entity_id: string; period_id: string; merkle_root: string }[];
+
+  const violations: string[] = [];
+  for (const s of anchored) {
+    const rows = db.prepare(
+      `SELECT je_json FROM journal_entries WHERE entity_id = ? AND period_id = ?`,
+    ).all(s.entity_id, s.period_id) as { je_json: string }[];
+    if (rows.length === 0) continue; // no period JEs to recompute against — nothing to contradict
+    const jes = rows.map((r) => JSON.parse(r.je_json) as JournalEntry);
+    const recomputed = buildMerkle(jes).manifest.merkleRoot;
+    if (recomputed === s.merkle_root) continue; // precise pass
+    if (accept.has(s.id)) {
+      insertMigrationOverride(db, {
+        snapshotId: s.id, oldRoot: s.merkle_root, recomputedRoot: recomputed,
+        operator: 'env:C2_MIGRATION_ACCEPT_ROOT_CHANGE',
+        acceptedAt: new Date().toISOString(),
+        justification: 'operator-accepted via env allow-list',
+      });
+      console.warn(`[c2-migration] P1 override: snapshot ${s.id} old=${s.merkle_root} recomputed=${recomputed} operator-accepted via env`);
+      continue;
+    }
+    violations.push(`${s.id} (stored=${s.merkle_root} recomputed=${recomputed})`);
+  }
+  if (violations.length > 0) {
+    throw new Error(`MIGRATION_P1_ANCHOR_ROOT_CHANGED: ${violations.join('; ')} — restatement is H2, aborting (add snapshot id to C2_MIGRATION_ACCEPT_ROOT_CHANGE to accept)`);
+  }
+}
 
 /**
  * One-time, idempotent backfill of period_id from each event's raw_json.eventTime.
@@ -60,26 +104,13 @@ export function backfillPeriodIds(db: Db): { events: number; journalEntries: num
       throw new Error(`MIGRATION_PERIOD_NULL_RESIDUAL: ${residual.n} events still null`);
     }
 
-    // Precondition P1 (spec §6.2): no already-anchored entity may span >1 period,
-    // else re-slicing would change an already-committed on-chain root. Must run
-    // AFTER the writes above since it reads the just-backfilled e.period_id.
-    const anchoredMultiPeriod = db
-      .prepare(
-        `SELECT s.entity_id, COUNT(DISTINCT e.period_id) AS periods
-           FROM snapshots s
-           JOIN events e ON e.entity_id = s.entity_id
-          WHERE s.status = 'ANCHORED'
-          GROUP BY s.entity_id
-         HAVING periods > 1`,
-      )
-      .all() as { entity_id: string; periods: number }[];
-    if (anchoredMultiPeriod.length > 0) {
-      throw new Error(
-        `MIGRATION_P1_ANCHOR_ROOT_CHANGED: anchored entities span multiple periods: ${anchoredMultiPeriod
-          .map((r) => r.entity_id)
-          .join(',')} — restatement is H2, aborting`,
-      );
-    }
+    // Precondition P1 (spec §6.2): each already-ANCHORED snapshot's own period must
+    // still recompute to its stored root, else re-slicing would change an already-
+    // committed on-chain root. Must run AFTER the writes above since it reads the
+    // just-backfilled period_id. Precise per-snapshot recompute (not an entity-wide
+    // span check) — an entity legitimately spanning multiple periods is fine as long
+    // as each anchored snapshot's OWN period still checksums correctly.
+    runP1Gate(db);
 
     return { events, journalEntries: je.changes as number };
   })();
