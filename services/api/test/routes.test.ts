@@ -387,7 +387,7 @@ describe('anchor routes (I1, I2) — with working fakeAdapter', () => {
     insertSnapshot(anchorDb, {
       id: 'snap-anchor-1', entityId: ANCHOR_ENTITY, periodId: '2026-Q2',
       manifestJson: '{}', manifestHash: VALID_HASH, merkleRoot: VALID_ROOT,
-      leafCount: 1, supersedesSeq: 0,
+      leafCount: 1, supersedesSeq: 0, seq: 1,
     });
     anchorApp = Fastify();
     registerRoutes(anchorApp, {

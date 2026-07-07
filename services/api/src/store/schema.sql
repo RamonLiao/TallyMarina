@@ -33,7 +33,14 @@ CREATE TABLE IF NOT EXISTS snapshots (
   merkle_root TEXT NOT NULL,
   leaf_count INTEGER NOT NULL,
   supersedes_seq INTEGER,
-  status TEXT NOT NULL
+  status TEXT NOT NULL,
+  seq INTEGER NOT NULL DEFAULT 1,
+  restatement_reason_code TEXT,
+  restatement_reason TEXT,
+  affected_amount_estimate TEXT,
+  restatement_requested_by TEXT,
+  restatement_approved_by TEXT,
+  UNIQUE (entity_id, period_id, seq)
 );
 CREATE TABLE IF NOT EXISTS anchors (
   id TEXT PRIMARY KEY,
@@ -198,3 +205,12 @@ CREATE TABLE IF NOT EXISTS lot_movement (
   idempotency_key TEXT NOT NULL UNIQUE
 );
 CREATE INDEX IF NOT EXISTS idx_lot_movement_pool ON lot_movement (entity_id, wallet, coin_type);
+CREATE TABLE IF NOT EXISTS migration_override_log (
+  seq INTEGER PRIMARY KEY AUTOINCREMENT,
+  snapshot_id TEXT NOT NULL,
+  old_root TEXT NOT NULL,
+  recomputed_root TEXT NOT NULL,
+  operator TEXT NOT NULL,
+  accepted_at TEXT NOT NULL,
+  justification TEXT NOT NULL
+);

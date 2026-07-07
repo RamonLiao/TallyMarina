@@ -827,6 +827,7 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
       try {
         insertSnapshot(db, {
           id, entityId: req.params.id, periodId,
+          seq: auditSnapshot.seq,
           manifestJson: JSON.stringify(auditSnapshot.manifest),
           manifestHash: auditSnapshot.manifestHash,
           merkleRoot: auditSnapshot.merkleRoot,
