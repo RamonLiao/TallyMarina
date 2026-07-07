@@ -12,6 +12,7 @@ const base = {
   reopenCount: 0,
   restatementReason: null,
   reasonCode: null,
+  anchorStaleness: null,
 };
 
 describe('LockPanel', () => {

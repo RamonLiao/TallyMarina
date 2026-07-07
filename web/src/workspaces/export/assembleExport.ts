@@ -1,6 +1,6 @@
 // DATA ZONE — NEVER import Mascot here.
 import { zipSync } from 'fflate';
-import type { JournalDTO, EventDTO, AnchorDTO, InclusionProof } from '../../api/types';
+import type { JournalDTO, EventDTO, AnchorDTO, InclusionProof, AnchorStaleness } from '../../api/types';
 import { leafHash } from '../../lib/leafEncode';
 import { resolveProofState } from '../../lib/proofVerify';
 import { ImbalanceError } from '../../lib/trialActivity';
@@ -22,6 +22,7 @@ export interface ExportResult {
 export type ExportFailure =
   | { ok: false; kind: 'imbalance'; debit: string; credit: string }
   | { ok: false; kind: 'empty' }
+  | { ok: false; kind: 'stale-restatement'; anchoredSeq: number; latestSnapshotSeq: number }
   | { ok: false; kind: 'error'; message: string };
 
 export type ExportOutcome = ExportResult | ExportFailure;
@@ -37,11 +38,23 @@ export async function assembleExport(args: {
   anchors: AnchorDTO[];
   fetchProof: (idempotencyKey: string) => Promise<{ anchors: AnchorDTO[]; inclusionProof: InclusionProof | null }>;
   policySetVersion?: string | null;
+  anchorStaleness?: AnchorStaleness | null;
 }): Promise<ExportOutcome> {
-  const { entityId, periodId, functionalCurrency, scale, generatedAt, journal, events, anchors, fetchProof, policySetVersion } = args;
+  const { entityId, periodId, functionalCurrency, scale, generatedAt, journal, events, anchors, fetchProof, policySetVersion, anchorStaleness } = args;
 
   // Step 1: empty guard
   if (journal.length === 0) return { ok: false, kind: 'empty' };
+
+  // C-F3: a stale anchor means the on-chain proof no longer matches the current books.
+  // Surface an explicit restatement disclosure instead of failing opaquely inside the
+  // L2/proof loop. Empty journal already returned above.
+  if (anchorStaleness?.stale) {
+    return {
+      ok: false, kind: 'stale-restatement',
+      anchoredSeq: anchorStaleness.anchoredSeq,
+      latestSnapshotSeq: anchorStaleness.latestSnapshotSeq,
+    };
+  }
 
   try {
     // Step 2: build date map from events
