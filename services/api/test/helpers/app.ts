@@ -53,6 +53,10 @@ export async function buildTestApp(
   seedFixture = true,
   client: GeminiClient = stubClassifyClient,
   memory: MemoryClient = new OffMemory(),
+  // Default: no real serialization (matches prior behavior for every existing caller).
+  // Pass a real makeEntityMutex() (from @subledger/anchor-svc) to test actual mutex-held
+  // concurrency guarantees (see monkey.h2.test.ts concurrent-freeze-race scenario).
+  mutex: { run<T>(key: string, fn: () => Promise<T>): Promise<T> } = { run: (_k: string, fn: () => Promise<never>) => fn() },
 ): Promise<FastifyInstance & { _db: Db }> {
   const db = openDb(':memory:');
   // Seed entity "e1" with fixture events (same pattern as routes.test.ts).
@@ -71,7 +75,7 @@ export async function buildTestApp(
     classifyClient: client,
     copilotClient: client,
     anchorAdapter: null as never,
-    mutex: { run: (_k: string, fn: () => Promise<never>) => fn() },
+    mutex,
     memory,
   });
   await app.ready();
