@@ -13,7 +13,7 @@ import {
 import { insertJournalEntry, listJournal } from '../store/journalStore.js';
 import { insertLotMovement, acquireLotSeq } from '../store/lotMovementStore.js';
 import { listPeriods } from '../store/periodQuery.js';
-import { insertSnapshot, getSnapshot, hasAnchoredSnapshot } from '../store/snapshotStore.js';
+import { getSnapshot, hasAnchoredSnapshot, getLatestSnapshot, getLatestSnapshotSeq } from '../store/snapshotStore.js';
 import { collectExceptions } from '../exceptions/collect.js';
 import { applyDisposition } from '../exceptions/disposition.js';
 import { getDisposition } from '../store/dispositionStore.js';
@@ -34,7 +34,8 @@ import { buildRuleInput } from './buildRuleInput.js';
 import { lotsForEvent } from './lotsForEvent.js';
 import { buildLotsDTO } from '../lots/dto.js';
 import { evaluate, buildMerkle, leafHash, inclusionProof, eventTypeSchema, type JournalEntry } from '../deps/rulesEngine.js';
-import { buildSnapshot, InMemorySnapshotRepo } from '../deps/snapshotSvc.js';
+import { buildSnapshot } from '../deps/snapshotSvc.js';
+import { SqliteSnapshotRepo } from '../store/sqliteSnapshotRepo.js';
 import { prepareAnchor, confirmAnchor, type AnchorServiceDeps } from './anchorService.js';
 import { SnapshotError } from '@subledger/snapshot-svc';
 import { DEMO_POLICY_SET, DEMO_COA_RULES } from './policyConstants.js';
@@ -788,68 +789,58 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
         measurements: [], lotMovements: [], journalEntries: [je], disclosureFacts: [], exceptions: [],
         explanation: { ruleIds: [], policyVersions: ['demo-ps-1', 'demo-rule-1'], priceRefs: [], fxRefs: [] },
       }));
-      const repo = new InMemorySnapshotRepo();
+      // buildMerkle throws a plain Error on an empty JE set (not a SnapshotError), which
+      // would surface as a raw 500 instead of the existing EMPTY_SNAPSHOT contract that
+      // buildSnapshot enforces further down. Preserve that fail-loud-but-mapped behavior
+      // by checking before computing the candidate root.
+      if (jes.length === 0) {
+        throw new SnapshotError('EMPTY_SNAPSHOT', 'no POSTABLE journal entries to snapshot');
+      }
+      // Candidate root (no freeze) to decide idempotent vs restate. buildMerkle uses the
+      // same JE_LEAF_BCS_V1 codec buildSnapshot folds in — merkleRoot is the content invariant
+      // (manifestHash folds in createdAtLogical and is NOT a content invariant).
+      const { manifest: candidate } = buildMerkle(jes);
+      const prev = getLatestSnapshot(db, req.params.id, periodId);
+      if (prev && prev.merkleRoot === candidate.merkleRoot) {
+        // Fail loud: a non-FROZEN existing row (already ANCHORED) must NOT be returned as a
+        // freshly-freezable snapshot — the UI would offer Anchor and prepare would then 409.
+        if (prev.status !== 'FROZEN') {
+          throw new ApiError(409, 'ALREADY_ANCHORED', `snapshot ${prev.id} is ${prev.status}; the period is already anchored`);
+        }
+        return {
+          snapshot: {
+            id: prev.id, periodId, manifestHash: prev.manifestHash, merkleRoot: prev.merkleRoot,
+            leafCount: prev.leafCount, supersedesSeq: prev.supersedesSeq ?? 0, seq: prev.seq, status: prev.status,
+          },
+        };
+      }
+
+      const restate = prev != null; // prev exists AND root differs (same-root handled above)
+      // On restate, snapshot the reopen provenance onto the new version (reopen is a
+      // single-row overwrite in period_lock, so only the frozen copy answers "why v2").
+      // Reuse the `lock` row already read for the LOCKED gate above — it carries every
+      // provenance field and cannot have changed within this mutex-held request.
+      let provenance;
+      if (restate) {
+        provenance = {
+          reasonCode: lock.reasonCode, reason: lock.restatementReason,
+          affectedAmountEstimate: lock.affectedAmountEstimate,
+          requestedBy: lock.requestedBy, approvedBy: lock.approvedBy,
+        };
+      }
+      const repo = new SqliteSnapshotRepo(db, provenance);
       const { auditSnapshot } = buildSnapshot(
         outputs,
         { entityId: req.params.id, periodId, createdAtLogical: Date.now() },
         repo,
+        restate ? { restate: true } : undefined,
       );
-      const id = `snap-${req.params.id}-${periodId}-${auditSnapshot.seq}`;
-      // Idempotent freeze: snapshot id is content-deterministic, so re-freezing the
-      // same period collides on the PRIMARY KEY. Resolve an existing row to a fail-closed
-      // DTO: the `-`-joined id is ambiguous, so verify entityId + periodId match this
-      // request (no cross-entity leak), then verify content via merkleRoot (the journal
-      // fingerprint — manifestHash folds in createdAtLogical and is NOT a content invariant).
-      const resolveExisting = () => {
-        const ex = getSnapshot(db, id);
-        if (!ex) return null;
-        if (ex.entityId !== req.params.id || ex.periodId !== periodId) {
-          throw new ApiError(409, 'SNAPSHOT_CONFLICT', `snapshot id ${id} resolves to a different entity/period`);
-        }
-        if (ex.merkleRoot !== auditSnapshot.merkleRoot) {
-          throw new ApiError(409, 'SNAPSHOT_CONFLICT', `snapshot ${id} exists with a different merkle root`);
-        }
-        // Fail loud: a non-FROZEN existing row (already ANCHORED) must NOT be returned as a
-        // freshly-freezable snapshot — the UI would offer Anchor and prepare would then 409.
-        if (ex.status !== 'FROZEN') {
-          throw new ApiError(409, 'ALREADY_ANCHORED', `snapshot ${id} is ${ex.status}; the period is already anchored`);
-        }
-        return {
-          snapshot: {
-            id, periodId,
-            manifestHash: ex.manifestHash, merkleRoot: ex.merkleRoot,
-            leafCount: ex.leafCount, supersedesSeq: ex.supersedesSeq, status: ex.status,
-          },
-        };
-      };
-      const pre = resolveExisting();
-      if (pre) return pre;
-      try {
-        insertSnapshot(db, {
-          id, entityId: req.params.id, periodId,
-          manifestJson: JSON.stringify(auditSnapshot.manifest),
-          manifestHash: auditSnapshot.manifestHash,
-          merkleRoot: auditSnapshot.merkleRoot,
-          leafCount: auditSnapshot.leafCount,
-          supersedesSeq: auditSnapshot.supersedesSeq,
-        });
-      } catch (e) {
-        // Race: a concurrent freeze inserted between our read and write. Re-resolve and
-        // return idempotently; re-throw anything that is not the PK collision.
-        if (e instanceof Error && /UNIQUE constraint failed/.test(e.message)) {
-          const post = resolveExisting();
-          if (post) return post;
-        }
-        throw e;
-      }
       return {
         snapshot: {
-          id, periodId,
-          manifestHash: auditSnapshot.manifestHash,
-          merkleRoot: auditSnapshot.merkleRoot,
-          leafCount: auditSnapshot.leafCount,
-          supersedesSeq: auditSnapshot.supersedesSeq,
-          status: 'FROZEN',
+          id: `snap-${req.params.id}-${periodId}-${auditSnapshot.seq}`, periodId,
+          manifestHash: auditSnapshot.manifestHash, merkleRoot: auditSnapshot.merkleRoot,
+          leafCount: auditSnapshot.leafCount, supersedesSeq: auditSnapshot.supersedesSeq ?? 0,
+          seq: auditSnapshot.seq, status: 'FROZEN',
         },
       };
     });
@@ -939,12 +930,14 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     requireEntity(db, req.params.id);
     const anchors = listAnchors(db, req.params.id).map((r) => {
       const snap = getSnapshot(db, r.snapshotId);
+      const latestSeq = snap ? getLatestSnapshotSeq(db, req.params.id, snap.periodId) : 0;
       return {
         id: r.id, snapshotId: r.snapshotId, seq: r.seq, link: r.link,
         digest: r.digest, explorerUrl: r.explorerUrl, anchoredAt: r.anchoredAt,
         merkleRoot: snap?.merkleRoot ?? null,
         periodId: snap?.periodId ?? '',
         leafCount: snap?.leafCount ?? 0,
+        superseded: snap != null && snap.seq < latestSeq,
       };
     });
     let proof = null;

@@ -124,6 +124,7 @@ export async function runPipeline(
     id: snapId,
     entityId: cfg.entityId,
     periodId,
+    seq: auditSnapshot.seq,
     manifestJson: JSON.stringify(auditSnapshot.manifest),
     manifestHash: auditSnapshot.manifestHash,
     merkleRoot: auditSnapshot.merkleRoot,

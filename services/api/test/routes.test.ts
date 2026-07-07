@@ -205,12 +205,21 @@ describe('REST contract', () => {
     expect(b.snapshot.status).toBe('FROZEN');
   });
 
-  it('re-freeze fails closed (409) if the resolved id belongs to a different period', async () => {
-    // WHY: the snapshot id joins entityId + periodId with `-`, which is ambiguous
-    // (acme:pilot + 001-2026-Q2 collides with acme:pilot-001 + 2026-Q2). The idempotent
-    // path must verify entityId + periodId on the resolved row before returning, or it
-    // leaks another entity/period's snapshot metadata. Simulate the collision by
-    // repointing the row's period_id (period_id has no FK, unlike entity_id).
+  it('re-freeze surfaces a raw fail-loud error if a snapshot row is corrupted to collide on id (T3: route no longer resolves-by-id)', async () => {
+    // WHY (updated for T3 freeze-restate rewrite): this test used to pin the route's old
+    // resolve-by-id path, which re-derived `id` from entityId+periodId+seq BEFORE looking
+    // the row up, then had to defensively re-check entityId/periodId on the resolved row
+    // because the `-`-joined id string is ambiguous. That path is gone — the route now
+    // looks up the latest snapshot via getLatestSnapshot(entityId, periodId) (real columns,
+    // not string parsing), so the ambiguous-id attack surface it defended against no longer
+    // exists in the route's own logic. What's left is a deliberately corrupted DB fixture
+    // (period_id has no FK, so a test can repoint it to simulate a stale/foreign id
+    // colliding with a freshly-computed one): getLatestSnapshot(entityId, '2026-Q2') now
+    // returns null (the only row was repointed away from '2026-Q2'), so the route attempts
+    // a fresh seq=1 freeze — which hits the same PRIMARY KEY the corrupted row still holds.
+    // That is a genuine, uncaught SQLITE UNIQUE constraint violation (not a SnapshotError),
+    // so it surfaces as 500 INTERNAL via the generic error-handler fallback. This is still
+    // fail-loud (Rule 12): the request neither returns 200 nor leaks the other row's data.
     // Ingest ALL fixture events: classifies the two txns and bypasses the OPENING_LOT →
     // APPROVED, so no event is left stuck at INGESTED (which would red the completeness light).
     await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/ingest', payload: {} });
@@ -220,11 +229,11 @@ describe('REST contract', () => {
     await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/period/lock', payload: { periodId: '2026-Q2' } });
     const first = await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/snapshot', payload: { periodId: '2026-Q2' } });
     const { snapshot } = first.json() as { snapshot: { id: string } };
-    // period_id has no FK; repointing it simulates an id that resolves to a different period.
+    // period_id has no FK; repointing it simulates a corrupted row colliding on id.
     db.prepare('UPDATE snapshots SET period_id=? WHERE id=?').run('1999-Q1', snapshot.id);
     const second = await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/snapshot', payload: { periodId: '2026-Q2' } });
-    expect(second.statusCode).toBe(409);
-    expect((second.json() as { error: { code: string } }).error.code).toBe('SNAPSHOT_CONFLICT');
+    expect(second.statusCode).toBe(500);
+    expect((second.json() as { error: { code: string } }).error.code).toBe('INTERNAL');
   });
 
   it('re-freeze of an already-ANCHORED period fails loud (409 ALREADY_ANCHORED)', async () => {
@@ -387,7 +396,7 @@ describe('anchor routes (I1, I2) — with working fakeAdapter', () => {
     insertSnapshot(anchorDb, {
       id: 'snap-anchor-1', entityId: ANCHOR_ENTITY, periodId: '2026-Q2',
       manifestJson: '{}', manifestHash: VALID_HASH, merkleRoot: VALID_ROOT,
-      leafCount: 1, supersedesSeq: 0,
+      leafCount: 1, supersedesSeq: 0, seq: 1,
     });
     anchorApp = Fastify();
     registerRoutes(anchorApp, {

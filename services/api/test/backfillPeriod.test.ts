@@ -1,6 +1,19 @@
 import { describe, it, expect } from 'vitest';
 import Database from 'better-sqlite3';
 import { backfillPeriodIds } from '../src/store/backfillPeriod';
+import { buildMerkle, type JournalEntry } from '../src/deps/rulesEngine';
+
+// Minimal but real JournalEntry so buildMerkle/encodeJeLeaf can operate on it
+// (the P1 gate now recomputes an actual merkle root, not a placeholder string).
+const je1: JournalEntry = {
+  idempotencyKey: 'k1',
+  lineageHash: 'lh1',
+  reversalOf: null,
+  lines: [
+    { account: 'Cash', side: 'DEBIT', amountMinor: '100', origCoinType: null, origQtyMinor: null, priceRef: null, fxRef: null, leg: 'main' },
+  ],
+};
+const je1Root = buildMerkle([je1]).manifest.merkleRoot;
 
 function legacyDb() {
   const db = new Database(':memory:');
@@ -8,12 +21,13 @@ function legacyDb() {
     CREATE TABLE events (id TEXT PRIMARY KEY, entity_id TEXT, raw_json TEXT, status TEXT, period_id TEXT);
     CREATE TABLE journal_entries (id TEXT PRIMARY KEY, entity_id TEXT, event_id TEXT, je_json TEXT, idempotency_key TEXT, leaf_hash TEXT, period_id TEXT);
     CREATE TABLE snapshots (id TEXT, entity_id TEXT, period_id TEXT, merkle_root TEXT, status TEXT);
+    CREATE TABLE migration_override_log (seq INTEGER PRIMARY KEY AUTOINCREMENT, snapshot_id TEXT NOT NULL, old_root TEXT NOT NULL, recomputed_root TEXT NOT NULL, operator TEXT NOT NULL, accepted_at TEXT NOT NULL, justification TEXT NOT NULL);
   `);
   db.prepare(`INSERT INTO events (id, entity_id, raw_json, status) VALUES (?, ?, ?, 'INGESTED')`)
     .run('e1', 'acme', JSON.stringify({ eventTime: '2026-02-10T00:00:00Z' }));
   db.prepare(`INSERT INTO events (id, entity_id, raw_json, status) VALUES (?, ?, ?, 'INGESTED')`)
     .run('e2', 'acme', JSON.stringify({ eventTime: '2026-05-10T00:00:00Z' }));
-  db.prepare(`INSERT INTO journal_entries (id, entity_id, event_id, je_json, idempotency_key, leaf_hash) VALUES ('j1','acme','e1','{}','k1','h1')`).run();
+  db.prepare(`INSERT INTO journal_entries (id, entity_id, event_id, je_json, idempotency_key, leaf_hash) VALUES ('j1','acme','e1',?,'k1','h1')`).run(JSON.stringify(je1));
   return db;
 }
 
@@ -42,17 +56,30 @@ describe('backfillPeriodIds', () => {
     expect(() => backfillPeriodIds(db as any)).toThrow(/INVALID_EVENT_TIME/);
   });
 
-  it('P1 gate: aborts when an anchored entity spans 2 distinct periods', () => {
-    const db = legacyDb(); // e1=Q1, e2=Q2 for entity 'acme', both period_id NULL
-    db.prepare(`INSERT INTO snapshots (id, entity_id, period_id, merkle_root, status) VALUES ('s1','acme',NULL,'root1','ANCHORED')`).run();
+  it('P1 gate (precise): a multi-period anchored entity whose anchored-period root still recompute-equals PASSES — the old entity-wide false positive is gone', () => {
+    const db = legacyDb(); // e1=Q1, e2=Q2 for entity 'acme', both period_id NULL — entity legitimately spans 2 periods
+    // Snapshot anchors only period Q1 (j1's period after backfill), with a root that
+    // matches the real recompute of Q1's JEs. Pre-fix, the entity-wide span check
+    // would have aborted here purely because 'acme' has events in 2 periods — even
+    // though nothing about the anchored period's own root changed.
+    db.prepare(`INSERT INTO snapshots (id, entity_id, period_id, merkle_root, status) VALUES ('s1','acme','2026-Q1',?,'ANCHORED')`).run(je1Root);
+    expect(() => backfillPeriodIds(db as any)).not.toThrow();
+  });
+
+  it('P1 gate: aborts when the anchored period itself has a real root mismatch', () => {
+    const db = legacyDb();
+    db.prepare(`INSERT INTO snapshots (id, entity_id, period_id, merkle_root, status) VALUES ('s1','acme','2026-Q1','not-the-real-root','ANCHORED')`).run();
     expect(() => backfillPeriodIds(db as any)).toThrow(/MIGRATION_P1_ANCHOR_ROOT_CHANGED/);
   });
 
-  it('P1 gate: passes when an anchored entity has events in a single period', () => {
+  it('P1 gate: passes via a real recompute-match when an anchored entity has events in a single period', () => {
     const db = legacyDb();
     // Remove the cross-period event so 'acme' only has e1 (Q1).
     db.prepare(`DELETE FROM events WHERE id = 'e2'`).run();
-    db.prepare(`INSERT INTO snapshots (id, entity_id, period_id, merkle_root, status) VALUES ('s1','acme',NULL,'root1','ANCHORED')`).run();
+    // Anchor Q1 with the REAL recompute root (je1Root), not NULL/placeholder — this exercises
+    // the recompute-EQUAL pass path, not the empty-period skip (period_id=NULL would match zero
+    // JEs and pass vacuously via `rows.length===0 → continue`).
+    db.prepare(`INSERT INTO snapshots (id, entity_id, period_id, merkle_root, status) VALUES ('s1','acme','2026-Q1',?,'ANCHORED')`).run(je1Root);
     const result = backfillPeriodIds(db as any);
     expect(result.events).toBe(1);
     const e1 = db.prepare(`SELECT period_id FROM events WHERE id='e1'`).get() as { period_id: string };
@@ -61,7 +88,9 @@ describe('backfillPeriodIds', () => {
 
   it('P1 gate failure rolls back period_id writes so the gate keeps firing on every reboot (NEW-1 fix)', () => {
     const db = legacyDb(); // e1=Q1, e2=Q2 for entity 'acme', both period_id NULL
-    db.prepare(`INSERT INTO snapshots (id, entity_id, period_id, merkle_root, status) VALUES ('s1','acme',NULL,'root1','ANCHORED')`).run();
+    // Snapshot anchors period Q1 with a root that does NOT match j1's real recompute —
+    // a genuine mismatch, so the precise gate still aborts.
+    db.prepare(`INSERT INTO snapshots (id, entity_id, period_id, merkle_root, status) VALUES ('s1','acme','2026-Q1','not-the-real-root','ANCHORED')`).run();
 
     // Boot 1: P1 gate throws.
     expect(() => backfillPeriodIds(db as any)).toThrow(/MIGRATION_P1_ANCHOR_ROOT_CHANGED/);

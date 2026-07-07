@@ -74,6 +74,7 @@ export interface AnchorDTO {
   merkleRoot: string | null; // joined from the anchored snapshot (Task 1)
   periodId: string;   // joined from the anchored snapshot (Task 1, export)
   leafCount: number;  // joined from the anchored snapshot (Task 1, export)
+  superseded?: boolean; // true when a later snapshot has since superseded this anchor (H2 T4/T5)
 }
 
 export interface CopilotDraftLine {
@@ -179,6 +180,14 @@ export interface CockpitLight {
   label: string;
   real: boolean;
 }
+export interface AnchorStaleness {
+  stale: boolean;
+  anchoredSeq: number;
+  anchoredRoot: string;
+  currentRoot: string | null;
+  latestSnapshotSeq: number;
+}
+
 export interface CloseCockpitResponse {
   lights: CockpitLight[];
   status: 'OPEN' | 'LOCKED';
@@ -188,6 +197,7 @@ export interface CloseCockpitResponse {
   reopenCount: number;
   restatementReason: string | null;
   reasonCode: string | null;
+  anchorStaleness: AnchorStaleness | null;
 }
 
 // ---- Policy types ----

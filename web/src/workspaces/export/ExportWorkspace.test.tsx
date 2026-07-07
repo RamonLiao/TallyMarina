@@ -28,6 +28,13 @@ vi.mock('./assembleExport', () => ({
   assembleExport: (...args: unknown[]) => mockAssembleExport(...args),
 }));
 
+// Mock the cockpit hook so ExportWorkspace mount does NOT fire a real close-cockpit
+// fetch in jsdom (hidden network dep + late setState after teardown). Tests that need
+// staleness drive it through the mocked assembleExport outcome, not this hook.
+vi.mock('../../data/useCloseCockpit', () => ({
+  useCloseCockpit: () => ({ data: null, loading: false }),
+}));
+
 // Minimal verified summary
 const verifiedSummary = {
   jeCount: 3,
@@ -192,6 +199,39 @@ describe('imbalance error', () => {
   });
 
   it('disables the download button on imbalance', async () => {
+    render(<ExportWorkspace entityId="ent-1" />);
+    fireEvent.click(screen.getByRole('button', { name: /preview/i }));
+    await waitFor(() => expect(screen.getByTestId('download-btn')).toBeDisabled());
+  });
+});
+
+// ── Stale restatement (C-F3) ─────────────────────────────────────────────────
+
+describe('stale restatement disclosure', () => {
+  beforeEach(() => {
+    setupData();
+    mockAssembleExport.mockResolvedValue({
+      ok: false,
+      kind: 'stale-restatement',
+      anchoredSeq: 1,
+      latestSnapshotSeq: 2,
+    });
+  });
+
+  it('renders the stale-restatement card naming the superseded and current versions', async () => {
+    render(<ExportWorkspace entityId="ent-1" />);
+    fireEvent.click(screen.getByRole('button', { name: /preview/i }));
+    // WHY: a stale anchor means the on-chain proof no longer matches the books; the export
+    // must disclose the restatement (which version is anchored vs which to re-anchor) rather
+    // than fail with an opaque proof error — the disclosure IS the deliverable of this task.
+    await waitFor(() => expect(screen.getByTestId('stale-restatement-card')).toBeInTheDocument());
+    const card = screen.getByTestId('stale-restatement-card');
+    expect(card.textContent).toMatch(/v1/);
+    expect(card.textContent).toMatch(/v2/);
+    expect(card.textContent).toMatch(/restatement/i);
+  });
+
+  it('disables the download button while the anchor is stale', async () => {
     render(<ExportWorkspace entityId="ent-1" />);
     fireEvent.click(screen.getByRole('button', { name: /preview/i }));
     await waitFor(() => expect(screen.getByTestId('download-btn')).toBeDisabled());

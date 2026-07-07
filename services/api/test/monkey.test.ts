@@ -161,7 +161,7 @@ describe('MONKEY: concurrent anchor confirm serialized by mutex', () => {
   it('two confirms on one entity: exactly one ANCHORED write, second fails closed', async () => {
     insertSnapshot(db, {
       id: 's1', entityId: ENTITY, periodId: 'P', manifestJson: '{}',
-      manifestHash: 'a', merkleRoot: 'b', leafCount: 1, supersedesSeq: 0,
+      manifestHash: 'a', merkleRoot: 'b', leafCount: 1, supersedesSeq: 0, seq: 1,
     });
     const adapter = {
       async getChainState() {
@@ -194,7 +194,7 @@ describe('MONKEY: forged digest to confirm with seq mismatch', () => {
   it('digest whose chain head seq != expectedSeq is refused; snapshot stays FROZEN', async () => {
     insertSnapshot(db, {
       id: 's2', entityId: ENTITY, periodId: 'P', manifestJson: '{}',
-      manifestHash: 'a', merkleRoot: 'b', leafCount: 1, supersedesSeq: 0,
+      manifestHash: 'a', merkleRoot: 'b', leafCount: 1, supersedesSeq: 0, seq: 1,
     });
     const adapter = {
       async getChainState() {

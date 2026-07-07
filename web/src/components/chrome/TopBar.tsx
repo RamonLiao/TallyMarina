@@ -5,26 +5,13 @@ import { EntitySwitcher } from './EntitySwitcher';
 import { PeriodPill } from './PeriodPill';
 
 export function TopBar() {
+  // Layout (display/flex/order/width) lives in base.css .topbar-* so the mobile
+  // reflow is a clean media query rather than an !important fight with inline styles.
+  // Purely-visual props (font, color) stay inline.
   return (
-    <header
-      style={{
-        background: 'var(--ink)',
-        borderBottom: '1px solid rgba(255,255,255,0.08)',
-      }}
-    >
-      <div
-        style={{
-          maxWidth: 1200,
-          margin: '0 auto',
-          padding: 'var(--space-3) clamp(16px, 4vw, 48px)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 'var(--space-3)',
-          flexWrap: 'wrap',
-        }}
-      >
-        <Link to="/" style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-1)', textDecoration: 'none' }}>
+    <header className="topbar" style={{ background: 'var(--ink)', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+      <div className="topbar-inner">
+        <Link className="topbar-brand" to="/" style={{ textDecoration: 'none' }}>
           <Mascot pose="sailing" size={32} />
           <span
             style={{
@@ -35,12 +22,12 @@ export function TopBar() {
             TallyMarina
           </span>
         </Link>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+        <div className="topbar-context">
           <EntitySwitcher />
           <PeriodPill />
-          <div className="wallet-slot">
-            <ConnectButton />
-          </div>
+        </div>
+        <div className="wallet-slot topbar-wallet">
+          <ConnectButton />
         </div>
       </div>
     </header>

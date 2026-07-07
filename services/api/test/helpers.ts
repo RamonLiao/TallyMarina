@@ -52,6 +52,7 @@ export function seedSnapshot(
     merkleRoot,
     leafCount,
     supersedesSeq,
+    seq: (overrides as { seq?: number }).seq ?? 1,
     status: status as any,
   });
 }

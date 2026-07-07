@@ -25,6 +25,12 @@ export function openDb(path: string): Db {
     'ALTER TABLE journal_entries ADD COLUMN period_id TEXT',
     'ALTER TABLE exception_disposition ADD COLUMN period_id TEXT',
     'ALTER TABLE exception_disposition_log ADD COLUMN period_id TEXT',
+    'ALTER TABLE snapshots ADD COLUMN seq INTEGER NOT NULL DEFAULT 1',
+    'ALTER TABLE snapshots ADD COLUMN restatement_reason_code TEXT',
+    'ALTER TABLE snapshots ADD COLUMN restatement_reason TEXT',
+    'ALTER TABLE snapshots ADD COLUMN affected_amount_estimate TEXT',
+    'ALTER TABLE snapshots ADD COLUMN restatement_requested_by TEXT',
+    'ALTER TABLE snapshots ADD COLUMN restatement_approved_by TEXT',
   ];
   for (const m of MIGRATIONS) {
     try { db.exec(m); } catch (err) {

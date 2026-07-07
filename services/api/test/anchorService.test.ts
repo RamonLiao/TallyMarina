@@ -51,7 +51,7 @@ beforeEach(() => {
   insertSnapshot(db, {
     id: 's1', entityId: ENTITY, periodId: '2026-Q2',
     manifestJson: '{}', manifestHash: VALID_HASH, merkleRoot: VALID_ROOT,
-    leafCount: 1, supersedesSeq: 0,
+    leafCount: 1, supersedesSeq: 0, seq: 1,
   });
 });
 
@@ -90,7 +90,7 @@ describe('prepareAnchor', () => {
     insertSnapshot(db, {
       id: 'sdraft', entityId: ENTITY, periodId: '2026-Q3',
       manifestJson: '{}', manifestHash: VALID_HASH, merkleRoot: VALID_ROOT,
-      leafCount: 1, supersedesSeq: 0, status: 'DRAFT',
+      leafCount: 1, supersedesSeq: 0, status: 'DRAFT', seq: 1,
     });
     // Force status to DRAFT (default on insert is DRAFT)
     // fakeAdapter with seq matching expectedSeq — the guard fires before waitForTransaction

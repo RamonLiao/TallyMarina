@@ -171,7 +171,7 @@ describe('monkey: exceptions disposition — extreme inputs', () => {
     insertSnapshot(app._db, {
       id: 'snap-anchored-test', entityId: EID, periodId: '2025-Q4',
       manifestJson: '{}', manifestHash: '0xabc', merkleRoot: '0xdef',
-      leafCount: 1, supersedesSeq: null,
+      leafCount: 1, supersedesSeq: null, seq: 1,
     });
     setSnapshotStatus(app._db, 'snap-anchored-test', 'ANCHORED');
 

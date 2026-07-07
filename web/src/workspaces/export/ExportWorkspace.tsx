@@ -3,6 +3,7 @@
 import { useState, useCallback } from 'react';
 import { useEntityCtx } from '../../app/EntityContext';
 import { useExportData } from '../../data/useExportData';
+import { useCloseCockpit } from '../../data/useCloseCockpit';
 import { assembleExport } from './assembleExport';
 import type { ExportOutcome } from './assembleExport';
 import type { BundleSummary } from './buildBundle';
@@ -154,6 +155,29 @@ function DraftCard({ summary }: { summary: BundleSummary }) {
   );
 }
 
+// ── Stale-restatement disclosure card (C-F3) ────────────────────────────────
+function StaleRestatementCard({
+  anchoredSeq,
+  latestSnapshotSeq,
+}: {
+  anchoredSeq: number;
+  latestSnapshotSeq: number;
+}) {
+  return (
+    <div data-testid="stale-restatement-card" className="card light--red export-status-card">
+      <div className="export-status-card__head">
+        <span className="export-status-badge">⚠ RESTATEMENT IN PROGRESS</span>
+      </div>
+      <p className="export-imbalance-msg">
+        <strong>
+          Restatement in progress — on-chain anchor corresponds to superseded v{anchoredSeq}; re-anchor
+          v{latestSnapshotSeq} before distributing.
+        </strong>
+      </p>
+    </div>
+  );
+}
+
 // ── Imbalance card ────────────────────────────────────────────────────────
 function ImbalanceCard({ debit, credit }: { debit: string; credit: string }) {
   const delta = (BigInt(debit) - BigInt(credit)).toString();
@@ -190,6 +214,7 @@ function FilenamePreview({ filename }: { filename: string }) {
 export function ExportWorkspace({ entityId }: { entityId: string }) {
   const { entity, periodId } = useEntityCtx();
   const { data, loading, error } = useExportData(entityId);
+  const { data: cockpitData } = useCloseCockpit(entityId);
   const [outcome, setOutcome] = useState<ExportOutcome | null>(null);
   const [assembling, setAssembling] = useState(false);
   const [assembleError, setAssembleError] = useState<string | null>(null);
@@ -219,6 +244,7 @@ export function ExportWorkspace({ entityId }: { entityId: string }) {
           return { anchors: res.anchors, inclusionProof: res.inclusionProof ?? null };
         },
         policySetVersion,
+        anchorStaleness: cockpitData?.anchorStaleness ?? null,
       });
       setOutcome(result);
     } catch (e) {
@@ -226,7 +252,7 @@ export function ExportWorkspace({ entityId }: { entityId: string }) {
     } finally {
       setAssembling(false);
     }
-  }, [data, entityId, periodId]);
+  }, [data, entityId, periodId, cockpitData]);
 
   const handleDownload = useCallback(() => {
     if (!outcome || !outcome.ok) return;
@@ -261,6 +287,7 @@ export function ExportWorkspace({ entityId }: { entityId: string }) {
   const canPreview = !!data && !loading && !assembling;
   const isImbalance = outcome && !outcome.ok && outcome.kind === 'imbalance';
   const isEmpty = outcome && !outcome.ok && (outcome as { kind: string }).kind === 'empty';
+  const isStaleRestatement = outcome && !outcome.ok && (outcome as { kind: string }).kind === 'stale-restatement';
   const downloadEnabled = outcome?.ok === true && !isImbalance;
 
   // merkleRoot and explorerUrl are returned by assembleExport on verified path (spec §7).
@@ -309,6 +336,12 @@ export function ExportWorkspace({ entityId }: { entityId: string }) {
             <ImbalanceCard
               debit={(outcome as { debit: string }).debit}
               credit={(outcome as { credit: string }).credit}
+            />
+          )}
+          {isStaleRestatement && (
+            <StaleRestatementCard
+              anchoredSeq={(outcome as { anchoredSeq: number }).anchoredSeq}
+              latestSnapshotSeq={(outcome as { latestSnapshotSeq: number }).latestSnapshotSeq}
             />
           )}
           {outcome.ok && outcome.verified && (

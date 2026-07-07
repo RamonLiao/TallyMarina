@@ -5,9 +5,9 @@ import { useWallet } from '../wallet/useWallet';
 import { HashChain } from '../components/data/HashChain';
 import { Celebration } from '../components/chrome/Celebration';
 import { Mascot } from '../components/chrome/Mascot';
-import type { AnchorDTO } from '../api/types';
+import type { AnchorDTO, AnchorStaleness } from '../api/types';
 
-export function AnchorStep() {
+export function AnchorStep({ anchorStaleness }: { anchorStaleness?: AnchorStaleness | null } = {}) {
   const { data: entities } = useEntities();
   const { entity, setEntity, periodId } = useEntityCtx();
   useEffect(() => { if (!entity && entities?.[0]) setEntity(entities[0]); }, [entity, entities, setEntity]);
@@ -19,6 +19,13 @@ export function AnchorStep() {
   const { data: journal } = useJournal(entity?.id);
   const firstIdempotencyKey = journal?.[0]?.idempotencyKey;
   const { data: anchorData } = useAnchors(entity?.id, firstIdempotencyKey);
+
+  // Soft-force restatement copy (§W-F2): once anchorStaleness.stale, the Freeze CTA
+  // names the concrete NEXT version (latestSnapshotSeq + 1) so the user knows exactly
+  // which snapshot they're about to produce. This never blocks — it's a label only.
+  const freezeLabel = anchorStaleness?.stale
+    ? `Freeze restatement (v${anchorStaleness.latestSnapshotSeq + 1})`
+    : 'Freeze snapshot';
 
   const [snapshotId, setSnapshotId] = useState<string | null>(null);
   const [signing, setSigning] = useState(false);
@@ -67,7 +74,7 @@ export function AnchorStep() {
             disabled={snap.isPending}
             onClick={() => snap.mutate(periodId, { onSuccess: (s) => setSnapshotId(s.id) })}
           >
-            {snap.isPending ? 'Freezing…' : 'Freeze snapshot'}
+            {snap.isPending ? 'Freezing…' : freezeLabel}
           </button>
         )}
 
