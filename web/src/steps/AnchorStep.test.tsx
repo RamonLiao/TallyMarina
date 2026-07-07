@@ -138,3 +138,16 @@ it('useAnchors called with undefined key (no crash) when journal is empty (C2 gu
     expect(anchorsSpy).toHaveBeenCalledWith('acme:pilot-001', undefined);
   });
 });
+
+// W-F2: stale Freeze CTA must read the NEXT version = latestSnapshotSeq + 1.
+// Distinct anchoredSeq (2) vs latestSnapshotSeq (5) so the assertion pins the field
+// CHOICE, not just the +1: reading anchoredSeq would render v3, this expects v6.
+it('stale Freeze CTA reads "Freeze restatement (v{latestSnapshotSeq+1})", using latestSnapshotSeq not anchoredSeq', async () => {
+  vi.spyOn(endpoints, 'listEntities').mockResolvedValue([{ id: 'acme:pilot-001', displayName: 'Acme', chainObjectId: '0x1', capObjectId: '0x2', originalPackageId: '0x3' }]);
+  vi.spyOn(endpoints, 'snapshot').mockResolvedValue({ id: 's1', periodId: '2026-Q2', manifestHash: '0xMH', merkleRoot: '0xMR', leafCount: 3, supersedesSeq: null, status: 'FROZEN' });
+  vi.spyOn(endpoints, 'getJournal').mockResolvedValue([]);
+  vi.spyOn(endpoints, 'getAnchors').mockResolvedValue({ anchors: [], inclusionProof: null });
+
+  render(wrap(<AnchorStep anchorStaleness={{ stale: true, anchoredSeq: 2, anchoredRoot: '0xAR', currentRoot: '0xCR', latestSnapshotSeq: 5 }} />));
+  expect(await screen.findByRole('button', { name: /freeze restatement \(v6\)/i })).toBeTruthy();
+});

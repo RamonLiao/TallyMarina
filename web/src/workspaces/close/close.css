@@ -94,6 +94,7 @@
 .period-ribbon {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: var(--s-3, 12px);
   padding: var(--s-3, 12px);
   border-radius: var(--r-md, 16px);
@@ -105,7 +106,20 @@
 .status-chip--open { background: var(--brass, #b08d57); color: #fff; }
 .status-chip--locked { background: var(--ink, #1d2733); color: var(--paper, #f4ecd8); border: 1px solid var(--brass, #b08d57); }
 .reopen-badge { color: var(--ink-soft, #8a8175); font-size: var(--text-sm); }
-.stale-anchor-warn { color: var(--warn, #c28a1e); font-weight: 600; }
+/* Soft-force warning (§W-F1): amber attention chip, NOT the red blocking color —
+   anchorStaleness never blocks close, it only flags the on-chain root has drifted. */
+.stale-anchor-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--warn, #c28a1e);
+  background: color-mix(in srgb, var(--warn, #c28a1e) 12%, transparent);
+  overflow-wrap: anywhere;
+}
 .cockpit-verdict { font-weight: 600; }
 @media (prefers-reduced-motion: reduce) { .period-ribbon { transition: none; } }
 @media (max-width: 640px) {

@@ -1,6 +1,7 @@
 import { EntityProvider, useEntityCtx } from './app/EntityContext';
 import { WorkspaceProvider, useWorkspace } from './app/WorkspaceContext';
 import { WORKSPACES } from './app/workspaces';
+import { useCloseCockpit } from './data/useCloseCockpit';
 import { AppBackground } from './components/chrome/AppBackground';
 import { TopBar } from './components/chrome/TopBar';
 import { SideNav } from './components/chrome/SideNav';
@@ -22,6 +23,9 @@ import { OnboardingWorkspace } from './workspaces/onboarding/OnboardingWorkspace
 
 function CloseWorkspace() {
   const { step, entity } = useEntityCtx();
+  // Same cockpit data CloseCockpit fetches — re-read here so AnchorStep's Freeze CTA
+  // can reflect anchorStaleness (§W-F2) without prop-drilling through CloseCockpit.
+  const { data: cockpit } = useCloseCockpit(entity?.id ?? null);
   return (
     <>
       <CloseCockpit entityId={entity?.id ?? ''} />
@@ -34,7 +38,7 @@ function CloseWorkspace() {
           {step === 'classify' && <ClassifyStep />}
           {step === 'review' && <ReviewStep />}
           {step === 'journal' && <JournalStep />}
-          {step === 'anchor' && <AnchorStep />}
+          {step === 'anchor' && <AnchorStep anchorStaleness={cockpit?.anchorStaleness} />}
         </section>
       </details>
     </>

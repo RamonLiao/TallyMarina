@@ -36,8 +36,10 @@ export function CloseCockpit({ entityId }: { entityId: string }) {
       <div className={`period-ribbon${data.status === 'LOCKED' ? ' period-ribbon--locked' : ''}`}>
         <span className={`status-chip status-chip--${data.status.toLowerCase()}`}>{data.status}</span>
         {data.reopenCount > 0 && <span className="reopen-badge">reopened ×{data.reopenCount}</span>}
-        {data.staleAnchor && (
-          <span className="stale-anchor-warn" role="alert">⚠ stale anchor — re-lock & re-anchor</span>
+        {data.anchorStaleness?.stale && (
+          <span className="stale-anchor-chip" role="alert">
+            ⚠ Books changed since anchor (v{data.anchorStaleness.anchoredSeq})
+          </span>
         )}
       </div>
       <p role="status" aria-live="polite" className="cockpit-verdict">{verdict}</p>
