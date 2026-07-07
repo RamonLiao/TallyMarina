@@ -239,16 +239,16 @@ p {
   }
   .shell-sidenav nav {
     flex-direction: row !important;
-    flex-wrap: nowrap !important;
-    overflow-x: auto;
+    flex-wrap: wrap !important;
+    justify-content: center;
     min-width: 0 !important;
   }
   /* As a vertical list each tab is generously padded; in a horizontal strip that
      same padding makes a 116px-tall band. Tighten it (!important beats SideNav's
      inline `padding: var(--space-2) var(--space-3)`). */
   .shell-sidenav nav {
-    padding: var(--space-1) var(--space-2) !important;
-    gap: 0 !important;
+    padding: var(--space-2) var(--space-2) !important;
+    gap: 6px 8px !important;
   }
   .shell-sidenav nav > button {
     flex: 0 0 auto;
@@ -284,4 +284,44 @@ p {
   .audit-lineage > .audit-stage { flex: 1 1 auto !important; width: 100%; }
   /* arrows are horizontal connectors; drop them in the vertical stack */
   .audit-lineage > .audit-arrow { display: none; }
+}
+
+/* ── TopBar layout (moved off inline styles so the mobile reflow is a clean media
+   query, not an !important fight). Desktop: brand on the left, context + wallet
+   grouped on the right of one balanced row. ── */
+.topbar-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: var(--space-3) clamp(16px, 4vw, 48px);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  flex-wrap: wrap;
+}
+.topbar-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.topbar-context {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto; /* pushes context + wallet into a right-aligned group */
+}
+.topbar-wallet { display: flex; align-items: center; }
+
+/* Mobile: two intentional rows — brand + wallet (identity + primary action) on row 1,
+   the entity/period context bar on row 2. Replaces the accidental wrap that left the
+   wallet dangling on its own right-aligned line. */
+@media (max-width: 640px) {
+  .topbar-inner { row-gap: var(--space-2); }
+  .topbar-brand { order: 1; }
+  .topbar-wallet { order: 2; margin-left: auto; }
+  .topbar-context {
+    order: 3;
+    width: 100%;
+    margin-left: 0;
+    justify-content: flex-start;
+  }
 }
