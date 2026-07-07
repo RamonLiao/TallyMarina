@@ -2,8 +2,8 @@ import type { Db } from '../store/db.js';
 import type { ApiConfig } from '../config.js';
 import { ApiError } from './errors.js';
 import { getEntity } from '../store/entityStore.js';
-import { getSnapshot, setSnapshotStatus } from '../store/snapshotStore.js';
-import { insertAnchor, type AnchorRow } from '../store/anchorStore.js';
+import { getSnapshot, setSnapshotStatus, getLatestSnapshotSeq } from '../store/snapshotStore.js';
+import { insertAnchor, listAnchors, type AnchorRow } from '../store/anchorStore.js';
 import { deriveEntityRef } from '../deps/anchorSvc.js';
 import { buildAnchorPtb } from '@subledger/anchor-svc';
 import type { SuiGrpcChainAdapter } from '@subledger/anchor-svc';
@@ -17,6 +17,19 @@ export interface AnchorServiceDeps {
 
 export interface AnchorDTO {
   id: string; snapshotId: string; seq: number; link: string; digest: string; explorerUrl: string; anchoredAt: string;
+}
+
+/**
+ * S-F1: on-chain supersedes_seq must be a CHAIN seq (entity-global), not the
+ * snapshot's per-period seq. Return the chain seq of this period's prior anchor
+ * (the version being replaced on-chain), or 0 if this period was never anchored.
+ */
+export function computeSupersedesChainSeq(db: Db, entityId: string, periodId: string): number {
+  const priorForPeriod = listAnchors(db, entityId)
+    .map((a) => ({ a, snap: getSnapshot(db, a.snapshotId) }))
+    .filter((x) => x.snap?.periodId === periodId)
+    .sort((x, y) => y.a.seq - x.a.seq)[0];
+  return priorForPeriod ? priorForPeriod.a.seq : 0;
 }
 
 function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
@@ -35,6 +48,12 @@ export async function prepareAnchor(
     const snap = getSnapshot(deps.db, p.snapshotId);
     if (!snap) throw new ApiError(404, 'SNAPSHOT_NOT_FOUND', `no snapshot ${p.snapshotId}`);
     if (snap.status !== 'FROZEN') throw new ApiError(409, 'ILLEGAL_TRANSITION', `snapshot ${snap.status}, expected FROZEN`);
+    // S-F2: refuse to anchor a superseded FROZEN version — it would make a known-stale
+    // root an on-chain fact and create a permanent STALE_ANCHOR.
+    const latestSeq = getLatestSnapshotSeq(deps.db, snap.entityId, snap.periodId);
+    if (snap.seq < latestSeq) {
+      throw new ApiError(409, 'ANCHOR_SUPERSEDED', `snapshot seq ${snap.seq} superseded by seq ${latestSeq}; anchor the latest`);
+    }
 
     let chain;
     try {
@@ -63,7 +82,7 @@ export async function prepareAnchor(
       walletAddress: p.walletAddress,
       args: {
         manifestHash: snap.manifestHash, merkleRoot: snap.merkleRoot,
-        periodId: snap.periodId, supersedesSeq: snap.supersedesSeq ?? 0,
+        periodId: snap.periodId, supersedesSeq: computeSupersedesChainSeq(deps.db, snap.entityId, snap.periodId),
       },
     });
     return { txKind: ptb.txKind, expectedSeq, chainId: ent.chainObjectId, capId: ent.capObjectId };
