@@ -81,10 +81,11 @@ export async function run(): Promise<void> {
   const { decodeSuiPrivateKey } = await import('@mysten/sui/cryptography');
   const { secretKey } = decodeSuiPrivateKey(process.env.SUI_PK!);
   const keypair = Ed25519Keypair.fromSecretKey(secretKey);
-  const result = await grpc!.grpc.signAndExecuteTransaction({
-    transaction: Transaction.from(prep.body.txKind), signer: keypair,
-  });
-  const digest = (result as unknown as { digest: string }).digest;
+  const tx = Transaction.from(prep.body.txKind);
+  tx.setSender(keypair.toSuiAddress());
+  const result = await grpc!.grpc.core.signAndExecuteTransaction({ transaction: tx, signer: keypair });
+  const r = result as Record<string, unknown>;
+  const digest = (r?.['digest'] ?? (r?.['Transaction'] as Record<string, unknown> | undefined)?.['digest']) as string | undefined;
   assert(digest, 'no digest from sign+execute');
 
   const conf = await inject(app, 'POST', `/entities/${entity}/anchor/confirm`, {
