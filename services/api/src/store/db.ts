@@ -39,6 +39,38 @@ export function openDb(path: string): Db {
       if (!/duplicate column/i.test((err as Error).message)) throw err;
     }
   }
+  ensureSnapshotSeqUnique(db);
   backfillPeriodIds(db);
   return db;
+}
+
+// schema.sql carries `UNIQUE (entity_id, period_id, seq)` for fresh DBs, but SQLite
+// cannot ALTER a table-level constraint onto DBs created before the seq column existed.
+// A unique index enforces the restatement-chain invariant identically; CREATE UNIQUE
+// INDEX (unlike ADD CONSTRAINT) works on an existing table. Runs after MIGRATIONS so the
+// seq column is guaranteed present. See idx_triage_open for the same migrate-via-index pattern.
+function ensureSnapshotSeqUnique(db: Db): void {
+  // Pre-flight: if a legacy DB already holds colliding rows, CREATE UNIQUE INDEX would
+  // fail with an opaque "UNIQUE constraint failed" and no clue which rows collide.
+  // Surface them explicitly (fail loud, but actionable) before attempting the index.
+  const dupes = db.prepare(
+    `SELECT entity_id, period_id, seq, COUNT(*) AS n
+       FROM snapshots
+      GROUP BY entity_id, period_id, seq
+     HAVING n > 1`,
+  ).all() as Array<{ entity_id: string; period_id: string; seq: number; n: number }>;
+  if (dupes.length > 0) {
+    const detail = dupes
+      .map((d) => `(entity=${d.entity_id}, period=${d.period_id}, seq=${d.seq}) x${d.n}`)
+      .join('; ');
+    throw new Error(
+      `snapshots has duplicate (entity_id, period_id, seq) rows; cannot enforce the ` +
+        `restatement-chain unique index. Resolve these collisions manually before ` +
+        `restarting: ${detail}`,
+    );
+  }
+  db.exec(
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_snapshots_entity_period_seq ' +
+      'ON snapshots(entity_id, period_id, seq)',
+  );
 }
