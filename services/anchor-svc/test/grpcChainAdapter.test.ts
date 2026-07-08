@@ -128,6 +128,44 @@ describe('SuiGrpcChainAdapter parsing', () => {
     expect(Array.from(s.latestLink)).toEqual([8]);
   });
 
+  // REGRESSION: this SDK's gRPC core.signAndExecuteTransaction returns a oneof-wrapped
+  // object — { $kind: 'Transaction', Transaction: { digest, status } } — NOT a top-level
+  // { digest }. A naive top-level read silently yields undefined and fail-loud throws
+  // "no digest…". Proven on real testnet. Digest lives at .Transaction.digest.
+  it('execAnchor reads digest from the oneof-wrapped signAndExecuteTransaction result', async () => {
+    const fakeDigest = '0xdeadbeefdigest';
+    const linkB64 = Buffer.from([0x01, 0x02]).toString('base64');
+    const client = {
+      core: {
+        async signAndExecuteTransaction() {
+          return { $kind: 'Transaction', Transaction: { digest: fakeDigest, status: { success: true } } };
+        },
+        async waitForTransaction() { return; },
+        async getTransaction() {
+          return {
+            $kind: 'Transaction',
+            Transaction: {
+              digest: fakeDigest,
+              events: [{ eventType: '0xafc8::audit_anchor::SnapshotAnchored', json: { seq: '9', link: linkB64 } }],
+            },
+          };
+        },
+      },
+    };
+    const signer = { toSuiAddress: async () => '0xsender' } as never;
+    const a = new SuiGrpcChainAdapter(client as never, signer);
+    const res = await a.execAnchor({
+      packageId: '0xpkg',
+      chainObjectId: '0xchain',
+      capObjectId: '0xcap',
+      prevLink: new Uint8Array([0]),
+      args: { manifestHash: new Uint8Array(32), merkleRoot: new Uint8Array(32), periodId: new Uint8Array([1]), supersedesSeq: 0n },
+    });
+    expect(res.digest).toBe(fakeDigest);
+    expect(res.seq).toBe(9n);
+    expect(Array.from(res.link)).toEqual([0x01, 0x02]);
+  });
+
   it('throws when owner $kind is not AddressOwner', async () => {
     const capId = '0xcap';
     const client = fakeGrpc({ [capId]: { object: { owner: { $kind: 'Shared', Shared: { initialSharedVersion: '1' } }, json: { epoch: '7' } } } });

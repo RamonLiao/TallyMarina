@@ -88,7 +88,8 @@ export class SuiGrpcChainAdapter implements SuiChainPort {
     });
     tx.setSender(await this.signer.toSuiAddress());
     const res = await this.client.core.signAndExecuteTransaction({ transaction: tx, signer: this.signer });
-    const digest = (res as Record<string, unknown>)?.['digest'] as string | undefined;
+    const r = res as Record<string, unknown>;
+    const digest = (r?.['digest'] ?? (r?.['Transaction'] as Record<string, unknown> | undefined)?.['digest']) as string | undefined;
     if (!digest) throw new Error('no digest from signAndExecuteTransaction');
     await this.waitForTransaction(digest); // back-to-back cap txs need this (anchor-notes)
     const ev = await this.getAnchorEvent(digest);
