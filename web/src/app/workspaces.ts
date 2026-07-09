@@ -3,15 +3,15 @@ export type WorkspaceId =
   | 'audit' | 'policy' | 'export' | 'onboarding';
 
 export const WORKSPACES: {
-  id: WorkspaceId; label: string; icon: string; status: 'ready' | 'soon';
+  id: WorkspaceId; label: string; status: 'ready' | 'soon';
 }[] = [
-  { id: 'close',          label: 'Close',          icon: '⚓', status: 'ready' },
-  { id: 'exceptions',     label: 'Exceptions',     icon: '⚠', status: 'ready' },
-  { id: 'reconciliation', label: 'Reconciliation', icon: '⚖', status: 'ready' },
-  { id: 'audit',          label: 'Audit',          icon: '🔍', status: 'ready' },
-  { id: 'policy',         label: 'Policy',         icon: '📐', status: 'ready' },
-  { id: 'export',         label: 'Export',         icon: '📤', status: 'ready' },
-  { id: 'onboarding',     label: 'Onboarding',     icon: '🚢', status: 'ready' },
+  { id: 'close',          label: 'Close',          status: 'ready' },
+  { id: 'exceptions',     label: 'Exceptions',     status: 'ready' },
+  { id: 'reconciliation', label: 'Reconciliation', status: 'ready' },
+  { id: 'audit',          label: 'Audit',          status: 'ready' },
+  { id: 'policy',         label: 'Policy',         status: 'ready' },
+  { id: 'export',         label: 'Export',         status: 'ready' },
+  { id: 'onboarding',     label: 'Onboarding',     status: 'ready' },
 ];
 
 const IDS = new Set(WORKSPACES.map((w) => w.id));
