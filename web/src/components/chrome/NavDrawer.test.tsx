@@ -3,8 +3,25 @@ import userEvent from '@testing-library/user-event';
 import { vi } from 'vitest';
 import { WorkspaceProvider } from '../../app/WorkspaceContext';
 
+// Mutable so a single test can make the wallet button refuse focus, mimicking
+// the real <mysten-dapp-kit-connect-button>, whose shadow <button> has not
+// rendered yet when the drawer's open-effect calls focus() on it.
+let walletRefusesFocus = false;
+
 vi.mock('@mysten/dapp-kit-react/ui', () => ({
-  ConnectButton: () => <button type="button">Connect Wallet</button>,
+  ConnectButton: () => (
+    <button
+      type="button"
+      ref={(el) => {
+        if (el && walletRefusesFocus) {
+          // jsdom's `focus` is a getter-only accessor; assignment throws.
+          Object.defineProperty(el, 'focus', { value: () => {}, configurable: true });
+        }
+      }}
+    >
+      Connect Wallet
+    </button>
+  ),
 }));
 
 import { NavDrawer, collectFocusable } from './NavDrawer';
@@ -161,24 +178,23 @@ it('treats a focus-delegating custom element as focusable', () => {
   wrap.remove();
 });
 
-it('moves focus into the drawer even when the first focusable refuses focus', () => {
+it('moves focus into the drawer even when the first focusable refuses focus', async () => {
   // WHY: the drawer's first focusable is dapp-kit's wallet host, which delegates
   // focus into a shadow root that lit renders asynchronously. At open time
-  // host.focus() can silently no-op — measured in a real browser, focus stayed
-  // on the ☰ toggle and never entered the drawer. A trap whose entry point can
-  // fail leaves keyboard users stranded outside a modal they just opened.
-  const container = document.createElement('div');
-  const refuser = document.createElement('button');
-  Object.defineProperty(refuser, 'focus', { value: () => {} }); // accepts the call, never takes focus
-  const real = document.createElement('button');
-  container.append(refuser, real);
-  document.body.append(container);
-
-  for (const el of collectFocusable(container)) {
-    el.focus();
-    if (container.contains(document.activeElement)) break;
+  // host.focus() silently no-ops — measured in a real browser, focus stayed on
+  // the ☰ toggle and never entered the drawer. A trap whose entry point can fail
+  // leaves keyboard users stranded outside a modal they just opened.
+  // This test mounts the real NavDrawer; deleting the fallback loop from its
+  // open-effect must turn it red.
+  walletRefusesFocus = true;
+  try {
+    const toggle = setup();
+    await userEvent.click(toggle);
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toContainElement(document.activeElement as HTMLElement);
+    // fell through past the refusing wallet to the first nav button
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: /Close/ }));
+  } finally {
+    walletRefusesFocus = false;
   }
-
-  expect(document.activeElement).toBe(real);   // fell through to the one that works
-  container.remove();
 });
