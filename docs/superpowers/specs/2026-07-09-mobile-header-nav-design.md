@@ -47,14 +47,26 @@ D6 的代價由使用者知情接受：focus trap / ESC / scrim 點擊 / body sc
 
 ```
 ┌──────────────────────────────┐
-│ ☰    🦦 TallyMarina          │  row1: 22px display serif
-│ ACME PILOT 001 ▾ · 2026-Q2   │  row2: 13px mono, uppercase, 單行
+│ ☰    🦦 TallyMarina          │  row1: --text-lg (18px) display
+│ ACME PILOT 001 ▾ │ 2026-Q2   │  row2: --text-xs (12px) mono, uppercase
 ├──────────────────────────────┤
-│ 📐 Policy                    │  內容區 h1
+│ Policy                       │  內容區 h1: --text-xl (22px)
 │ ──────────────────────       │
 │ ┌────────────────────────┐   │
 │ │ ACTIVE POLICY          │   │
 ```
+
+### 3.1 字級階層（frontend-design review 後修正）
+
+初版把 brand 定在 22px、同時內容 h1 未定字級。`tokens.css:44` 對 `--text-xl`(22px) 的註解**明訂其角色為 "workspace title"**，若 brand 也用 22px，垂直距離不到 100px 內會出現兩個同尺寸襯線標題 —— **正是使用者原本抱怨的「所有字都一樣大」**。
+
+| 元素 | Token | px | 理由 |
+|---|---|---|---|
+| 內容區 h1（workspace 名） | `--text-xl` | 22 | token 註解定義的角色，頁面真正主標題 |
+| Brand wordmark | `--text-lg` | 18 | 仍是 header 區塊內最大字（滿足 D3 brand-dominant），但不與 h1 打架 |
+| meta 列（entity/period） | `--text-xs` | 12 | `tokens.css:40` 註解：「caption, badge, **mono-meta, eyebrow label**」。初版誤用 `--text-sm`(13px)，該尺寸註解為 "dense table body"（資料表用） |
+
+meta 列配方沿用 codebase 既有 eyebrow 慣例（`SideNav.tsx:42` 的 `soon` 標籤）：`--text-xs` + `uppercase` + `letter-spacing: 0.05em` + `--font-mono`。
 
 點 ☰ 後：
 
@@ -109,15 +121,52 @@ D6 的代價由使用者知情接受：focus trap / ESC / scrim 點擊 / body sc
 
 **開關狀態** 由 `NavDrawer` 自身持有（local `useState`），不上抬到 `App`——沒有其他消費者。
 
+#### 4.3.1 抽屜表面色與 token（初版未定義）
+
+抽屜背景 = **`--ink`**（navy），視覺上是 TopBar 向下延伸的同一塊 chrome，而非內容的一部分。
+
+`tokens.css:27-30` 已存在一組**專為 navy 表面文字設計、但目前完全沒被 chrome 使用**的 token：
+
+| 用途 | Token |
+|---|---|
+| 抽屜／nav 文字 | `--austere-ink` |
+| 次要 meta 文字 | `--austere-dim` |
+| 分隔線、邊框 | `--austere-border` |
+| active workspace | `--brass` |
+
+現況 `EntitySwitcher.tsx:25,31` 與 `PeriodPill.tsx:9,11` 手刻 `rgba(255,255,255,0.08)` / `rgba(255,255,255,0.16)`。既然 §4.6 本就要把它們搬進 CSS class，**一併換成上表 token**，邊際成本趨近於零並消除一組 magic number。
+
+#### 4.3.2 抽屜的版面與動態（初版遺漏）
+
+- **寬度**：`min(320px, 86vw)`。
+- **動態**：`transform: translateX()` 側滑，180ms `ease-out`。**必須接上 `base.css:210` 既有的 `prefers-reduced-motion` 區塊**（reduced 時直接顯示，無位移動畫）——初版 a11y 清單漏列此項。
+- **safe-area**：390px 即 iPhone 級距，抽屜滿版高度須加 `padding-bottom: env(safe-area-inset-bottom)`，否則末項會被 home indicator 遮住。
+
 ### 4.4 `TopBar`（改）
 - ☰ 只在 ≤768px 顯示（CSS `display`），桌機 `display:none`。
 - `.topbar-wallet` 於 ≤768px `display:none`；wallet 由抽屜提供。
 - row2 = `.topbar-context`，內含 `EntitySwitcher` + `PeriodPill`，**強制單行**（`flex-wrap: nowrap`），entity 名稱過長時 `text-overflow: ellipsis`。
-- `·` 分隔符以 `.period-pill::before` 產生，**不新增 DOM 節點**。
+- **分隔符用 1px 垂直細線**（`--austere-border`），以 `.period-pill::before` 產生，**不新增 DOM 節點**。
+  初版用 `·` 中點：中點是列表分隔符，暗示兩側同類；但左側是**可互動的 `<select>`**、右側是**靜態文字**，會誘使使用者去點 period。分隔符須編碼真實差異，而非裝飾。
 
 ### 4.5 `WorkspaceHeader`（新，`components/chrome/WorkspaceHeader.tsx`）
-`<h1>` = 目前 workspace 的 `icon + label`，於 `App.tsx` 的 `<main>` 頂部渲染一次（**桌機與 mobile 皆有**，D5）。
+`<h1>` = 目前 workspace 的 **label 文字**，字級 `--text-xl`(22px)，於 `App.tsx` 的 `<main>` 頂部渲染一次（**桌機與 mobile 皆有**，D5）。
 連帶刪除 `ExportWorkspace.tsx:275` 與 `:301` 的兩個重複 `<h1>Export</h1>`（兩個 render 分支各一）。
+
+**h1 不放 icon**：icon 已在抽屜／SideNav 承擔辨識功能，h1 再放一次是重複。「離開家門前拿掉一件配飾。」
+
+### 4.5.1 Icon 集合改為單色 SVG（`components/chrome/WorkspaceIcon.tsx`）
+
+現況 `workspaces.ts:8-14` 的 7 個 icon **跨兩個 Unicode 平面，渲染不一致**：
+
+| icon | 碼位 | 實際渲染 |
+|---|---|---|
+| ⚓ ⚠ ⚖ | U+2693 / U+26A0 / U+2696（BMP 雜項符號） | 單色字形 |
+| 🔍 📐 📤 🚢 | U+1F50D / U+1F4D0 / U+1F4E4 / U+1F6A2（補充平面 emoji） | **全彩** |
+
+390px 截圖實證：📤 呈藍紅信箱、🚢 呈紅白船 —— 這些顏色**不存在於 `tokens.css` 調色盤**。目前散在三列尚不明顯；收進抽屜後七個垂直並列，色彩不一致會非常刺眼。
+
+**改法**：7 個換成 inline SVG，`stroke: currentColor`、`stroke-width: 1.5`。如此 active 態的 `--brass` 著色才會套用到 icon 上，整組 nav 才具設計一致性。`WORKSPACES[].icon` 型別由 `string` 改為 icon key，SVG 查表放 `WorkspaceIcon`。
 
 ### 4.6 inline style → CSS class 遷移（必要，非順手重構）
 `EntitySwitcher.tsx:20` 與 `PeriodPill.tsx:8` 都是 inline styles。**inline 永遠打贏 stylesheet**，因此不遷移就無法在 media query 內改它們的外觀，只能再寫一批 `!important` —— 正是本 spec 要清除的東西。
@@ -159,6 +208,7 @@ D6 的代價由使用者知情接受：focus trap / ESC / scrim 點擊 / body sc
 - `WorkspaceNavList`：選取觸發 `setWorkspace` 且呼叫 `onNavigate`；桌機不傳 `onNavigate` 時不炸。
 - `WorkspaceHeader`：渲染當前 workspace 的 label 為 `<h1>`。
 - `ExportWorkspace`：斷言**不再**有自己的 `<h1>Export</h1>`（防回歸重複標題）。
+- `WorkspaceIcon`：7 個 key 各渲染一個 `<svg>`，且 `stroke="currentColor"`；斷言 `WORKSPACES` 內**不含補充平面碼位**（`codePointAt > 0xFFFF`）——直接把「不准回頭用彩色 emoji」釘進測試（§10.9）。
 
 測試須編碼「**為什麼**」：focus trap 的測試要斷言焦點無法逃到抽屜外的按鈕上，而非只斷言某元素存在。
 
@@ -193,7 +243,20 @@ D6 的代價由使用者知情接受：focus trap / ESC / scrim 點擊 / body sc
 1. 390px 下 header 兩列、row2 單行、page overflow = 0。
 2. 7 顆 workspace 按鈕不再出現在 mobile header；由 ☰ 抽屜提供。
 3. Connect Wallet 於 mobile 僅存在於抽屜頂部；桌機仍在 header 右上。
-4. §4.3 的 7 條 a11y 行為全部通過，且有非 vacuous 測試。
+4. §4.3 的 7 條 a11y 行為全部通過，且有非 vacuous 測試；`prefers-reduced-motion` 下無位移動畫。
 5. `base.css` 中因 inline style 而生的 `!important` **歸零**；矛盾註解移除。
 6. 769px 與 1280px 的桌機版面與改動前**逐項一致**（無回歸）。
 7. web 全套綠、typecheck 0、build 0。
+8. **無任何兩個相鄰層級同字級**：brand 18px / h1 22px / meta 12px（§3.1）。
+9. **chrome 內零彩色 emoji**；7 個 workspace icon 全為 `currentColor` SVG（§4.5.1）。
+10. chrome 內**零手刻 `rgba(255,255,255,…)`**；navy 表面文字一律走 `--austere-*` token（§4.3.1）。
+
+---
+
+## 11. Deferred（本輪明確不做）
+
+| 項目 | 理由 |
+|---|---|
+| **Period chip 做成 brass 印鑑**（`OPEN` 空心／`LOCKED` 實心填滿）| frontend-design review 提出的 signature 元素——期間封印是本產品獨有的核心儀式，且恰好落在本輪設計的 meta 列上。但它需要 TopBar 取得 `lockStatus`（`GET /entities/:id/periods` 已回傳），**會替 TopBar 新增資料相依**。本輪維持純 layout 以利 review 切分。列為下輪第一候選。 |
+| **`--font-body` (Mona Sans) 從未載入** | `tokens.css:34` 宣告 Mona Sans，但 `tokens.css:10` 的 `@import` 只抓 Fraunces + IBM Plex Mono，全 repo 無 `@font-face`。**body 文字一直靜默 fallback 到 `system-ui`**，影響整個 app 而非 mobile chrome。屬獨立系統級缺陷，另開 TODO，不塞進本輪。 |
+| Close workspace F1/F2/F3 | 見 §範圍。獨立 code path。 |
