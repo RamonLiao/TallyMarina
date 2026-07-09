@@ -11,10 +11,10 @@ import { ReopenDialog } from './ReopenDialog';
 import './close.css';
 
 export function CloseCockpit({ entityId }: { entityId: string }) {
-  const { data, loading, refetch } = useCloseCockpit(entityId);
-  const [reopenOpen, setReopenOpen] = useState(false);
   const { setWorkspace } = useWorkspace();
-  const { setStep } = useEntityCtx();
+  const { setStep, periodId } = useEntityCtx();
+  const { data, loading, refetch } = useCloseCockpit(entityId, periodId);
+  const [reopenOpen, setReopenOpen] = useState(false);
 
   if (loading && !data) return <p>Loading close cockpit…</p>;
   if (!data) return <p>No cockpit data.</p>;
@@ -48,12 +48,12 @@ export function CloseCockpit({ entityId }: { entityId: string }) {
           <LightCard key={l.key} light={l} onDispatch={onDispatch} />
         ))}
       </div>
-      <LockPanel data={data} entityId={entityId} onChanged={refetch} />
+      <LockPanel data={data} entityId={entityId} periodId={periodId} onChanged={refetch} />
       {data.status === 'LOCKED' && (
         <button type="button" onClick={() => setReopenOpen(true)}>Reopen…</button>
       )}
       {reopenOpen && (
-        <ReopenDialog entityId={entityId} onChanged={refetch} onClose={() => setReopenOpen(false)} />
+        <ReopenDialog entityId={entityId} periodId={periodId} onChanged={refetch} onClose={() => setReopenOpen(false)} />
       )}
     </div>
   );

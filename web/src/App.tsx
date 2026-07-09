@@ -23,10 +23,10 @@ import { PolicyWorkspace } from './workspaces/policy/PolicyWorkspace';
 import { OnboardingWorkspace } from './workspaces/onboarding/OnboardingWorkspace';
 
 function CloseWorkspace() {
-  const { step, entity } = useEntityCtx();
+  const { step, entity, periodId } = useEntityCtx();
   // Same cockpit data CloseCockpit fetches — re-read here so AnchorStep's Freeze CTA
   // can reflect anchorStaleness (§W-F2) without prop-drilling through CloseCockpit.
-  const { data: cockpit } = useCloseCockpit(entity?.id ?? null);
+  const { data: cockpit } = useCloseCockpit(entity?.id ?? null, periodId);
   return (
     <>
       <CloseCockpit entityId={entity?.id ?? ''} />

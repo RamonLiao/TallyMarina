@@ -21,14 +21,44 @@ beforeEach(() => {
 });
 
 it('fetches cockpit for an entity', async () => {
-  const { result } = renderHook(() => useCloseCockpit('e1'));
+  const { result } = renderHook(() => useCloseCockpit('e1', 'p1'));
   await waitFor(() => expect(result.current.data?.status).toBe('OPEN'));
   expect(result.current.data?.lights?.[0]?.key).toBe('je');
 });
 
+it('sends periodId as a query param', async () => {
+  // WHY: the backend rejects a cockpit read without ?periodId= with 400
+  // PERIOD_ID_REQUIRED (routes.ts PERIOD_ID_REQUIRED guard). A cockpit fetch that
+  // omits it silently degrades the whole Close workspace to "No cockpit data.",
+  // which hides the Lock panel and makes every later Freeze fail PERIOD_NOT_LOCKED.
+  const { result } = renderHook(() => useCloseCockpit('acme:pilot-001', '2026-Q2'));
+  await waitFor(() => expect(result.current.data?.status).toBe('OPEN'));
+  const url = vi.mocked(fetch).mock.calls[0]![0] as string;
+  expect(url).toContain('/entities/acme%3Apilot-001/close-cockpit');
+  expect(url).toContain('periodId=2026-Q2');
+});
+
 it('does not fetch when entityId is null', () => {
-  renderHook(() => useCloseCockpit(null));
+  renderHook(() => useCloseCockpit(null, 'p1'));
   expect(fetch).not.toHaveBeenCalled();
+});
+
+it('does not fetch when periodId is empty', () => {
+  // WHY: firing a cockpit read with no period is a guaranteed 400 — don't burn it.
+  renderHook(() => useCloseCockpit('e1', ''));
+  expect(fetch).not.toHaveBeenCalled();
+});
+
+it('exposes undefined data immediately when periodId changes (render-gate guarantee)', async () => {
+  // WHY: lock/anchor status is period-scoped. Showing 2026-Q1's LOCKED ribbon while
+  // 2026-Q2 is still loading would tell the operator the period is closed when it isn't.
+  let periodId = '2026-Q1';
+  const { result, rerender } = renderHook(() => useCloseCockpit('e1', periodId));
+  await waitFor(() => expect(result.current.data?.status).toBe('OPEN'));
+
+  periodId = '2026-Q2';
+  rerender();
+  expect(result.current.data).toBeUndefined();
 });
 
 it('exposes undefined data immediately when entityId changes (render-gate guarantee)', async () => {
@@ -36,7 +66,7 @@ it('exposes undefined data immediately when entityId changes (render-gate guaran
   // entityId changes, the exposed data is undefined on the SAME render — no
   // post-commit effect lag, no stale frame for the consumer.
   let entityId: string | null = 'e1';
-  const { result, rerender } = renderHook(() => useCloseCockpit(entityId));
+  const { result, rerender } = renderHook(() => useCloseCockpit(entityId, 'p1'));
   await waitFor(() => expect(result.current.data?.status).toBe('OPEN'));
 
   entityId = 'e2';
@@ -49,7 +79,7 @@ it('exposes undefined data immediately when entityId becomes null (render-gate g
   // WHY: same render-gate applies to null; operator must not see a prior entity's
   // lock/anchor status when no entity is selected.
   let entityId: string | null = 'e1';
-  const { result, rerender } = renderHook(() => useCloseCockpit(entityId));
+  const { result, rerender } = renderHook(() => useCloseCockpit(entityId, 'p1'));
   await waitFor(() => expect(result.current.data?.status).toBe('OPEN'));
 
   entityId = null;
@@ -68,7 +98,7 @@ it('in-flight prior-entity fetch resolving after entityId switch never surfaces 
   vi.stubGlobal('fetch', slowFetch as unknown as typeof fetch);
 
   let entityId: string | null = 'e1';
-  const { result, rerender } = renderHook(() => useCloseCockpit(entityId));
+  const { result, rerender } = renderHook(() => useCloseCockpit(entityId, 'p1'));
 
   // Switch to null before the slow e1 fetch resolves.
   entityId = null;
@@ -97,7 +127,7 @@ it('error is also gated — prior entity error does not bleed', async () => {
   vi.stubGlobal('fetch', vi.fn(() => new Promise((_res, rej) => { rejectFetch = rej; })) as unknown as typeof fetch);
 
   let entityId: string | null = 'e1';
-  const { result, rerender } = renderHook(() => useCloseCockpit(entityId));
+  const { result, rerender } = renderHook(() => useCloseCockpit(entityId, 'p1'));
 
   entityId = 'e2';
   // Replace fetch with a success for e2 before rerender.
