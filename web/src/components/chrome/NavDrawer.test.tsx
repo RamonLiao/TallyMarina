@@ -61,13 +61,18 @@ it('traps Tab inside the drawer', async () => {
   expect(screen.getByRole('dialog')).toContainElement(document.activeElement as HTMLElement);
 });
 
-it('locks body scroll while open and restores it on close', async () => {
+it('locks body scroll while open and restores the PREVIOUS value on close', async () => {
+  // WHY seed 'scroll' rather than start from '': a cleanup that hard-codes
+  // `overflow = ''` passes against a default-empty body while silently
+  // destroying whatever overflow the app had already set. Seeding a non-empty
+  // value is the only way this test can tell the two implementations apart.
+  document.body.style.overflow = 'scroll';
   const toggle = setup();
-  expect(document.body.style.overflow).toBe('');
   await userEvent.click(toggle);
   expect(document.body.style.overflow).toBe('hidden');
   await userEvent.keyboard('{Escape}');
-  expect(document.body.style.overflow).toBe('');
+  expect(document.body.style.overflow).toBe('scroll');
+  document.body.style.overflow = '';
 });
 
 it('closes after a workspace is chosen', async () => {
@@ -75,4 +80,26 @@ it('closes after a workspace is chosen', async () => {
   await userEvent.click(toggle);
   await userEvent.click(screen.getByRole('button', { name: /Policy/ }));
   expect(screen.queryByRole('dialog')).toBeNull();
+});
+
+it('pulls focus back into the drawer when Tab is pressed from outside it', async () => {
+  // WHY: a trap that only wraps at the first/last element leaks whenever focus
+  // starts outside the dialog — e.g. the browser parked it on <body>. Then the
+  // user tabs onto the page behind the scrim, which they cannot see.
+  const toggle = setup();
+  await userEvent.click(toggle);
+  const dialog = screen.getByRole('dialog');
+  (document.activeElement as HTMLElement | null)?.blur();
+  expect(dialog).not.toContainElement(document.activeElement as HTMLElement);
+  await userEvent.tab();
+  expect(dialog).toContainElement(document.activeElement as HTMLElement);
+});
+
+it('pulls focus back into the drawer on Shift+Tab from outside it', async () => {
+  const toggle = setup();
+  await userEvent.click(toggle);
+  const dialog = screen.getByRole('dialog');
+  (document.activeElement as HTMLElement | null)?.blur();
+  await userEvent.tab({ shift: true });
+  expect(dialog).toContainElement(document.activeElement as HTMLElement);
 });
