@@ -272,7 +272,6 @@ export function ExportWorkspace({ entityId }: { entityId: string }) {
     return (
       <div data-testid="empty-export-state" className="export-workspace">
         <header className="export-header">
-          <h1>Export</h1>
           <p className="export-purpose">Download a tamper-evident ZIP of this period's journal entries.</p>
           {entity && <p className="export-entity-subhead">{entity.displayName}</p>}
         </header>
@@ -298,7 +297,6 @@ export function ExportWorkspace({ entityId }: { entityId: string }) {
     <div className="export-workspace">
       {/* ── Header ── */}
       <header className="export-header">
-        <h1>Export</h1>
         <p className="export-purpose">
           Download a tamper-evident ZIP of this period's journal entries, including
           on-chain Merkle proofs where the period has been anchored.

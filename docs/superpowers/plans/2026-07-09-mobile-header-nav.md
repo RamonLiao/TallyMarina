@@ -14,10 +14,10 @@
 
 - **Scope is `web/` only.** No API, no Move, no `services/`. `sui move test` is not applicable (zero `.move` changes) — say so explicitly, do not silently skip.
 - **Single mobile breakpoint = `max-width: 768px`.** CSS custom properties cannot be used in media query conditions, so the literal `768px` appears in each block. The old `640px` topbar breakpoint is deleted.
-- **Desktop (>768px) layout must not change.** Verified by comparing 769px and 1280px before/after.
+- **Desktop (>768px) layout must not change.** "Layout" means **geometry — size, position, spacing, wrapping**. Verified by comparing 769px and 1280px before/after. *(Pre-flight ruling B):* small colour drift from replacing hand-rolled `rgba()` with `--austere-*` tokens **is permitted** on desktop. Do not compare colour values at 769/1280 — compare geometry.
 - **Zero `!important` introduced.** Existing `!important` rules that exist only to beat `SideNav`'s inline styles must be **deleted**, not preserved.
 - **Zero colour emoji in chrome.** All 7 workspace icons are `currentColor` SVG.
-- **Zero hand-rolled `rgba(255,255,255,…)` in chrome.** Navy-surface text/borders use the existing `--austere-ink` / `--austere-dim` / `--austere-border` tokens (`tokens.css:27-30`).
+- **Zero hand-rolled `rgba(255,255,255,…)` in chrome.** Navy-surface text/borders use the existing `--austere-ink` / `--austere-dim` / `--austere-border` tokens (`tokens.css:27-30`). *(Pre-flight ruling A):* this binds the `<header class="topbar">` element too — its inline `background` and `borderBottom` move into a `.topbar` class, with the border using `--austere-border`. After Task 4, `grep -n 'rgba(255,255,255' web/src/components/chrome/` must return **nothing**.
 - **Type scale (mobile):** brand `--text-lg` (18px) · content h1 `--text-xl` (22px) · meta line `--text-xs` (12px). No two adjacent levels share a size.
 - **Do NOT delegate to `gemini` / `codex` CLI.** `.claude/rules/frontend.md` says delegate pure UI work to them, but `~/.claude/rules/general/workflow.md` records that gemini has no free tier and codex quota is exhausted as of 2026-07 — **both are suspended, do not attempt to call them.** This conflict is resolved in favour of the newer workflow.md rule. Implement directly.
 - **Review path:** non-trivial (5+ files, component structure, new a11y contract). The "pure styling → fast-track, skip dual-review" convention does **not** apply. Full dual-review required after the final task.
@@ -95,14 +95,26 @@ Create `web/src/app/workspaces.test.ts`:
 ```ts
 import { WORKSPACES } from './workspaces';
 
-it('carries no emoji codepoints — icons are SVG, not glyphs', () => {
-  // WHY this test exists: four of the original seven icons were
-  // supplementary-plane colour emoji (📤 renders as a blue/red mailbox,
-  // 🚢 as a red/white ship). Those colours exist nowhere in tokens.css.
-  // Stacked vertically in the drawer the mismatch is glaring. This pins the
-  // rule so a future edit cannot quietly reintroduce a colour emoji.
+it('exposes no icon field at all — icons are SVG components, not glyphs', () => {
+  // WHY this is the primary guard: the registry is the only place a glyph
+  // could re-enter. Killing the field kills the whole class of regression,
+  // including variation-selector emoji that a codepoint range check misses.
+  for (const w of WORKSPACES) {
+    expect(Object.keys(w).sort()).toEqual(['id', 'label', 'status']);
+  }
+});
+
+it('carries no emoji codepoints anywhere (defense in depth)', () => {
+  // WHY the extra ranges: four original icons were supplementary-plane emoji
+  // (📤 a blue/red mailbox, 🚢 a red/white ship) — colours that exist nowhere
+  // in tokens.css. But `> 0xffff` alone is NOT sufficient: ⚠️ is U+26A0 plus
+  // the U+FE0F variation selector, both ≤ 0xFFFF, and it renders in full
+  // colour. Ban the variation selector and the misc-symbols block too.
   const blob = JSON.stringify(WORKSPACES);
-  const offenders = [...blob].filter((ch) => ch.codePointAt(0)! > 0xffff);
+  const offenders = [...blob].filter((ch) => {
+    const cp = ch.codePointAt(0)!;
+    return cp > 0xffff || cp === 0xfe0f || (cp >= 0x2600 && cp <= 0x27bf);
+  });
   expect(offenders).toEqual([]);
 });
 
@@ -437,8 +449,23 @@ Expected: PASS. `SideNav.test.tsx` is unchanged and still passes: its mocked reg
 
 - [ ] **Step 7: Verify the !important debt is actually gone**
 
-Run: `cd web && grep -c '!important' src/styles/base.css`
-Expected: the count drops by 9 (from the pre-task value). The remaining `!important` rules belong to `.exceptions-layout` / `.copilot-dock` / reduced-motion and are **out of scope — leave them**.
+**Do not use a raw `grep -c '!important'` line count as the gate.** It counts prose: several comments in this file (including ones this task adds) contain the word `!important` while explaining why it is no longer needed. Assert the property instead of a proxy for it.
+
+Gate 1 — no in-scope rule uses `!important`:
+
+```bash
+cd web && awk '/^\.(sidenav|ws-nav|nav-|topbar)/,/^}/' src/styles/base.css | grep -c '!important'
+grep -n -A2 'shell-sidenav' src/styles/base.css | grep -c '!important'
+```
+Expected: `0` from both.
+
+Gate 2 — the surviving declarations are exactly the out-of-scope ones:
+
+```bash
+cd web && grep -o '!important' src/styles/base.css | wc -l     # 15 occurrences
+grep -n '!important' src/styles/base.css                       # inspect
+```
+Of those 15, **4 are inside comments** and **11 are real declarations**: `.copilot-dock` ×1, `.exceptions-layout` ×6, reduced-motion ×2, `.audit-lineage` ×2. These fight *other* components' inline styles and are **out of scope — leave every one of them.** If any `.sidenav` / `.ws-nav` / `.nav-*` / `.topbar*` / `.shell-sidenav` rule carries `!important`, the refactor failed.
 
 Run: `cd web && grep -n 'scroll strip' src/styles/base.css`
 Expected: no output (stale comment removed).
@@ -821,11 +848,11 @@ import { EntitySwitcher } from './EntitySwitcher';
 import { PeriodPill } from './PeriodPill';
 import { NavDrawer } from './NavDrawer';
 
-// All layout and type live in base.css .topbar-* so the mobile reflow is a
-// clean media query rather than an !important fight with inline styles.
+// All layout, colour and type live in base.css .topbar* so the mobile reflow
+// is a clean media query rather than an !important fight with inline styles.
 export function TopBar() {
   return (
-    <header className="topbar" style={{ background: 'var(--ink)', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+    <header className="topbar">
       <div className="topbar-inner">
         <NavDrawer />
         <Link className="topbar-brand" to="/" style={{ textDecoration: 'none' }}>
@@ -886,7 +913,13 @@ In `web/src/styles/base.css`, replace everything from the `/* ── TopBar layo
 
 ```css
 /* ── TopBar layout ──
-   Desktop: brand left; context + wallet grouped right on one balanced row. */
+   Desktop: brand left; context + wallet grouped right on one balanced row.
+   Surface colour lives here, not inline: --austere-border is the token for
+   hairlines on navy (pre-flight ruling A). */
+.topbar {
+  background: var(--ink);
+  border-bottom: 1px solid var(--austere-border);
+}
 .topbar-inner {
   max-width: 1200px;
   margin: 0 auto;
@@ -1000,6 +1033,9 @@ Expected: PASS (6 tests).
 
 Run: `cd web && grep -c 'max-width: 640px' src/styles/base.css`
 Expected: `0` (breakpoint unified).
+
+Run: `cd web && grep -rn 'rgba(255,255,255' src/components/chrome/`
+Expected: no output (pre-flight ruling A — chrome carries no hand-rolled rgba).
 
 - [ ] **Step 8: Commit**
 
@@ -1238,6 +1274,23 @@ Resize to 1280×900. Confirm: brand 22px, rail visible on the left, wallet top-r
 
 Run: `() => ({ brandPx: getComputedStyle(document.querySelector('.topbar-brand-name')).fontSize, toggle: getComputedStyle(document.querySelector('.nav-toggle')).display })`
 Expected: `{ brandPx: "22px", toggle: "none" }`.
+
+**Resolve the Task 2 review's open ⚠️ here.** Task 2 moved `border-right` off the `<aside class="shell-sidenav">` onto the inner `<nav class="sidenav">`. Two reviewers reasoned from the box model that this lands on the same pixel edge, but neither measured it. Measure it:
+
+```js
+() => {
+  const aside = document.querySelector('.shell-sidenav');
+  const nav = document.querySelector('.sidenav');
+  const a = aside.getBoundingClientRect(), n = nav.getBoundingClientRect();
+  return {
+    asideRight: a.right, navRight: n.right,
+    sameEdge: Math.abs(a.right - n.right) < 0.5,   // must be true
+    mainLeft: document.querySelector('main').getBoundingClientRect().left,
+  };
+}
+```
+
+`sameEdge` must be `true` and `mainLeft` must equal its value on `main` (check out `main` into a worktree and compare, or record the number before switching branches). If the edges differ, the border relocation IS a desktop geometry change and violates the constraint — report it rather than accepting it.
 
 - [ ] **Step 8: Monkey testing**
 

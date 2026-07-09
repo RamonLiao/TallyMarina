@@ -214,56 +214,62 @@ p {
   }
 }
 
-/* Workspace shell: give the sidebar a visible edge against the cream content well. */
-.shell-sidenav {
-  border-right: 1px solid rgba(20, 30, 54, 0.08);
+/* ── Workspace nav (shared by desktop SideNav + mobile NavDrawer) ──
+   Zero inline styles in the components, so these plain selectors win and the
+   mobile drawer can restyle without !important. */
+.sidenav { border-right: 1px solid rgba(20, 30, 54, 0.08); }
+
+.ws-nav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  min-width: 200px;
+  margin: 0;
+  list-style: none;
+}
+.ws-nav-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: var(--text-base);
+  text-align: left;
+  cursor: pointer;
+}
+.ws-nav-item[aria-current="page"] {
+  background: var(--brass-fill);
+  font-weight: 600;
+}
+.ws-nav-item:focus-visible {
+  outline: 2px solid var(--brass);
+  outline-offset: 2px;
+}
+.ws-nav-icon { flex: 0 0 auto; }
+.ws-nav-label { flex: 1; }
+.ws-nav-soon {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-soft);
+  font-family: var(--font-mono);
 }
 
-/* Stack sidenav above content on narrow viewports, as a single horizontal
-   scroll strip (not a tall 7-row list that buries the content below).
-   !important is required to override SideNav's inline flex-direction/min-width
-   (inline styles otherwise beat stylesheet rules). */
+/* Below the single mobile breakpoint the desktop rail is gone entirely —
+   NavDrawer replaces it. The <aside> only sets `position` inline, never
+   `display`, so no !important is needed here. */
 @media (max-width: 768px) {
   .shell-body { flex-direction: column; }
-  /* In the column shell, min-width:0 only frees the main (vertical) axis; on the
-     cross (horizontal) axis a flex item stretches to its subtree's min-content,
-     so a wide table (e.g. the COA / recon grids) pushes <main> past the viewport
-     even with scroll wrappers. A definite width:100% resolves width top-down so
-     the inner overflow-x:auto wrappers can finally clip and scroll. */
+  /* min-width:0 frees only the main axis; a definite width resolves the
+     cross axis so inner overflow-x wrappers (COA / recon grids) can clip. */
   .shell-body > main { width: 100%; min-width: 0; }
-  .shell-sidenav {
-    position: static !important;
-    width: 100%;
-    border-right: none;
-    border-bottom: 1px solid rgba(20, 30, 54, 0.08);
-  }
-  .shell-sidenav nav {
-    flex-direction: row !important;
-    flex-wrap: wrap !important;
-    justify-content: center;
-    min-width: 0 !important;
-  }
-  /* As a vertical list each tab is generously padded; in a horizontal strip that
-     same padding makes a 116px-tall band. Tighten it (!important beats SideNav's
-     inline `padding: var(--space-2) var(--space-3)`). */
-  .shell-sidenav nav {
-    padding: var(--space-2) var(--space-2) !important;
-    gap: 6px 8px !important;
-  }
-  .shell-sidenav nav > button {
-    flex: 0 0 auto;
-    padding: 8px 14px !important;
-  }
-  /* Single-signal active state: a brass underline + brass ink, no fill. The solid
-     brass fill + underline + rounded-top was triple-emphasis and read as a heavy
-     floating block. !important overrides SideNav's inline background/border. */
-  .shell-sidenav nav > button[aria-current="page"] {
-    background: transparent !important;
-    border: 1px solid transparent !important;
-    border-bottom: 2px solid var(--brass) !important;
-    border-radius: 0 !important;
-    color: var(--brass) !important;
-  }
+  .shell-sidenav { display: none; }
 }
 
 /* ── Audit workspace lineage layout (spec §7) ──
@@ -286,9 +292,14 @@ p {
   .audit-lineage > .audit-arrow { display: none; }
 }
 
-/* ── TopBar layout (moved off inline styles so the mobile reflow is a clean media
-   query, not an !important fight). Desktop: brand on the left, context + wallet
-   grouped on the right of one balanced row. ── */
+/* ── TopBar layout ──
+   Desktop: brand left; context + wallet grouped right on one balanced row.
+   Surface colour lives here, not inline: --austere-border is the token for
+   hairlines on navy (pre-flight ruling A). */
+.topbar {
+  background: var(--ink);
+  border-bottom: 1px solid var(--austere-border);
+}
 .topbar-inner {
   max-width: 1200px;
   margin: 0 auto;
@@ -298,30 +309,177 @@ p {
   gap: var(--space-2) var(--space-3);
   flex-wrap: wrap;
 }
-.topbar-brand {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
+.topbar-brand { display: flex; align-items: center; gap: var(--space-1); }
+.topbar-brand-name {
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  color: var(--paper);
+  font-weight: 560;
+  letter-spacing: -0.02em;
+  line-height: var(--leading-tight);
 }
 .topbar-context {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  margin-left: auto; /* pushes context + wallet into a right-aligned group */
+  margin-left: auto;
 }
 .topbar-wallet { display: flex; align-items: center; }
 
-/* Mobile: two intentional rows — brand + wallet (identity + primary action) on row 1,
-   the entity/period context bar on row 2. Replaces the accidental wrap that left the
-   wallet dangling on its own right-aligned line. */
-@media (max-width: 640px) {
+/* Chrome controls on the navy bar. Borders/fills derive from the --austere-*
+   tokens and --paper rather than hand-rolled rgba(255,255,255,…). */
+.entity-switcher {
+  appearance: none;
+  -webkit-appearance: none;
+  background-color: color-mix(in srgb, var(--paper) 8%, transparent);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23F4ECD8' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right var(--space-2) center;
+  color: var(--paper);
+  border: 1px solid var(--austere-border);
+  border-radius: var(--radius-pill);
+  padding: var(--space-1) calc(var(--space-3) + 16px) var(--space-1) var(--space-3);
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  min-width: 0;
+  max-width: 180px;
+  flex-shrink: 1;
+}
+.period-pill {
+  background: color-mix(in srgb, var(--paper) 8%, transparent);
+  color: var(--paper);
+  border: 1px solid var(--austere-border);
+  border-radius: var(--radius-pill);
+  padding: var(--space-1) var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+/* Mobile (single 768px breakpoint — was 640px, which left 641–768px in a
+   hybrid state where the rail had stacked but the topbar had not reflowed).
+   Two intentional rows: [☰ + brand] then a single-line mono meta row.
+   The wallet is hidden here; NavDrawer serves it. */
+@media (max-width: 768px) {
   .topbar-inner { row-gap: var(--space-2); }
   .topbar-brand { order: 1; }
-  .topbar-wallet { order: 2; margin-left: auto; }
+  .topbar-brand-name { font-size: var(--text-lg); }
+  .topbar-wallet { display: none; }
   .topbar-context {
     order: 3;
     width: 100%;
     margin-left: 0;
     justify-content: flex-start;
+    flex-wrap: nowrap;
+    min-width: 0;
   }
+  .entity-switcher,
+  .period-pill {
+    background: transparent;
+    border: 0;
+    padding: 0;
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--austere-dim);
+  }
+  .entity-switcher {
+    padding-right: 18px;
+    background-position: right center;
+    max-width: 60vw;
+  }
+  /* A hairline, not a middot: the left side is an interactive <select>, the
+     right side is static text. A list separator would imply both are the
+     same kind of thing and invite clicks on the period. */
+  .period-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex: 0 0 auto;
+  }
+  .period-pill::before {
+    content: "";
+    width: 1px;
+    height: 1em;
+    background: var(--austere-border);
+  }
+}
+
+/* ── Mobile nav drawer (≤768px) ──
+   Surface is --ink: the drawer reads as the TopBar extended downward, i.e.
+   chrome, not content. Text/borders use the --austere-* tokens that already
+   exist for navy surfaces (tokens.css:27-30).
+   Motion: the global prefers-reduced-motion block near the top of this file
+   zeroes animation-duration, so the slide-in needs no extra media query. */
+.nav-toggle { display: none; }
+
+@media (max-width: 768px) {
+  .nav-toggle {
+    order: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    background: transparent;
+    border: 1px solid var(--austere-border);
+    border-radius: var(--radius-sm);
+    color: var(--paper);
+    cursor: pointer;
+  }
+  .nav-toggle:focus-visible { outline: 2px solid var(--brass); outline-offset: 2px; }
+
+  .nav-scrim {
+    position: fixed;
+    inset: 0;
+    background: color-mix(in srgb, var(--ink) 55%, transparent);
+    z-index: 200;
+  }
+  .nav-drawer {
+    position: fixed;
+    inset-block: 0;
+    inset-inline-start: 0;
+    width: min(320px, 86vw);
+    z-index: 201;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding: var(--space-3);
+    /* iPhone home indicator would otherwise sit on the last nav row. */
+    padding-bottom: calc(var(--space-3) + env(safe-area-inset-bottom));
+    overflow-y: auto;
+    background: var(--ink);
+    color: var(--austere-ink);
+    animation: nav-drawer-in 180ms ease-out;
+  }
+  .nav-drawer-sep {
+    width: 100%;
+    margin: 0;
+    border: 0;
+    border-top: 1px solid var(--austere-border);
+  }
+  /* Re-skin the shared nav list for the navy surface. Plain selectors suffice
+     because WorkspaceNavList carries no inline styles. */
+  .nav-drawer .ws-nav { padding: 0; min-width: 0; }
+  .nav-drawer .ws-nav-item { color: var(--austere-ink); }
+  .nav-drawer .ws-nav-item[aria-current="page"] {
+    background: transparent;
+    color: var(--brass);
+  }
+  .nav-drawer .ws-nav-soon { color: var(--austere-dim); }
+}
+
+@keyframes nav-drawer-in {
+  from { transform: translateX(-100%); }
+  to   { transform: none; }
+}
+
+/* The page title. --text-xl is the size tokens.css reserves for "workspace
+   title"; the brand steps down to --text-lg on mobile so these never tie. */
+.workspace-title {
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  line-height: var(--leading-tight);
+  color: var(--ink);
+  margin: 0 0 var(--space-3);
 }

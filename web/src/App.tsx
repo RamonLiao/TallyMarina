@@ -4,6 +4,7 @@ import { WORKSPACES } from './app/workspaces';
 import { useCloseCockpit } from './data/useCloseCockpit';
 import { AppBackground } from './components/chrome/AppBackground';
 import { TopBar } from './components/chrome/TopBar';
+import { WorkspaceHeader } from './components/chrome/WorkspaceHeader';
 import { SideNav } from './components/chrome/SideNav';
 import { StepRail } from './components/chrome/StepRail';
 import { EmptyState } from './components/chrome/EmptyState';
@@ -98,6 +99,7 @@ function Shell() {
           aria-label="TallyMarina"
           style={{ flex: 1, minWidth: 0, padding: 'var(--space-4) clamp(16px, 4vw, 48px) var(--space-10)' }}
         >
+          <WorkspaceHeader />
           <WorkspaceContent />
         </main>
       </div>
