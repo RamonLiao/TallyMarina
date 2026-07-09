@@ -33,7 +33,18 @@ export function NavDrawer() {
   // Both live in one effect so the restore path cannot drift from the setup.
   useEffect(() => {
     if (!open) return;
-    if (drawerRef.current) collectFocusable(drawerRef.current)[0]?.focus();
+    // Focus the first control that actually accepts it. WHY the loop: the
+    // wallet host delegates focus into its shadow root, but lit renders that
+    // root asynchronously — at this instant `host.focus()` can silently no-op,
+    // leaving focus outside the drawer entirely. Falling through to the next
+    // candidate is deterministic; a timer would be a guess.
+    const node = drawerRef.current;
+    if (node) {
+      for (const el of collectFocusable(node)) {
+        el.focus();
+        if (node.contains(document.activeElement)) break;
+      }
+    }
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     return () => {

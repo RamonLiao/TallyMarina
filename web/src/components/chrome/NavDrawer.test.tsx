@@ -160,3 +160,25 @@ it('treats a focus-delegating custom element as focusable', () => {
 
   wrap.remove();
 });
+
+it('moves focus into the drawer even when the first focusable refuses focus', () => {
+  // WHY: the drawer's first focusable is dapp-kit's wallet host, which delegates
+  // focus into a shadow root that lit renders asynchronously. At open time
+  // host.focus() can silently no-op — measured in a real browser, focus stayed
+  // on the ☰ toggle and never entered the drawer. A trap whose entry point can
+  // fail leaves keyboard users stranded outside a modal they just opened.
+  const container = document.createElement('div');
+  const refuser = document.createElement('button');
+  Object.defineProperty(refuser, 'focus', { value: () => {} }); // accepts the call, never takes focus
+  const real = document.createElement('button');
+  container.append(refuser, real);
+  document.body.append(container);
+
+  for (const el of collectFocusable(container)) {
+    el.focus();
+    if (container.contains(document.activeElement)) break;
+  }
+
+  expect(document.activeElement).toBe(real);   // fell through to the one that works
+  container.remove();
+});
