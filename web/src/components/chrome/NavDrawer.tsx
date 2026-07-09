@@ -23,6 +23,19 @@ export function NavDrawer() {
     };
   }, [open]);
 
+  // Above the mobile breakpoint the drawer's `position: fixed` rule stops
+  // applying, so it reflows into the header (measured: header 72px -> 570px)
+  // while body scroll stays locked and the ☰ that would close it is
+  // display:none. State has to follow the media query, not fight it. Closing
+  // here reuses the effect cleanup above, which restores body.overflow.
+  useEffect(() => {
+    if (!open) return;
+    const mq = window.matchMedia('(max-width: 768px)');
+    const onChange = () => { if (!mq.matches) setOpen(false); };
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, [open]);
+
   // Escape closes. Tab cycles within the drawer (aria-modal does not do this).
   useEffect(() => {
     if (!open) return;

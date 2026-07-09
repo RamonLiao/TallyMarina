@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { vi } from 'vitest';
 import { WorkspaceProvider } from '../../app/WorkspaceContext';
@@ -102,4 +102,33 @@ it('pulls focus back into the drawer on Shift+Tab from outside it', async () => 
   (document.activeElement as HTMLElement | null)?.blur();
   await userEvent.tab({ shift: true });
   expect(dialog).toContainElement(document.activeElement as HTMLElement);
+});
+
+it('closes itself when the viewport grows past the mobile breakpoint', async () => {
+  // WHY: .nav-drawer's position:fixed lives inside @media(max-width:768px).
+  // Above that width the drawer reflows into the header (measured in a real
+  // browser: header 72px -> 570px) while body scroll stays locked and the ☰
+  // that would close it is display:none — a mouse user cannot recover.
+  const listeners = new Set<(e: MediaQueryListEvent) => void>();
+  const mql = {
+    matches: true,
+    media: '(max-width: 768px)',
+    addEventListener: (_: string, cb: (e: MediaQueryListEvent) => void) => { listeners.add(cb); },
+    removeEventListener: (_: string, cb: (e: MediaQueryListEvent) => void) => { listeners.delete(cb); },
+  };
+  vi.stubGlobal('matchMedia', () => mql);
+
+  const toggle = setup();
+  await userEvent.click(toggle);
+  expect(screen.getByRole('dialog')).toBeInTheDocument();
+  expect(document.body.style.overflow).toBe('hidden');
+
+  // The viewport crosses the breakpoint upward.
+  mql.matches = false;
+  act(() => { listeners.forEach((cb) => cb({} as MediaQueryListEvent)); });
+
+  expect(screen.queryByRole('dialog')).toBeNull();
+  expect(document.body.style.overflow).toBe('');  // scroll lock released, not stranded
+
+  vi.unstubAllGlobals();
 });
