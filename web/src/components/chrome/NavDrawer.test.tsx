@@ -7,7 +7,7 @@ vi.mock('@mysten/dapp-kit-react/ui', () => ({
   ConnectButton: () => <button type="button">Connect Wallet</button>,
 }));
 
-import { NavDrawer } from './NavDrawer';
+import { NavDrawer, collectFocusable } from './NavDrawer';
 
 function setup() {
   render(<WorkspaceProvider><NavDrawer /><button type="button">outside</button></WorkspaceProvider>);
@@ -131,4 +131,32 @@ it('closes itself when the viewport grows past the mobile breakpoint', async () 
   expect(document.body.style.overflow).toBe('');  // scroll lock released, not stranded
 
   vi.unstubAllGlobals();
+});
+
+it('treats a focus-delegating custom element as focusable', () => {
+  // WHY this exists: dapp-kit's ConnectButton is <mysten-dapp-kit-connect-button>,
+  // tabIndex -1, with its real <button> inside an open shadow root that has
+  // delegatesFocus. A plain querySelectorAll(FOCUSABLE) misses it, so the
+  // drawer's primary CTA falls outside the tab cycle and cannot be reached by
+  // keyboard at all. Measured in a real browser: the trap collected 7 items
+  // (the nav buttons) and zero wallet. Every other test in this file mocks
+  // ConnectButton as a bare <button>, so only this test can catch the regression.
+  //
+  // jsdom does not natively support delegatesFocus (attachShadow's returned
+  // root always reports it as undefined), so it is set explicitly here to
+  // simulate the real browser's shadow root.
+  const host = document.createElement('x-widget');
+  const shadowRoot = host.attachShadow({ mode: 'open' });
+  Object.defineProperty(shadowRoot, 'delegatesFocus', { value: true });
+  const plain = document.createElement('button');
+  const wrap = document.createElement('div');
+  wrap.append(host, plain);
+  document.body.append(wrap);
+
+  const items = collectFocusable(wrap);
+  expect(items).toContain(host);   // the actual regression guard
+  expect(items).toContain(plain);
+  expect(items[0]).toBe(host);     // document order preserved
+
+  wrap.remove();
 });

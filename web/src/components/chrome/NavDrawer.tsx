@@ -4,6 +4,25 @@ import { WorkspaceNavList } from './WorkspaceNavList';
 
 const FOCUSABLE = 'button, [href], select, input, textarea, [tabindex]:not([tabindex="-1"])';
 
+/**
+ * Focusable descendants, INCLUDING custom elements that delegate focus into an
+ * open shadow root.
+ *
+ * WHY: dapp-kit's <mysten-dapp-kit-connect-button> keeps its real <button> in
+ * shadow DOM and carries tabIndex -1, so a plain querySelectorAll(FOCUSABLE)
+ * misses it entirely — the drawer's primary CTA would sit outside the tab cycle
+ * and be keyboard-unreachable. Measured in a real browser: the trap saw 7 items
+ * (the nav buttons) and zero wallet. Unit tests never caught it because they
+ * mock ConnectButton as a bare <button>, which the selector does match.
+ */
+export function collectFocusable(node: HTMLElement): HTMLElement[] {
+  return [...node.querySelectorAll<HTMLElement>('*')].filter(
+    (el) =>
+      !el.hasAttribute('disabled') &&
+      (el.matches(FOCUSABLE) || el.shadowRoot?.delegatesFocus === true),
+  );
+}
+
 export function NavDrawer() {
   const [open, setOpen] = useState(false);
   const toggleRef = useRef<HTMLButtonElement>(null);
@@ -14,7 +33,7 @@ export function NavDrawer() {
   // Both live in one effect so the restore path cannot drift from the setup.
   useEffect(() => {
     if (!open) return;
-    drawerRef.current?.querySelector<HTMLElement>(FOCUSABLE)?.focus();
+    if (drawerRef.current) collectFocusable(drawerRef.current)[0]?.focus();
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     return () => {
@@ -44,8 +63,7 @@ export function NavDrawer() {
       if (e.key !== 'Tab') return;
       const node = drawerRef.current;
       if (!node) return;
-      const items = [...node.querySelectorAll<HTMLElement>(FOCUSABLE)]
-        .filter((el) => !el.hasAttribute('disabled'));
+      const items = collectFocusable(node);
       if (items.length === 0) return;
       const first = items[0]!;
       const last = items[items.length - 1]!;
