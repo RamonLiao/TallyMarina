@@ -1275,6 +1275,23 @@ Resize to 1280×900. Confirm: brand 22px, rail visible on the left, wallet top-r
 Run: `() => ({ brandPx: getComputedStyle(document.querySelector('.topbar-brand-name')).fontSize, toggle: getComputedStyle(document.querySelector('.nav-toggle')).display })`
 Expected: `{ brandPx: "22px", toggle: "none" }`.
 
+**Resolve the Task 2 review's open ⚠️ here.** Task 2 moved `border-right` off the `<aside class="shell-sidenav">` onto the inner `<nav class="sidenav">`. Two reviewers reasoned from the box model that this lands on the same pixel edge, but neither measured it. Measure it:
+
+```js
+() => {
+  const aside = document.querySelector('.shell-sidenav');
+  const nav = document.querySelector('.sidenav');
+  const a = aside.getBoundingClientRect(), n = nav.getBoundingClientRect();
+  return {
+    asideRight: a.right, navRight: n.right,
+    sameEdge: Math.abs(a.right - n.right) < 0.5,   // must be true
+    mainLeft: document.querySelector('main').getBoundingClientRect().left,
+  };
+}
+```
+
+`sameEdge` must be `true` and `mainLeft` must equal its value on `main` (check out `main` into a worktree and compare, or record the number before switching branches). If the edges differ, the border relocation IS a desktop geometry change and violates the constraint — report it rather than accepting it.
+
 - [ ] **Step 8: Monkey testing**
 
 Per `.claude/rules/test.md`, try to break it:
