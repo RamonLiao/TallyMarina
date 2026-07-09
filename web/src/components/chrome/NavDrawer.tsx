@@ -121,7 +121,9 @@ export function NavDrawer() {
             aria-modal="true"
             aria-label="Workspaces"
           >
-            <div className="wallet-slot nav-drawer-wallet"><ConnectButton /></div>
+            {/* wallet-slot establishes the stacking context dapp-kit's popover
+                needs — see the .wallet-slot comment in base.css. */}
+            <div className="wallet-slot"><ConnectButton /></div>
             <hr className="nav-drawer-sep" />
             <WorkspaceNavList onNavigate={close} />
           </div>
