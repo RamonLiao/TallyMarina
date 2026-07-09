@@ -449,10 +449,23 @@ Expected: PASS. `SideNav.test.tsx` is unchanged and still passes: its mocked reg
 
 - [ ] **Step 7: Verify the !important debt is actually gone**
 
-Run: `cd web && grep -c '!important' src/styles/base.css`
-Expected: **exactly `12`** (the pre-task value is `27`; the deleted block contains 15 matching lines — 12 declarations plus 3 comment mentions).
+**Do not use a raw `grep -c '!important'` line count as the gate.** It counts prose: several comments in this file (including ones this task adds) contain the word `!important` while explaining why it is no longer needed. Assert the property instead of a proxy for it.
 
-The 12 survivors belong to `.copilot-dock`, `.exceptions-layout`, `.audit-lineage`, and the reduced-motion block. They fight *other* components' inline styles and are **out of scope — leave every one of them.** If your count is below 12 you deleted something you should not have.
+Gate 1 — no in-scope rule uses `!important`:
+
+```bash
+cd web && awk '/^\.(sidenav|ws-nav|nav-|topbar)/,/^}/' src/styles/base.css | grep -c '!important'
+grep -n -A2 'shell-sidenav' src/styles/base.css | grep -c '!important'
+```
+Expected: `0` from both.
+
+Gate 2 — the surviving declarations are exactly the out-of-scope ones:
+
+```bash
+cd web && grep -o '!important' src/styles/base.css | wc -l     # 15 occurrences
+grep -n '!important' src/styles/base.css                       # inspect
+```
+Of those 15, **4 are inside comments** and **11 are real declarations**: `.copilot-dock` ×1, `.exceptions-layout` ×6, reduced-motion ×2, `.audit-lineage` ×2. These fight *other* components' inline styles and are **out of scope — leave every one of them.** If any `.sidenav` / `.ws-nav` / `.nav-*` / `.topbar*` / `.shell-sidenav` rule carries `!important`, the refactor failed.
 
 Run: `cd web && grep -n 'scroll strip' src/styles/base.css`
 Expected: no output (stale comment removed).
