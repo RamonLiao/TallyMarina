@@ -1,13 +1,25 @@
 import { WORKSPACES } from './workspaces';
 
-it('carries no emoji codepoints — icons are SVG, not glyphs', () => {
-  // WHY this test exists: four of the original seven icons were
-  // supplementary-plane colour emoji (📤 renders as a blue/red mailbox,
-  // 🚢 as a red/white ship). Those colours exist nowhere in tokens.css.
-  // Stacked vertically in the drawer the mismatch is glaring. This pins the
-  // rule so a future edit cannot quietly reintroduce a colour emoji.
+it('exposes no icon field at all — icons are SVG components, not glyphs', () => {
+  // WHY this is the primary guard: the registry is the only place a glyph
+  // could re-enter. Killing the field kills the whole class of regression,
+  // including variation-selector emoji that a codepoint range check misses.
+  for (const w of WORKSPACES) {
+    expect(Object.keys(w).sort()).toEqual(['id', 'label', 'status']);
+  }
+});
+
+it('carries no emoji codepoints anywhere (defense in depth)', () => {
+  // WHY the extra ranges: four original icons were supplementary-plane emoji
+  // (📤 a blue/red mailbox, 🚢 a red/white ship) — colours that exist nowhere
+  // in tokens.css. But `> 0xffff` alone is NOT sufficient: ⚠️ is U+26A0 plus
+  // the U+FE0F variation selector, both ≤ 0xFFFF, and it renders in full
+  // colour. Ban the variation selector and the misc-symbols block too.
   const blob = JSON.stringify(WORKSPACES);
-  const offenders = [...blob].filter((ch) => ch.codePointAt(0)! > 0xffff);
+  const offenders = [...blob].filter((ch) => {
+    const cp = ch.codePointAt(0)!;
+    return cp > 0xffff || cp === 0xfe0f || (cp >= 0x2600 && cp <= 0x27bf);
+  });
   expect(offenders).toEqual([]);
 });
 
