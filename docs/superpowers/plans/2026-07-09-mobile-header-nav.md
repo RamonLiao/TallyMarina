@@ -438,7 +438,9 @@ Expected: PASS. `SideNav.test.tsx` is unchanged and still passes: its mocked reg
 - [ ] **Step 7: Verify the !important debt is actually gone**
 
 Run: `cd web && grep -c '!important' src/styles/base.css`
-Expected: the count drops by 9 (from the pre-task value). The remaining `!important` rules belong to `.exceptions-layout` / `.copilot-dock` / reduced-motion and are **out of scope — leave them**.
+Expected: **exactly `12`** (the pre-task value is `27`; the deleted block contains 15 matching lines — 12 declarations plus 3 comment mentions).
+
+The 12 survivors belong to `.copilot-dock`, `.exceptions-layout`, `.audit-lineage`, and the reduced-motion block. They fight *other* components' inline styles and are **out of scope — leave every one of them.** If your count is below 12 you deleted something you should not have.
 
 Run: `cd web && grep -n 'scroll strip' src/styles/base.css`
 Expected: no output (stale comment removed).
