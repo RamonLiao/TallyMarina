@@ -274,3 +274,14 @@ describe('entity switch', () => {
     expect(screen.queryByTestId('imbalance-card')).toBeNull();
   });
 });
+
+// ── Shell owns the page title ───────────────────────────────────────────────
+
+it('renders no h1 of its own — the shell owns the page title', () => {
+  // WHY: ExportWorkspace shipped two <h1>Export</h1> (one per render branch).
+  // With the shell-level h1 they would double up, giving the page two level-1
+  // headings — a real screen-reader defect, not a cosmetic one.
+  setupData();
+  const { container } = render(<ExportWorkspace entityId="ent-1" />);
+  expect(container.querySelector('h1')).toBeNull();
+});

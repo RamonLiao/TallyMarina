@@ -473,3 +473,13 @@ p {
   from { transform: translateX(-100%); }
   to   { transform: none; }
 }
+
+/* The page title. --text-xl is the size tokens.css reserves for "workspace
+   title"; the brand steps down to --text-lg on mobile so these never tie. */
+.workspace-title {
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  line-height: var(--leading-tight);
+  color: var(--ink);
+  margin: 0 0 var(--space-3);
+}
