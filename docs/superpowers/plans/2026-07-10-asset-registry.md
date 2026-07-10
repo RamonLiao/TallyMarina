@@ -412,8 +412,16 @@ Expected: PASS — 16 passed
 Remove the `Math.max(0, …)` clamp (leave `D - trailingZeros(s)`). Re-run.
 Expected: `clamps lastSignificantDecimal at 0` turns RED with `-1`.
 Restore. Change `MINOR` to `/^-?[0-9]+$/`. Re-run.
-Expected: `rejects leading zeros` and `rejects negative zero` turn RED.
-Restore both. Expected: 16 passed.
+Expected: **only** `rejects leading zeros` turns RED.
+Restore. Separately delete the `|| breakMinor === '-0'` clause. Re-run.
+Expected: `rejects negative zero` turns RED.
+Restore all. Expected: 16 passed.
+
+> Two mutations, not one, because `^-?(0|[1-9][0-9]*)$` **accepts** `-0` on its own — `-?`
+> matches the sign and `0` matches the digit. The negative-zero rejection is a separate,
+> independent guard. Weakening the regex alone leaves that test green, so a single mutation
+> would have "proved" a guard that was never exercised. (Task 1, lessons 1a-2: ask what else
+> besides X would reject this input.)
 
 - [ ] **Step 6: Commit**
 
