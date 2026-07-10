@@ -24,8 +24,15 @@ const HEX_ADDRESS = /^0[xX][0-9a-fA-F]{1,64}$/;
 
 // Walks a parsed struct tag and every nested type param (parseStructTag recurses into
 // generics, e.g. `0x2::coin::Coin<app.sui/tok::x::Y>`), rejecting the first non-hex address
-// found at any depth. Primitive type params (u8, vector<u8>, ...) come back as plain strings
-// from parseStructTag and carry no address, so they're skipped.
+// found at any depth. Primitive type params (u8, ...) come back as plain strings from
+// parseStructTag and carry no address, so they're skipped — EXCEPT: parseStructTag does not
+// recurse into `vector<...>`, it returns the whole thing as one string (e.g.
+// `"vector<app.sui/tok::x::Y>"`), so a named package hidden inside a vector type param would
+// slip past this walk undetected. We can't safely re-parse that string here (parseStructTag
+// only handles struct tags, not `vector<T>` syntax), so any string type param containing `::`
+// is rejected outright as INVALID_COIN_TYPE: a legitimate coin type's phantom type params are
+// never vector-wrapped structs, so this cannot reject a real coin type, and it closes the gap
+// fail-closed instead of attempting a fragile secondary parse.
 function assertNoNamedPackage(raw: string, tag: StructTag): void {
   if (!HEX_ADDRESS.test(tag.address)) {
     throw new CoinTypeError(raw, 'NAMED_PACKAGE_UNSUPPORTED',
@@ -34,6 +41,9 @@ function assertNoNamedPackage(raw: string, tag: StructTag): void {
   for (const param of tag.typeParams) {
     if (typeof param !== 'string') {
       assertNoNamedPackage(raw, param);
+    } else if (param.includes('::')) {
+      throw new CoinTypeError(raw, 'INVALID_COIN_TYPE',
+        `unsupported compound type param (cannot verify no named package is nested inside): ${param} in ${raw}`);
     }
   }
 }

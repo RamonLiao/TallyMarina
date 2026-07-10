@@ -68,4 +68,32 @@ describe('canonicalCoinType', () => {
   it('rejects a non-string input at runtime', () => {
     expect(() => canonicalCoinType(undefined as unknown as string)).toThrow(CoinTypeError);
   });
+
+  it('rejects a SuiNS named package hidden inside a vector<...> type param', () => {
+    // WHY: parseStructTag does not recurse into `vector<...>` — it returns the whole thing
+    // as one opaque string (e.g. "vector<app.sui/tok::x::Y>"), so the old guard's
+    // `typeof param !== 'string'` check treated it as a harmless primitive and let it through.
+    // isValidStructTag also returns true for this input and normalizeStructTag leaves the
+    // named package byte-for-byte unchanged, so this was a real "two rows, one asset" hole.
+    expect(() => canonicalCoinType('0x2::coin::Coin<vector<app.sui/tok::x::Y>>')).toThrow(CoinTypeError);
+    try { canonicalCoinType('0x2::coin::Coin<vector<app.sui/tok::x::Y>>'); } catch (e) {
+      expect((e as CoinTypeError).code).toBe('INVALID_COIN_TYPE');
+    }
+  });
+
+  it('does not regress legitimate compound-generic coin types', () => {
+    // WHY: the vector<...> guard above matches on `::` inside a string type param. Legal
+    // struct-typed generics like `Table<u64, 0x2::sui::SUI>` come back from parseStructTag as
+    // nested StructTag objects (not strings), and `Option<vector<u8>>`'s inner "vector<u8>"
+    // string param has no `::` in it — neither must trip the new rejection.
+    expect(canonicalCoinType('0x2::coin::Coin<0x2::sui::SUI>')).toBe(
+      '0x0000000000000000000000000000000000000000000000000000000000000002::coin::Coin<0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI>',
+    );
+    expect(canonicalCoinType('0x2::table::Table<u64, 0x2::sui::SUI>')).toBe(
+      '0x0000000000000000000000000000000000000000000000000000000000000002::table::Table<u64,0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI>',
+    );
+    expect(canonicalCoinType('0x1::option::Option<vector<u8>>')).toBe(
+      '0x0000000000000000000000000000000000000000000000000000000000000001::option::Option<vector<u8>>',
+    );
+  });
 });
