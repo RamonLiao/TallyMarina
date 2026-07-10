@@ -595,6 +595,8 @@ describe('appendAssetLog + countAssetUsage', () => {
 
   it('counts a JE line that references the coinType under origCoinType', () => {
     const db = openDb(freshDbPath()); seedEntity(db);
+    // openDb sets `foreign_keys = ON` (db.ts:14), so journal_entries.event_id must resolve.
+    db.prepare(`INSERT INTO events (id, entity_id, raw_json, status) VALUES ('ev1','e1','{}','POSTED')`).run();
     db.prepare(`INSERT INTO journal_entries (id, entity_id, event_id, je_json, idempotency_key, leaf_hash)
                 VALUES ('je1','e1','ev1',?,'k1','h1')`)
       .run(JSON.stringify({ lines: [{ origCoinType: '0x2::sui::SUI' }] }));
@@ -796,7 +798,7 @@ export function countAssetUsage(db: Db, entityId: string, coinType: string): { e
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `cd services/api && npx vitest run test/assets.store.test.ts`
-Expected: PASS — 12 passed
+Expected: PASS — 14 passed
 
 - [ ] **Step 5: Mutation check**
 
@@ -804,7 +806,7 @@ In `schema.sql` **and** `db.ts`, delete `CHECK (source IN ('chain','manual'))`. 
 Expected: `rejects an unknown source` turns RED (the insert succeeds).
 Restore both. Change `ON CONFLICT (entity_id, coin_type) DO NOTHING` to `DO UPDATE SET decimals=excluded.decimals`. Re-run.
 Expected: `is idempotent` turns RED (decimals becomes 6).
-Restore. Expected: 12 passed.
+Restore. Expected: 14 passed.
 
 - [ ] **Step 6: Run the full api suite for regressions**
 
