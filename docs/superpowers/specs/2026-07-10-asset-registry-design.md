@@ -582,7 +582,9 @@ i = frac 中第一個非零字元的 0-based index
 
 **修改**：
 - api：`http/ingestEvent.ts`、`http/routes.ts`、`reconciliation/{collect,fixture,types}.ts`、`lots/dto.ts`、`store/{db.ts,schema.sql}`、`periodLock/cockpit.ts`、`grpcClient.ts`
-- web：`api/types.ts`（`ReconRowDTO.decimals: number|null` + `unregisteredAsset`、`summary.unregistered`）、`ReconTable.tsx`、`ReconDetail.tsx`、`ReconciliationWorkspace.tsx`、`workspaces/onboarding/*`、`workspaces/export/{buildBundle.ts,ExportWorkspace.tsx}`、`lib/exportCsv.ts`、`lightMeta.ts`、`onboarding.css`
+- web：`src/api/types.ts`（`ReconRowDTO.decimals: number|null` + `unregisteredAsset`、`summary.unregistered`）、`src/workspaces/recon/{ReconTable.tsx,ReconDetail.tsx,recon.css}`、`src/workspaces/ReconciliationWorkspace.tsx`、`src/workspaces/onboarding/*`、`src/workspaces/export/{buildBundle.ts,ExportWorkspace.tsx}`、`src/lib/exportCsv.ts`、`src/workspaces/close/lightMeta.ts`
+
+> 路徑更正（撰寫 plan 時實查）：recon UI 在 `web/src/workspaces/recon/`（非 `reconciliation/`）；`ReconciliationWorkspace.tsx` 在 `web/src/workspaces/` 根層；`lightMeta.ts` 在 `web/src/workspaces/close/`。另外 `dispatchTarget()`（`lightMeta.ts:29-37`）是 switch + `default: return null`，新增 `registry` 燈**必須同步加 case**，否則點下去無反應。
 - fixture：`fixtures/acme-pilot-001.recon.json`（刪 `decimals` 欄）
 
 **零改動**：`services/rules-engine`、`services/snapshot-svc`、`services/anchor-svc`、`move/`
