@@ -1,18 +1,32 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { ReconciliationWorkspace } from './ReconciliationWorkspace';
+import type { ReconciliationResponse, ReconRowDTO } from '../api/types';
 
+// Data-driven mock so each test can vary the reconciliation payload (the badge branch only renders
+// with non-empty, non-balanced rows — an empty payload early-returns to the celebration state).
+let reconData: ReconciliationResponse;
 vi.mock('../data/useReconciliation', () => ({
-  useReconciliation: () => ({
-    data: { rows: [], realWallet: '0xreal', summary: { material: 0, blockingMaterial: 0, balanced: 0 } },
-    loading: false, error: undefined, refetch: () => {},
-  }),
+  useReconciliation: () => ({ data: reconData, loading: false, error: undefined, refetch: () => {} }),
 }));
 vi.mock('../api/hooks', () => ({
   useJournal: () => ({ data: [] }),
   useEvents: () => ({ data: [] }),
 }));
 // useAnchors not yet implemented; anchored=false stub in ReconciliationWorkspace (no import needed).
+
+const unregisteredRow: ReconRowDTO = {
+  wallet: '0x7a', coinType: '0xbeef::usdc::USDC', decimals: null, symbol: null,
+  assetSource: null, unregisteredAsset: true, precision: null,
+  openingMinor: '5000000000', movementMinor: '0', computedMinor: '5000000000',
+  statementMinor: '5000500000', breakMinor: '-500000', thresholdMinor: '100000',
+  material: true, control: { debitMinor: '0', creditMinor: '0', legs: 0 },
+  provenance: { computed: 'book', statement: 'mock', chain: 'n/a' }, disposition: null,
+};
+
+beforeEach(() => {
+  reconData = { rows: [], realWallet: '0xreal', summary: { material: 0, blockingMaterial: 0, balanced: 0, unregistered: 0 } };
+});
 
 describe('ReconciliationWorkspace', () => {
   it('all-balanced → celebration empty state', () => {
@@ -25,5 +39,18 @@ describe('ReconciliationWorkspace', () => {
     rerender(<ReconciliationWorkspace entityId="beta:pilot-002" />);
     // No detail pane shown after entity switch (selection cleared).
     expect(screen.queryByText(/Opening balance/i)).toBeNull();
+  });
+
+  it('shows the registry badge FIRST when both blockers are nonzero', () => {
+    // WHY: registry and materiality are orthogonal blockers that can both be nonzero. The registry
+    // badge must win — an unknown scale makes the materiality verdict itself unreliable. Without the
+    // registry branch this row's material break badge would show instead, hiding the harder blocker.
+    reconData = {
+      rows: [unregisteredRow], realWallet: '0xreal',
+      summary: { material: 1, blockingMaterial: 1, balanced: 0, unregistered: 1 },
+    };
+    render(<ReconciliationWorkspace entityId="acme:pilot-001" />);
+    expect(screen.getByText(/1 unregistered asset — blocks close/i)).toBeInTheDocument();
+    expect(screen.queryByText(/material break.*block close/i)).toBeNull();
   });
 });

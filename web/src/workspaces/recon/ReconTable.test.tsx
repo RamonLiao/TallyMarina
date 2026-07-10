@@ -7,6 +7,9 @@ const suiType = '0x2::sui::SUI';
 
 const row = (over: Partial<ReconRowDTO>): ReconRowDTO => ({
   wallet: '0xacmeTreasury', coinType: suiType, decimals: 9,
+  symbol: 'SUI', assetSource: 'chain', unregisteredAsset: false,
+  // 1202000000 @ 9dp is a whole-unit break → flat/first significant decimal are null.
+  precision: { exactlyZero: false, flatToDecimal: null, firstSignificantDecimal: null, lastSignificantDecimal: 3 },
   openingMinor: '1200000000', movementMinor: '3800000000', computedMinor: '5000000000',
   statementMinor: '3798000000', breakMinor: '1202000000', thresholdMinor: '1000000000', material: true,
   control: { debitMinor: '5000000000', creditMinor: '1200000000', legs: 2 },

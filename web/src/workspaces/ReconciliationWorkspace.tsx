@@ -49,7 +49,9 @@ export function ReconciliationWorkspace({ entityId }: { entityId: string }) {
   return (
     <div className={`recon-workspace${selected ? ' has-selection' : ''}`}>
       <header className="recon-summary">
-        {data.summary.blockingMaterial > 0
+        {data.summary.unregistered > 0
+          ? <span className="recon-summary__badge recon-summary__badge--material">⛔ {data.summary.unregistered} unregistered asset{data.summary.unregistered === 1 ? '' : 's'} — blocks close</span>
+          : data.summary.blockingMaterial > 0
           ? <span className="recon-summary__badge recon-summary__badge--material">⛔ {data.summary.blockingMaterial} material break{data.summary.blockingMaterial === 1 ? '' : 's'} block close</span>
           : <span className="recon-summary__badge recon-summary__badge--ok">✓ All accounts reconciled</span>}
       </header>

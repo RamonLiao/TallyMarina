@@ -47,8 +47,10 @@ export function ReconDetail({
     finally { setBusy(false); }
   }
 
-  const d = (m: string) => fmtMinor(m, row.decimals);
-  const dBig = (v: bigint) => fmtMinor(v.toString(), row.decimals);
+  // Unregistered assets have no scale: show raw minor units rather than call fmtMinor (which now
+  // refuses a null scale). The red "Unregistered asset" block below explains the missing scale.
+  const d = (m: string) => (row.decimals === null ? m : fmtMinor(m, row.decimals));
+  const dBig = (v: bigint) => d(v.toString());
   return (
     <section className="recon-detail">
       {anchored && <div className="recon-anchored-ribbon">Period anchored — reconciliation read-only ⚓</div>}
@@ -90,7 +92,15 @@ export function ReconDetail({
         </tbody>
       </table>
 
-      {!anchored && b.material && (
+      {!anchored && row.unregisteredAsset && (
+        <div className="light--red recon-unregistered">
+          <span className="mono">⛔ Unregistered asset</span>
+          <p>This asset has no registered decimals, so its amounts have no known scale.
+             It blocks close and cannot be dispositioned.</p>
+          <a href="#/onboarding">Register asset →</a>
+        </div>
+      )}
+      {!anchored && b.material && !row.unregisteredAsset && (
         <div className="recon-disp">
           <label>Classification:&nbsp;
             <select value={reasonCode} onChange={(e) => setReasonCode(e.target.value as ReconReasonCode)}>
