@@ -1744,6 +1744,33 @@ export function registerTestAsset(db: Db, entityId: string, coinType: string, de
 
 Call it in each failing test's setup, immediately after the entity is created. **Do not weaken the gate to make tests pass.** Report the exact list of files touched.
 
+- [ ] **Step 6b: Pin the gate's callers — a rule on one door is not a rule**
+
+`ingestEvent()` is the gate. `insertEvent()` is the raw writer it wraps. Anything else calling
+`insertEvent()` walks straight past the gate, and no gate test would ever notice.
+
+There are exactly two legitimate callers today:
+- `src/http/ingestEvent.ts` — the gate itself
+- `src/store/seed.ts` — **a real bypass, on the production server-start path** (`server.ts`
+  calls `seed()`), fixed in Task 12
+
+Add `services/api/test/ingest.noBypass.test.ts`: scan `src/` for `insertEvent(` and assert the
+set of calling files is exactly `{ store/eventStore.ts (definition), http/ingestEvent.ts,
+store/seed.ts }`. A third caller must fail the build with a message naming it.
+
+```typescript
+it('insertEvent has exactly the known callers — a new one bypasses the registry gate', () => {
+  // WHY: defect A is closed by ingestEvent(). insertEvent() is the raw writer underneath it.
+  // A future caller reaching for the writer instead of the gate would silently reopen the
+  // path that anchors a wrong decimal scale onto the chain, and every gate test would stay green.
+  const callers = walk(join(__dirname, '..', 'src'))
+    .filter((f) => /\binsertEvent\s*\(/.test(readFileSync(f, 'utf8')))
+    .map((f) => f.slice(f.indexOf('/src/') + 5))
+    .sort();
+  expect(callers).toEqual(['http/ingestEvent.ts', 'store/eventStore.ts', 'store/seed.ts']);
+});
+```
+
 - [ ] **Step 7: Run the full api suite**
 
 Run: `cd services/api && npm test && npm run typecheck`
@@ -2903,6 +2930,28 @@ void main();
 Run: `cd services/api && set -a && . ./.env && set +a && npm run spike:coininfo`
 Expected: prints `decimals: 9` and `OK`.
 **If it fails, stop and report.** The whole D14 branch rests on this call shape.
+
+- [ ] **Step 4b: Close the seeder's bypass of the ingest gate**
+
+`src/store/seed.ts` writes fixture events with `insertEvent()`, not `ingestEvent()` — and
+`server.ts` calls `seed()` on start. So seeded events never meet the registry gate, and defect
+A is only half closed.
+
+Do **not** fix this by deriving the registry from the fixture's `assetDecimals`. That is
+precisely the "infer master data from transactions" D1 rejects; hiding it inside the seeder
+would not make it not that.
+
+Fix the ordering instead:
+1. `seed()` registers `DEMO_ASSETS` (the explicit list above) **first**, via `insertAssetIfAbsent`
+   for the offline path or `registerAsset` when a fetcher is available.
+2. Then it routes each fixture event through `ingestEvent()` rather than `insertEvent()`.
+3. A fixture event whose `assetDecimals` contradicts the registered value now **fails the seed
+   loudly**. That is the point: it means the demo fixture is internally inconsistent.
+
+Update `ingest.noBypass.test.ts` (Task 6, Step 6b) to expect `store/seed.ts` to be gone from
+the caller list, leaving `{ http/ingestEvent.ts, store/eventStore.ts }`. Run it before the
+change (must be green with seed.ts listed) and after (green without it) — that transition is
+the proof the bypass actually closed.
 
 - [ ] **Step 5: Seed and drive the app**
 
