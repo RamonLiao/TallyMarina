@@ -2084,15 +2084,18 @@ function freshDb() {
 }
 afterEach(() => { while (tmpDirs.length) rmSync(tmpDirs.pop()!, { recursive: true, force: true }); });
 
+// The acme:pilot-001 fixture has FOUR assets. The fixture FILE holds a second entity
+// (opening-lot-recon-test:entity) whose single 0xface::tok::TOK row is not acme's.
+// Counting rows across the whole file instead of per entity is how "five" got into this plan.
 const ALL = [
-  ['0x2::sui::SUI', 9], ['0xusdc::usdc::USDC', 6], ['0xweth::weth::WETH', 8],
-  ['0xusdt::usdt::USDT', 6], ['0xopen::tok::TOK', 8],
+  ['0x2::sui::SUI', 9], ['0xbeef::usdc::USDC', 6], ['0xcafe::weth::WETH', 8],
+  ['0xdead::usdt::USDT', 6],
 ] as const;
 
 describe('unregisteredAssetBlockers', () => {
   it('blocks close for every unregistered asset in the fixture', () => {
     const db = freshDb();
-    expect(unregisteredAssetBlockers(db, 'acme:pilot-001', '2026-Q2')).toHaveLength(5);
+    expect(unregisteredAssetBlockers(db, 'acme:pilot-001', '2026-Q2')).toHaveLength(4);
   });
 
   it('clears once every asset is registered', () => {
@@ -2920,12 +2923,13 @@ const ENTITY = process.env.ENTITY_ID ?? 'acme:pilot-001';
 // (u, s, w, t, o, p, n are not hex digits) and canonicalCoinType rejects them outright.
 // See spec §4.2.1. They are valid types that do not exist on chain, which is exactly what
 // source='manual' is for.
+// acme:pilot-001 holds exactly these four. 0xface::tok::TOK belongs to the OTHER entity in
+// the fixture file (opening-lot-recon-test:entity) and must not be seeded under acme.
 const DEMO_ASSETS = [
   { coinType: '0x2::sui::SUI' },
   { coinType: '0xbeef::usdc::USDC', decimals: 6, symbol: 'USDC', reason: 'demo placeholder coin type; no on-chain metadata' },
   { coinType: '0xcafe::weth::WETH', decimals: 8, symbol: 'WETH', reason: 'demo placeholder coin type; no on-chain metadata' },
   { coinType: '0xdead::usdt::USDT', decimals: 6, symbol: 'USDT', reason: 'demo placeholder coin type; no on-chain metadata' },
-  { coinType: '0xface::tok::TOK',  decimals: 8, symbol: 'TOK',  reason: 'demo placeholder coin type; no on-chain metadata' },
 ];
 
 async function main(): Promise<void> {
