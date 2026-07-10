@@ -100,8 +100,12 @@ progress.md 引用的 `services/api/src/audit/buildBundle.ts` **不存在**。ex
 
 **本輪的最小補償控制**（不是 SoD，是使其可見）：
 - registry 記 `created_at`（已有）。
-- 若登錄時點落在該 entity 的 period close window 內 → 在 export disclosure 與 close cockpit **標紅**「close window 內登錄的資產」。
-- `reason` 必須有意義：最小長度驗證，拒絕 `"n/a"` 類佔位字串。
+- `reason` 必須有意義：最小長度驗證，拒絕 `"n/a"` 類佔位字串。**✅ 已實作**（`register.ts` `MIN_REASON_LENGTH=12` + placeholder regex）。
+
+**⚠️ 未落地、降級為 Deferred（2026-07-11，最終 whole-branch review 抓到）**：
+- 「若登錄時點落在該 entity 的 period close window 內 → 在 export disclosure 與 close cockpit **標紅**」——**spec 原本把它列為已採納的 Critical fix，但這條 branch 從未實作它**（grep 零處拿 `created_at` 跟 close window 比對；`register.ts` / `routes.ts` 對 `period_lock` 一無所知）。這是「spec 宣稱有、code 沒做」，比誠實 defer 更糟，因為它讓一份給審計師的文件宣稱一個不存在的控制。
+- **裁決**：降級為明確 Deferred（見 §10）。本 branch 出貨時，manual 路徑的補償控制**只有 reason-length 一項**；close-window 可見性與真正的 maker-checker SoD 都隨 H1（authenticated principal）落地。誠實揭露優於假裝有控制。
+- 它需要 export/cockpit 端取得 period lock 的時間戳（又一個跨 api/web 的資料流），與 materiality policy 主檔化（§10-2，已 defer）同屬 H1 依賴的控制層，一起做更一致。
 
 **真正的 maker-checker（輸入者 ≠ 覆核者）需要 H1（authenticated principal）落地。** 在 H1 之前，`decided_by` 與任何 `reviewed_by` 都只會是 server-side 常數，**兩個常數互相覆核是假控制，比誠實揭露更糟**。此處列為 open control gap，綁 H1。
 
@@ -645,6 +649,8 @@ i = frac 中第一個非零字元的 0-based index
 | **1** | **Spec 2：manifest 承諾刻度** | 錨在鏈上的 leaf 只 commit `origCoinType` + `origQtyMinor`，**未 commit decimals**。修法是 snapshot manifest 加 `assets: [{coinType, decimals, source, chainObjectVersion}]` 節 —— `manifest_hash` 本來就上鏈，於是刻度被密碼學承諾涵蓋，leaf 一個 bit 不動。**需要 manifest 版本欄**（`MANIFEST_V1`/`V2`，鏡像 `JE_LEAF_BCS_V1`），否則驗證路徑重算 manifestHash 時會對既有 snapshot 誤報竄改。manifest 的 coinType key **必須用同一個 `canonicalCoinType`**。SUI 審查 endorse 此做法優於改 leaf BCS。 |
 | **2** | **materiality policy 主檔化** | **CPA 把它從第三提到第二。** `thresholdMinor` 現住在 recon fixture（demo scaffolding），**無 `decided_by`、無核准**，而它 governs **唯一的 pass/fail gate**。「誰核准了重大性門檻」是審計最先問的問題之一 —— 這是控制**不存在**，不是待優化。獨立的表、獨立的 policy 語意、獨立的 H1 依賴，與 decimals 權威無技術耦合。同時承載 §7.3 的剖面 enrichment（差異的 USD 金額 + 連續破口期數 + 相對重大性 %）。 |
 | 3 | **maker-checker（輸入者 ≠ 覆核者）** | 需 H1（authenticated principal）。在 H1 之前 `decided_by` / `reviewed_by` 都只會是 server-side 常數，**兩個常數互相覆核是假控制**。本輪以 §3.1 的最小補償控制 + open control gap 揭露代替。 |
+| 3b | **close-window 內登錄的 manual 資產標紅**（2026-07-11 從「已採納」降級） | §3.1 原列為已實作，實際未落地。需 export/cockpit 取得 period lock 時間戳。與 §10-2 materiality 主檔化同屬 H1 依賴的控制層。本 branch 出貨時 manual 路徑只有 reason-length 補償控制，其餘 SoD 缺口隨 H1。 |
+| 3c | **manifest 資產揭露區塊**（2026-07-11 whole-branch review A3） | export bundle 的 manifest 缺 per-coinType 的 `symbol` / `chain_object_id` / `metadata_cap_state`（D16）。審計師拿 ZIP 無法 re-perform「這個 coin 的 decimals 現在還能不能被改」。逐列 `origSource` 已有；此為 manifest 級的補強。**本輪修**（見 §12 整合記錄）。 |
 | 4 | **`asset_registry_log` 納入 anchor** | log 的 append-only 只是慣例，SQLite 層無強制，log 本身非 tamper-evident（§4.3）。週期性把 log hash 納入既有 anchor 是正解。 |
 | 5 | **資產母體完整性（completeness assertion）** | 鏈上持有但無 event、不在對帳單上的 token 完全隱形（§2.1）。需要獨立的 on-chain balance sweep，另案。 |
 | 6 | **自動 dust 處置 policy** | 「差異全落在第 N 位以下 → 自動產生 `dismissed` disposition，`reasonCode=ROUNDING_DUST`，actor=system」。預留 reason code 與 actor 語意。卡在「system 能否當 actor 簽字」= H1。CPA affirm 排最後：authn 落地前自動沖銷很危險。 |
