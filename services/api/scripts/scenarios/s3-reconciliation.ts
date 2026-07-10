@@ -21,7 +21,7 @@ export async function run(): Promise<void> {
     disposition: { state: string; reasonCode: string; reasonNote?: string } | null;
   }> = recon1.body.rows ?? [];
 
-  const summary1 = recon1.body.summary as { material: number; openMaterial: number; balanced: boolean };
+  const summary1 = recon1.body.summary as { material: number; blockingMaterial: number; balanced: boolean };
 
   const materialRows = rows.filter((r) => r.material === true);
   assert(
@@ -34,10 +34,13 @@ export async function run(): Promise<void> {
   expectErr(blocked, 409, 'LIGHTS_NOT_GREEN');
 
   // ── Step 4: Dispose every open material break ──
-  const openMaterial = materialRows.filter((r) => r.disposition === null || r.disposition.state === 'open');
-  assert(openMaterial.length > 0, `no open material breaks to dispose (all already disposed?) — rows=${JSON.stringify(materialRows)}`);
+  // Literally `open` here, not blocksClose: this picks rows that are still legal to dispose from.
+  // A deferred row also blocks close, but `deferred → resolved` is a different transition than the
+  // `open → resolved` this scenario drives.
+  const openMaterialRows = materialRows.filter((r) => r.disposition === null || r.disposition.state === 'open');
+  assert(openMaterialRows.length > 0, `no open material breaks to dispose (all already disposed?) — rows=${JSON.stringify(materialRows)}`);
 
-  for (const b of openMaterial) {
+  for (const b of openMaterialRows) {
     const rawId = encodeReconBreakId(b.wallet, b.coinType);
     const urlId = encodeURIComponent(rawId);
     const dr = await inject(app, 'POST', `/recon-breaks/${urlId}/disposition`, {
@@ -48,7 +51,7 @@ export async function run(): Promise<void> {
     assert(dr.status === 200, `disposition of ${rawId} failed: ${JSON.stringify(dr.body)}`);
   }
 
-  // ── Step 5: Re-read recon — openMaterial must be 0 ──
+  // ── Step 5: Re-read recon — blockingMaterial must be 0 ──
   const recon2 = await inject(app, 'GET', `/entities/${entity}/reconciliation?periodId=${periodId}`);
   assert(recon2.status === 200, `reconciliation re-fetch failed: ${recon2.status}`);
 
@@ -67,10 +70,10 @@ export async function run(): Promise<void> {
     `still ${stillOpenMaterial.length} open material break(s) after disposition: ${JSON.stringify(stillOpenMaterial)}`,
   );
 
-  const summary2 = recon2.body.summary as { material: number; openMaterial: number; balanced: boolean };
+  const summary2 = recon2.body.summary as { material: number; blockingMaterial: number; balanced: boolean };
   assert(
-    summary2.openMaterial === 0,
-    `summary.openMaterial should be 0 after disposition, got ${summary2.openMaterial}`,
+    summary2.blockingMaterial === 0,
+    `summary.blockingMaterial should be 0 after disposition, got ${summary2.blockingMaterial}`,
   );
 
   // ── Step 6: Lock must now proceed ──
@@ -85,6 +88,6 @@ export async function run(): Promise<void> {
   );
 
   console.log(
-    `(S3) recon gate: ${materialRows.length} material break(s) blocked lock → disposed → openMaterial=0 → lock PASSED.`,
+    `(S3) recon gate: ${materialRows.length} material break(s) blocked lock → disposed → blockingMaterial=0 → lock PASSED.`,
   );
 }

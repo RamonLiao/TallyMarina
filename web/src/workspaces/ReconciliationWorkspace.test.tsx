@@ -4,7 +4,7 @@ import { ReconciliationWorkspace } from './ReconciliationWorkspace';
 
 vi.mock('../data/useReconciliation', () => ({
   useReconciliation: () => ({
-    data: { rows: [], realWallet: '0xreal', summary: { material: 0, openMaterial: 0, balanced: 0 } },
+    data: { rows: [], realWallet: '0xreal', summary: { material: 0, blockingMaterial: 0, balanced: 0 } },
     loading: false, error: undefined, refetch: () => {},
   }),
 }));
