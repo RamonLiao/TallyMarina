@@ -2953,6 +2953,32 @@ the caller list, leaving `{ http/ingestEvent.ts, store/eventStore.ts }`. Run it 
 change (must be green with seed.ts listed) and after (green without it) — that transition is
 the proof the bypass actually closed.
 
+- [ ] **Step 4c: Prove D5 with a test, not with an argument**
+
+D5 — "the registry validates `assetDecimals`, it does not replace it, so leaf hashes, merkle
+roots and every previously anchored snapshot stay byte-identical" — is the most valuable
+property in this design. It buys zero re-anchor.
+
+Today it is supported by inspection (`rawJson` is stored verbatim; `insertEvent`'s call site is
+unchanged; zero rules-engine files touched) and by the fact that the snapshot suite stayed
+green. **Neither is a test that would go red** if someone later "optimised" `ingestEvent` into
+re-serialising the payload.
+
+It could not be written earlier: proving it needs a full ingest → run-rules → snapshot path
+that goes *through the gate*, and until Step 4b that path was bypassed by `seed()`.
+
+Add `services/api/test/ingest.d5Parity.test.ts`:
+
+1. Register the asset, ingest a coinType-bearing event **through `ingestEvent()`**.
+2. Run rules, build a snapshot, record `merkleRoot` and `manifestHash`.
+3. In a second DB, write the same event with `insertEvent()` directly (the pre-gate path),
+   run the same pipeline, record the same two values.
+4. `expect(gated.merkleRoot).toBe(ungated.merkleRoot)` and the same for `manifestHash`.
+
+Then mutation-test it: make `ingestEvent` store `JSON.stringify(JSON.parse(rawJson))` instead
+of `rawJson`. Key order survives that round-trip, so if the assertion stays green, strengthen
+it — pin the stored `raw_json` string byte-for-byte as well.
+
 - [ ] **Step 5: Seed and drive the app**
 
 ```bash
