@@ -2895,12 +2895,16 @@ import { makeGrpcClient } from '../src/grpcClient.js';
 import { loadConfig } from '../src/config.js';
 
 const ENTITY = process.env.ENTITY_ID ?? 'acme:pilot-001';
+// Hex placeholders, not the original 0xusdc/0xweth/... — those are not valid Sui struct tags
+// (u, s, w, t, o, p, n are not hex digits) and canonicalCoinType rejects them outright.
+// See spec §4.2.1. They are valid types that do not exist on chain, which is exactly what
+// source='manual' is for.
 const DEMO_ASSETS = [
   { coinType: '0x2::sui::SUI' },
-  { coinType: '0xusdc::usdc::USDC', decimals: 6, symbol: 'USDC', reason: 'demo placeholder coin type; no on-chain metadata' },
-  { coinType: '0xweth::weth::WETH', decimals: 8, symbol: 'WETH', reason: 'demo placeholder coin type; no on-chain metadata' },
-  { coinType: '0xusdt::usdt::USDT', decimals: 6, symbol: 'USDT', reason: 'demo placeholder coin type; no on-chain metadata' },
-  { coinType: '0xopen::tok::TOK',  decimals: 8, symbol: 'TOK',  reason: 'demo placeholder coin type; no on-chain metadata' },
+  { coinType: '0xbeef::usdc::USDC', decimals: 6, symbol: 'USDC', reason: 'demo placeholder coin type; no on-chain metadata' },
+  { coinType: '0xcafe::weth::WETH', decimals: 8, symbol: 'WETH', reason: 'demo placeholder coin type; no on-chain metadata' },
+  { coinType: '0xdead::usdt::USDT', decimals: 6, symbol: 'USDT', reason: 'demo placeholder coin type; no on-chain metadata' },
+  { coinType: '0xface::tok::TOK',  decimals: 8, symbol: 'TOK',  reason: 'demo placeholder coin type; no on-chain metadata' },
 ];
 
 async function main(): Promise<void> {

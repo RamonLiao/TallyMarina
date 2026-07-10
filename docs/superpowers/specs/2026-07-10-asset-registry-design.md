@@ -221,6 +221,31 @@ CREATE TABLE IF NOT EXISTS asset_registry_log (   -- append-only（見 §4.3 誠
 
 demo 資料以 `scripts/seed-assets.ts` 明確 seed（可讀、可 commit、不偽裝成遷移）。
 
+### 4.2.1 demo fixture 的 coinType 本來就不合法（2026-07-10，Task 7 實作時發現）
+
+spec 原本寫「demo 的 4 個假幣鏈上無 metadata → `source='manual'` → export 標『未經鏈上驗證』」。
+
+**這個故事從一開始就不可能成立。** `0xusdc::usdc::USDC` 的 package address 是 `0xusdc`，而 `u` / `s` 不是十六進位字元 —— 它**根本不是一個合法的 Sui struct tag**。`canonicalCoinType()`（D14 的 V2 防禦）判它 `NAMED_PACKAGE_UNSUPPORTED` 並拒收，所以它連 `getCoinInfo` 都走不到，遑論落進 `source='manual'`。
+
+四個假幣（USDC / WETH / USDT / TOK）全部如此。後果是它們**永遠無法登錄** → 永遠 `unregisteredAsset: true` → 依 D12 **永遠擋 close**。
+
+**為何過去沒人發現**：在 registry 之前，系統從不「解析」coinType，只把它當字串當 map key。Task 1 建立的不變量（一個資產只有一個 canonical key）第一次強迫它被解析，壞資料立刻現形。這是加上約束後錯誤資料自己浮出來的典型。
+
+**裁決（2026-07-10）**：修 fixture，不放寬守衛。改成合法但鏈上不存在的 hex 佔位符：
+
+| 舊（不合法） | 新（合法 hex，鏈上不存在） |
+|---|---|
+| `0xusdc::usdc::USDC` | `0xbeef::usdc::USDC` |
+| `0xweth::weth::WETH` | `0xcafe::weth::WETH` |
+| `0xusdt::usdt::USDT` | `0xdead::usdt::USDT` |
+| `0xopen::tok::TOK` | `0xface::tok::TOK` |
+
+只改 package address，保留 `::module::STRUCT` 後綴，所以既有測試裡 `.includes('usdc')` 之類的斷言全部存活。**fixture 的每一個金額原封不動。**
+
+改完之後，spec 原本設計的揭露故事**第一次真的跑得起來**：這四個幣通得過 `canonicalCoinType`，`getCoinInfo` 找不到 metadata，於是走 manual 分支、記 `source='manual'`、在 export bundle 被標為「未經鏈上驗證」。
+
+**放寬 `canonicalCoinType` 是被明確否決的**：它是「一個資產只有一個 registry key」的唯一保證，且它剛在 Task 1 抓住 MVR named package 的真漏洞（`Coin<app.sui/tok::x::Y>`）。為了讓壞資料通過而拆守衛，方向完全反了。
+
 ### 4.3 稽核 log 的完整性限制（誠實揭露）
 
 `asset_registry_log` 的 append-only **只是慣例，SQLite 層無強制**，且 **log 本身未被 anchor**。這些登錄裁決餵養了上鏈資料，但裁決的 log 自己不是 tamper-evident。
