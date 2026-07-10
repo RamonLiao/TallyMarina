@@ -123,6 +123,30 @@ describe('canonicalCoinType', () => {
     }
   });
 
+  it('rejects a SuiNS named package that isValidStructTag ACCEPTS', () => {
+    // WHY: this is the guard's only load-bearing case. 'app@org::tok::TOK' is already
+    // rejected by isValidStructTag, so deleting the named-package guard leaves that test
+    // green. 'app.sui/tok::x::Y' passes isValidStructTag and normalizeStructTag returns it
+    // verbatim — the guard is the sole defence.
+    try { canonicalCoinType('app.sui/tok::x::Y'); expect.unreachable(); } catch (e) {
+      expect((e as CoinTypeError).code).toBe('NAMED_PACKAGE_UNSUPPORTED');
+    }
+  });
+
+  it('rejects a named package nested inside a generic type parameter', () => {
+    // WHY: checking only the address before the first '::' sees the outer 0x2 and passes,
+    // while mvr.resolveType resolves the INNER alias. Every address segment must be hex.
+    try { canonicalCoinType('0x2::coin::Coin<app.sui/tok::x::Y>'); expect.unreachable(); } catch (e) {
+      expect((e as CoinTypeError).code).toBe('NAMED_PACKAGE_UNSUPPORTED');
+    }
+  });
+
+  it('accepts an uppercase 0X prefix rather than calling it a named package', () => {
+    // WHY: 0X2::sui::SUI is a legal spelling. Rejecting it with NAMED_PACKAGE_UNSUPPORTED
+    // is a lying error code, even though rejection itself would be safe.
+    expect(canonicalCoinType('0X2::sui::SUI')).toBe(SUI_LONG);
+  });
+
   it('rejects malformed struct tags', () => {
     for (const bad of ['', 'sui::SUI', '0x2::sui', 'not a type', '0x2::sui::SUI::extra']) {
       expect(() => canonicalCoinType(bad)).toThrow(CoinTypeError);
@@ -158,26 +182,41 @@ export class CoinTypeError extends Error {
   }
 }
 
-// A named (MVR) package address is anything before the first '::' that is not a hex address.
-// normalizeStructTag leaves those verbatim while getCoinMetadata resolves them — so a named
-// type and its resolved type would key two rows for one asset. Reject at the door.
-const HEX_ADDRESS = /^0x[0-9a-fA-F]{1,64}$/;
+// A named package address (MVR 'app@org', SuiNS 'app.sui/tok') is any address segment that is
+// not hex. normalizeStructTag leaves those verbatim while getCoinMetadata resolves them via
+// mvr.resolveType — so a named type and its resolved type would key two rows for one asset.
+//
+// EVERY address segment must be checked, not just the one before the first '::':
+// '0x2::coin::Coin<app.sui/tok::x::Y>' has a hex outer address and a named inner one, and
+// isValidStructTag accepts the whole thing.
+const HEX_ADDRESS = /^0[xX][0-9a-fA-F]{1,64}$/;
 
 export function canonicalCoinType(raw: string): string {
   if (typeof raw !== 'string' || raw.length === 0) {
     throw new CoinTypeError(String(raw), 'INVALID_COIN_TYPE', `coinType must be a non-empty string`);
   }
-  const addr = raw.slice(0, raw.indexOf('::'));
-  if (raw.includes('::') && !HEX_ADDRESS.test(addr)) {
-    throw new CoinTypeError(raw, 'NAMED_PACKAGE_UNSUPPORTED',
-      `named packages are not supported; use the resolved 0x… address: ${raw}`);
-  }
   if (!isValidStructTag(raw)) {
     throw new CoinTypeError(raw, 'INVALID_COIN_TYPE', `not a valid coin type: ${raw}`);
   }
+  assertAllAddressesHex(parseStructTag(raw), raw);
   return normalizeStructTag(raw);
 }
+
+function assertAllAddressesHex(tag: StructTag, raw: string): void {
+  if (!HEX_ADDRESS.test(tag.address)) {
+    throw new CoinTypeError(raw, 'NAMED_PACKAGE_UNSUPPORTED',
+      `named packages are not supported; use the resolved 0x… address: ${raw}`);
+  }
+  for (const p of tag.typeParams) {
+    if (typeof p === 'object' && p !== null && 'address' in p) assertAllAddressesHex(p as StructTag, raw);
+  }
+}
 ```
+
+> **Implementer:** verify `parseStructTag`'s real return shape with `node -e` before writing this
+> — `typeParams` may hold primitive type tags (`'u64'`) alongside struct tags, and the exact
+> `StructTag` type name is in `@mysten/sui/utils`. If the shape differs, follow the real shape
+> and report. `isValidStructTag` must run **before** `parseStructTag`, which throws on garbage.
 
 - [ ] **Step 4: Run test to verify it passes**
 
