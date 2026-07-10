@@ -74,10 +74,13 @@ describe('POST /entities/:id/events — HTTP response envelopes', () => {
   // default handler as an opaque 500 — which would make an upstream caller retry a
   // request that can never succeed. This pins the HTTP contract at 422.
   it('422 ASSET_NOT_REGISTERED (not 500) when the event references an unregistered coinType', async () => {
+    // 0x9::foo::FOO is deliberately NOT in DEMO_ASSETS (Task 12: buildTestApp's seed() now
+    // registers SUI/USDC/WETH/USDT, so those are no longer "unregistered"). Pick a coinType the
+    // seeder never registers, otherwise this asserts nothing.
     const r = await app.inject({
       method: 'POST',
       url: `/entities/${EID}/events`,
-      payload: { event: { eventTime: '2026-05-01T00:00:00Z', coinType: '0x2::sui::SUI', assetDecimals: 9 } },
+      payload: { event: { eventTime: '2026-05-01T00:00:00Z', coinType: '0x9::foo::FOO', assetDecimals: 9 } },
     });
     expect(r.statusCode).not.toBe(500);
     expect(r.statusCode).toBe(422);

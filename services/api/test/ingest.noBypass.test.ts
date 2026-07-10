@@ -32,13 +32,13 @@ describe('structural guard: insertEvent() has no unknown callers', () => {
   // WHY: defect A is closed by ingestEvent(). insertEvent() is the raw writer underneath it.
   // A future caller reaching for the writer instead of the gate would silently reopen the path
   // that anchors a wrong decimal scale onto the chain, and every gate test would stay green.
-  // store/seed.ts is a KNOWN bypass on the production server-start path; Task 12 removes it,
-  // and this assertion is what will force that list to be updated when it does.
+  // store/seed.ts USED to bypass the gate on the production server-start path; Task 12 routed
+  // it through ingestEvent(), so the raw writer now has exactly two legitimate references. This
+  // assertion is what forces the list to be updated if a future caller reaches for the writer.
   it('insertEvent has exactly the known callers — a new one bypasses the registry gate', () => {
     const KNOWN_CALLERS = [
       'store/eventStore.ts', // definition
       'http/ingestEvent.ts', // the gate itself — legitimate
-      'store/seed.ts', // KNOWN bypass, production server-start path; removed by Task 12
     ].sort();
 
     const actual = callersOf();

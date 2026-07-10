@@ -51,12 +51,19 @@ function assetGate(db: Db, entityId: string, parsed: Record<string, unknown>): v
   }
 }
 
-/** Atomic ingest gate: derive period, refuse+log if LOCKED, else insert (spec §5.2). */
-export function ingestEvent(db: Db, entityId: string, rawJson: string): { eventId: string; periodId: string } {
+/**
+ * Atomic ingest gate: derive period, refuse+log if LOCKED, else insert (spec §5.2).
+ *
+ * `id` exists ONLY so the demo seeder can preserve the fixture's deterministic event ids
+ * (evt-001, …) while still passing through THIS gate rather than around it. Every other
+ * caller must let the gate mint one. A caller-supplied id that collides violates
+ * events.id's PRIMARY KEY and throws — that is the intended behaviour, not a bug to smooth over.
+ */
+export function ingestEvent(db: Db, entityId: string, rawJson: string, id?: string): { eventId: string; periodId: string } {
   const periodId = deriveEventPeriod(rawJson); // throws INVALID_EVENT_TIME
   const parsed = JSON.parse(rawJson) as { eventTime: string } & Record<string, unknown>;
   const eventTime = parsed.eventTime;
-  const eventId = `evt-${randomUUID()}`;
+  const eventId = id ?? `evt-${randomUUID()}`;
 
   // Registry gate runs BEFORE the period-lock transaction. It is a pure read, so logging the
   // rejection outside any transaction cannot be rolled back (same reasoning as the lock path).
