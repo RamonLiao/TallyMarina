@@ -6,6 +6,7 @@ import { listJournal } from '../store/journalStore.js';
 import { deriveAnchorStaleness, type AnchorStaleness } from './anchorStaleness.js';
 import { collectExceptions } from '../exceptions/collect.js';
 import { getDisposition } from '../store/dispositionStore.js';
+import { blocksClose } from '../exceptions/disposition.js';
 import { BLOCKING_CATEGORIES } from '../exceptions/types.js';
 import { openMaterialReconBlockers } from '../reconciliation/collect.js';
 import { listByStatus, listEvents } from '../store/eventStore.js';
@@ -25,7 +26,7 @@ function classificationLight(db: Db, entityId: string, periodId: string, lowConf
   const pending = listByStatus(db, entityId, 'NEEDS_REVIEW').length;
   const blocking = collectExceptions(db, entityId, periodId, lowConf)
     .filter((e) => BLOCKING_CATEGORIES.includes(e.category))
-    .filter((e) => { const d = getDisposition(db, e.category, e.eventId); return d === null || d.state === 'open'; }).length;
+    .filter((e) => blocksClose(getDisposition(db, e.category, e.eventId))).length;
   const green = pending === 0 && blocking === 0;
   return { key: 'classification', status: green ? 'green' : 'red', label: 'Classification', real: true };
 }

@@ -4,7 +4,7 @@ import { REOPEN_REASON_CODES, type ReopenReasonCode } from '../../api/types';
 import { API_BASE } from '../../api/client';
 import './close.css';
 
-export function ReopenDialog({ entityId, onChanged, onClose }: { entityId: string; onChanged: () => void; onClose: () => void }) {
+export function ReopenDialog({ entityId, periodId, onChanged, onClose }: { entityId: string; periodId: string; onChanged: () => void; onClose: () => void }) {
   const [reason, setReason] = useState('');
   const [code, setCode] = useState<ReopenReasonCode>('ERROR_CORRECTION');
   const [amount, setAmount] = useState('');
@@ -19,7 +19,9 @@ export function ReopenDialog({ entityId, onChanged, onClose }: { entityId: strin
       const res = await fetch(`${API_BASE}/entities/${encodeURIComponent(entityId)}/period/reopen`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ restatementReason: reason.trim(), reasonCode: code, affectedAmountEstimate: amount.trim() || undefined }),
+        // WHY periodId is explicit: the server still falls back to DEFAULT_PERIOD when it is
+        // absent, so an omitted periodId would silently reopen a period the operator never chose.
+        body: JSON.stringify({ periodId, restatementReason: reason.trim(), reasonCode: code, affectedAmountEstimate: amount.trim() || undefined }),
       });
       if (!res.ok) throw new Error(`reopen ${res.status}`);
       onChanged(); onClose();

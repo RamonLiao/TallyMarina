@@ -5,10 +5,8 @@ import type { Db } from '../store/db.js';
 import { loadReconFixture } from './fixture.js';
 import { walletAssetMovements } from './movement.js';
 import { getReconDisposition } from '../store/reconBreakStore.js';
+import { blocksClose } from '../exceptions/disposition.js';
 
-function isOpenDisposition(d: { state: string } | null): boolean {
-  return d === null || d.state === 'open';
-}
 
 export interface ReconBreak {
   wallet: string; coinType: string; decimals: number;
@@ -68,9 +66,10 @@ export function collectBreaks(db: Db, entityId: string, _periodId: string): Reco
   return out;
 }
 
-// Single source of truth for the close-gate control rule: open material recon breaks.
-// Used by both /close-readiness and /snapshot to enforce the same gate.
+// The recon half of the close gate: material breaks nobody has decided yet. /close-readiness,
+// /snapshot and the cockpit recon light all call this, so they cannot diverge. "Undecided" spans
+// open and deferred alike — see blocksClose, which is where that rule actually lives.
 export function openMaterialReconBlockers(db: Db, entityId: string, periodId: string): ReconBreak[] {
   return collectBreaks(db, entityId, periodId)
-    .filter((b) => b.material && isOpenDisposition(getReconDisposition(db, entityId, periodId, b.wallet, b.coinType)));
+    .filter((b) => b.material && blocksClose(getReconDisposition(db, entityId, periodId, b.wallet, b.coinType)));
 }

@@ -214,7 +214,7 @@ function FilenamePreview({ filename }: { filename: string }) {
 export function ExportWorkspace({ entityId }: { entityId: string }) {
   const { entity, periodId } = useEntityCtx();
   const { data, loading, error } = useExportData(entityId);
-  const { data: cockpitData } = useCloseCockpit(entityId);
+  const { data: cockpitData } = useCloseCockpit(entityId, periodId);
   const [outcome, setOutcome] = useState<ExportOutcome | null>(null);
   const [assembling, setAssembling] = useState(false);
   const [assembleError, setAssembleError] = useState<string | null>(null);

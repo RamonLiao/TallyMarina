@@ -157,9 +157,12 @@ describe('monkey: triage', () => {
     });
     // Human closes the exception through the manual disposition channel — NOT by accepting this
     // proposal — leaving the agent's proposal orphaned in 'proposed' while the light goes green.
+    // `resolved`, not `deferred`: deferred leaves the exception undecided and therefore still
+    // blocks the close gate (see blocksClose). Only a genuinely closed exception opens the light,
+    // which is what this test needs in order to reach the sweep it is actually about.
     const { applyDisposition } = await import('../src/exceptions/disposition.js');
     applyDisposition(app._db, {
-      entityId: TEST_ENTITY_ID, category: 'RULES_FAILED', eventId: 'ev-m5', to: 'deferred',
+      entityId: TEST_ENTITY_ID, category: 'RULES_FAILED', eventId: 'ev-m5', to: 'resolved',
       reasonCode: 'PENDING_DOC', decidedBy: 'demo-controller', now: 1,
     });
     dismissReconBreaks(app._db, P);

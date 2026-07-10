@@ -80,6 +80,62 @@ describe('recomputeMovements', () => {
     });
   });
 
+  // ── OPENING_LOT exclusion — parity with backend walletAssetMovements (movement.ts) ──
+  // WHY: OPENING_LOT declares pre-history holdings. Its chain-side counterpart is the recon
+  // fixture's openingMinor, NOT a book movement. Folding its ACQUISITION leg in here would
+  // double-count the same holding on both sides of `computed = opening + movement`, showing
+  // the controller a break that does not exist. The backend skips it; this client mirror must
+  // skip it under the SAME discriminator (final.eventType ?? normalized.eventType) or the
+  // recon screen silently disagrees with the ledger it is supposed to be checking.
+  const makeTypedEvent = (
+    id: string, wallet: string,
+    rawType: string, finalType?: string,
+  ): EventDTO => ({
+    id, entityId: 'ent1', status: 'POSTED',
+    normalized: { wallet, eventType: rawType },
+    ai: null,
+    final: finalType ? { eventType: finalType, purpose: 'OPENING_BALANCE' } : null,
+    routing: null,
+  });
+
+  const openingJe = (id: string, eventId: string) => makeJe(id, eventId, [
+    { account: 'DigitalAssets', side: 'DEBIT', amountMinor: '1000000', origCoinType: suiType, origQtyMinor: '1000000000000', priceRef: null, fxRef: null, leg: 'ACQUISITION' },
+    { account: 'OpeningBalanceEquity', side: 'CREDIT', amountMinor: '1000000', origCoinType: null, origQtyMinor: null, priceRef: null, fxRef: null, leg: 'OPENING_EQUITY' },
+  ]);
+
+  it('excludes an OPENING_LOT JE from movements', () => {
+    const ev = makeTypedEvent('ev-open', '0xwallet1', 'OPENING_LOT');
+    // Sole JE is the opening lot → no movement keys at all, not a 1000-SUI phantom movement.
+    expect(recomputeMovements([openingJe('je-open', 'ev-open')], [ev])).toEqual({});
+  });
+
+  it('counts movement when an event was reclassified AWAY from OPENING_LOT (final wins)', () => {
+    // raw OPENING_LOT but a human re-posted it as a real receipt → it IS period activity.
+    // Reading normalized.eventType alone would wrongly drop a genuine movement, masking a break.
+    const ev = makeTypedEvent('ev1', '0xwallet1', 'OPENING_LOT', 'DIGITAL_ASSET_RECEIPT');
+    expect(recomputeMovements([openingJe('je1', 'ev1')], [ev])).toEqual({
+      [`0xwallet1|${suiType}`]: 1000000000000n,
+    });
+  });
+
+  it('excludes when an event was reclassified INTO OPENING_LOT (final wins)', () => {
+    // raw receipt, human re-posted as OPENING_LOT → folding it in would double-count.
+    const ev = makeTypedEvent('ev1', '0xwallet1', 'DIGITAL_ASSET_RECEIPT', 'OPENING_LOT');
+    expect(recomputeMovements([openingJe('je1', 'ev1')], [ev])).toEqual({});
+  });
+
+  it('still fails loud on a walletless OPENING_LOT — skip must not swallow integrity gaps', () => {
+    // WHY: the skip sits AFTER the wallet check in the backend. If it moved before, a
+    // corrupt walletless event would be silently ignored instead of surfacing.
+    const ev: EventDTO = {
+      id: 'ev-open', entityId: 'ent1', status: 'POSTED',
+      normalized: { eventType: 'OPENING_LOT' }, // no wallet
+      ai: null, final: null, routing: null,
+    };
+    expect(() => recomputeMovements([openingJe('je-open', 'ev-open')], [ev]))
+      .toThrow(/event ev-open has no normalized.wallet/);
+  });
+
   it('throws when a JE has no matching event — integrity gap must surface', () => {
     const je = makeJe('je-orphan', 'ev-missing', []);
     expect(() => recomputeMovements([je], [])).toThrow(/no event found for JE je-orphan/);

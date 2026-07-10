@@ -153,7 +153,7 @@ export interface ReconRowDTO {
 export interface ReconciliationResponse {
   rows: ReconRowDTO[];
   realWallet: string | null;
-  summary: { material: number; openMaterial: number; balanced: number };
+  summary: { material: number; blockingMaterial: number; balanced: number };
 }
 export interface ReconBreakDispositionDTO { state: string; reasonCode: string; reasonNote: string | null; }
 export interface CloseReadiness {

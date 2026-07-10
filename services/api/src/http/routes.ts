@@ -15,7 +15,7 @@ import { insertLotMovement, acquireLotSeq } from '../store/lotMovementStore.js';
 import { listPeriods } from '../store/periodQuery.js';
 import { getSnapshot, hasAnchoredSnapshot, getLatestSnapshot, getLatestSnapshotSeq } from '../store/snapshotStore.js';
 import { collectExceptions } from '../exceptions/collect.js';
-import { applyDisposition } from '../exceptions/disposition.js';
+import { applyDisposition, blocksClose } from '../exceptions/disposition.js';
 import { getDisposition } from '../store/dispositionStore.js';
 import { BLOCKING_CATEGORIES, REASON_CODES, type DispositionState } from '../exceptions/types.js';
 import { listAnchors } from '../store/anchorStore.js';
@@ -106,6 +106,8 @@ function exceptionDTO(db: Db, entityId: string, periodId: string, lowConf: numbe
   });
 }
 
+// Literal state, for the `open` tally the UI shows. The close gate uses blocksClose instead,
+// which also counts `deferred` — an item may be non-open and still undecided.
 function isOpen(d: { state: DispositionState } | null): boolean {
   return d === null || d.state === 'open';
 }
@@ -159,9 +161,12 @@ function reconDTO(db: Db, entityId: string, periodId: string, liveWallet: string
     };
   });
   const material = rows.filter((r) => r.material).length;
-  const openMaterial = rows.filter((r) => r.material && isOpen(r.disposition)).length;
+  // The UI renders this as "N material breaks block close", so it must be counted with the gate's
+  // own predicate. Counting `open` alone hid deferred breaks: the badge read 0 while the freeze
+  // route still 409'd.
+  const blockingMaterial = rows.filter((r) => r.material && blocksClose(r.disposition)).length;
   const balanced = rows.filter((r) => BigInt(r.breakMinor) === 0n).length;
-  return { rows, realWallet: liveWallet ?? null, summary: { material, openMaterial, balanced } };
+  return { rows, realWallet: liveWallet ?? null, summary: { material, blockingMaterial, balanced } };
 }
 
 export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
@@ -519,7 +524,7 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     requireEntity(db, req.params.id);
     const periodId = req.query.periodId ?? DEFAULT_PERIOD;
     const list = exceptionDTO(db, req.params.id, periodId, cfg.exceptionLowConfidence);
-    const blocking = list.filter((e) => BLOCKING_CATEGORIES.includes(e.category) && isOpen(e.disposition)).length;
+    const blocking = list.filter((e) => BLOCKING_CATEGORIES.includes(e.category) && blocksClose(e.disposition)).length;
     const byCategory: Record<string, number> = {};
     for (const e of list) byCategory[e.category] = (byCategory[e.category] ?? 0) + 1;
     return { exceptions: list, summary: { open: list.filter((e) => isOpen(e.disposition)).length, blocking, byCategory } };
@@ -528,8 +533,11 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
   app.get<{ Params: { id: string }; Querystring: { periodId?: string } }>('/entities/:id/close-readiness', async (req) => {
     requireEntity(db, req.params.id);
     const periodId = req.query.periodId ?? DEFAULT_PERIOD;
+    // Must use the same predicate as the snapshot gate below (routes.ts, POST /snapshot). A
+    // readiness endpoint that reports closeable:true where the gate 409s is worse than no
+    // endpoint at all.
     const exBlockers = exceptionDTO(db, req.params.id, periodId, cfg.exceptionLowConfidence)
-      .filter((e) => BLOCKING_CATEGORIES.includes(e.category) && isOpen(e.disposition));
+      .filter((e) => BLOCKING_CATEGORIES.includes(e.category) && blocksClose(e.disposition));
     const reconBlockers = openMaterialReconBlockers(db, req.params.id, periodId);
     return {
       exceptions: { blocking: exBlockers.length, blockers: exBlockers },
@@ -769,16 +777,17 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
       if (lock.status !== 'LOCKED') {
         throw new ApiError(409, 'PERIOD_NOT_LOCKED', 'lock the period before anchoring');
       }
-      // Close gate (spec §4): open blocking exceptions hard-block the freeze.
+      // Close gate (spec §4): undecided blocking exceptions hard-block the freeze. `deferred`
+      // counts as undecided — freezing over it would anchor a break nobody ever signed off.
       const blockers = exceptionDTO(db, req.params.id, periodId, cfg.exceptionLowConfidence)
-        .filter((e) => BLOCKING_CATEGORIES.includes(e.category) && isOpen(e.disposition));
+        .filter((e) => BLOCKING_CATEGORIES.includes(e.category) && blocksClose(e.disposition));
       if (blockers.length > 0) {
-        throw new ApiError(409, 'EXCEPTIONS_BLOCKING', `${blockers.length} open exception(s) block close: ${blockers.map((b) => b.exceptionId).join(', ')}`);
+        throw new ApiError(409, 'EXCEPTIONS_BLOCKING', `${blockers.length} undecided exception(s) block close: ${blockers.map((b) => b.exceptionId).join(', ')}`);
       }
       const reconBlockers = openMaterialReconBlockers(db, req.params.id, periodId);
       if (reconBlockers.length > 0) {
         throw new ApiError(409, 'RECON_BREAKS_BLOCKING',
-          `${reconBlockers.length} open material break(s) block close: ${reconBlockers.map((b) => encodeReconBreakId(b.wallet, b.coinType)).join(', ')}`);
+          `${reconBlockers.length} undecided material break(s) block close: ${reconBlockers.map((b) => encodeReconBreakId(b.wallet, b.coinType)).join(', ')}`);
       }
       const jes: JournalEntry[] = listJournal(db, req.params.id, periodId).map((r) => JSON.parse(r.jeJson) as JournalEntry);
       const outputs = jes.map((je) => ({

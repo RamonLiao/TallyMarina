@@ -16,6 +16,20 @@ export function assertDispositionTransition(from: DispositionState, to: Disposit
   }
 }
 
+// The only two states in which a human has actually decided the item: `resolved` means a
+// correcting entry exists, `dismissed` means someone accepted it under a reason code. Everything
+// else — `open`, `deferred`, no disposition row, and any state added after this line was written
+// — leaves the item undecided, and a period cannot be closed over an undecided item.
+//
+// Deliberately an allow-list: the previous `d === null || d.state === 'open'` form was a deny-list
+// and therefore let `deferred` (and any future state) through the close gate by omission.
+const CLOSE_CLEARING_STATES: readonly DispositionState[] = ['resolved', 'dismissed'];
+
+/** Single source of truth for "does this disposition stop the period from closing?" */
+export function blocksClose(d: { state: DispositionState } | null): boolean {
+  return d === null || !CLOSE_CLEARING_STATES.includes(d.state);
+}
+
 export interface ApplyArgs {
   entityId: string; category: string; eventId: string;
   to: DispositionState; reasonCode: ReasonCode; reasonNote?: string | null;

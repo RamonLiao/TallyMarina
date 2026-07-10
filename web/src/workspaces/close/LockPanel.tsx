@@ -4,7 +4,7 @@ import type { CloseCockpitResponse } from '../../api/types';
 import { API_BASE } from '../../api/client';
 import './close.css';
 
-export function LockPanel({ data, entityId, onChanged }: { data: CloseCockpitResponse; entityId: string; onChanged: () => void }) {
+export function LockPanel({ data, entityId, periodId, onChanged }: { data: CloseCockpitResponse; entityId: string; periodId: string; onChanged: () => void }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string>();
   const blockers = data.lights.filter((l) => l.status === 'red').map((l) => l.key);
@@ -16,7 +16,7 @@ export function LockPanel({ data, entityId, onChanged }: { data: CloseCockpitRes
       const res = await fetch(`${API_BASE}/entities/${encodeURIComponent(entityId)}/period/lock`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: '{}',
+        body: JSON.stringify({ periodId }),
       });
       if (!res.ok) throw new Error(`lock ${res.status}`);
       onChanged();
