@@ -3,17 +3,18 @@ import { canonicalCoinType } from './normalize.js';
 
 export type AssetSource = 'chain' | 'manual';
 export type LogOutcome = 'registered' | 'conflict' | 'rejected' | 'corrected';
+export type MetadataCapState = 'UNKNOWN' | 'CLAIMED' | 'UNCLAIMED' | 'DELETED';
 
 export interface AssetRow {
   entityId: string; coinType: string; decimals: number;
   symbol: string; displayName: string; source: AssetSource;
-  chainObjectId: string | null; chainObjectVersion: string | null; fetchedAt: string | null;
+  chainObjectId: string | null; metadataCapState: MetadataCapState | null; fetchedAt: string | null;
   decidedBy: string | null; reason: string | null; createdAt: string;
 }
 
 type DbAssetRow = {
   entity_id: string; coin_type: string; decimals: number; symbol: string; display_name: string;
-  source: AssetSource; chain_object_id: string | null; chain_object_version: string | null;
+  source: AssetSource; chain_object_id: string | null; metadata_cap_state: MetadataCapState | null;
   fetched_at: string | null; decided_by: string | null; reason: string | null; created_at: string;
 };
 
@@ -21,7 +22,7 @@ function mapRow(r: DbAssetRow): AssetRow {
   return {
     entityId: r.entity_id, coinType: r.coin_type, decimals: r.decimals,
     symbol: r.symbol, displayName: r.display_name, source: r.source,
-    chainObjectId: r.chain_object_id, chainObjectVersion: r.chain_object_version,
+    chainObjectId: r.chain_object_id, metadataCapState: r.metadata_cap_state,
     fetchedAt: r.fetched_at, decidedBy: r.decided_by, reason: r.reason, createdAt: r.created_at,
   };
 }
@@ -43,11 +44,11 @@ export function insertAssetIfAbsent(db: Db, row: AssetRow): 'inserted' | 'exists
   const res = db.prepare(
     `INSERT INTO asset_registry
        (entity_id, coin_type, decimals, symbol, display_name, source,
-        chain_object_id, chain_object_version, fetched_at, decided_by, reason, created_at)
+        chain_object_id, metadata_cap_state, fetched_at, decided_by, reason, created_at)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
      ON CONFLICT (entity_id, coin_type) DO NOTHING`,
   ).run(row.entityId, row.coinType, row.decimals, row.symbol, row.displayName, row.source,
-        row.chainObjectId, row.chainObjectVersion, row.fetchedAt, row.decidedBy, row.reason, row.createdAt);
+        row.chainObjectId, row.metadataCapState, row.fetchedAt, row.decidedBy, row.reason, row.createdAt);
   return res.changes === 1 ? 'inserted' : 'exists';
 }
 

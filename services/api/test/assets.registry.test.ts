@@ -27,7 +27,7 @@ describe('getAssetDecimals', () => {
   it('finds a row registered under the long form when queried with the short form', () => {
     const db = freshDb();
     insertAssetIfAbsent(db, { entityId: 'e1', coinType: SUI_LONG, decimals: 9, symbol: 'SUI',
-      displayName: 'Sui', source: 'chain', chainObjectId: '0xm', chainObjectVersion: '1',
+      displayName: 'Sui', source: 'chain', chainObjectId: '0xm', metadataCapState: 'DELETED',
       fetchedAt: 't', decidedBy: null, reason: null, createdAt: 't' });
     // WHY (V2): ingest sees '0x2::sui::SUI' in the event payload; the registry stores canonical.
     expect(getAssetDecimals(db, 'e1', '0x2::sui::SUI')).toEqual({

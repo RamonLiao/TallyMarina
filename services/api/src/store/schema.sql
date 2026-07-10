@@ -221,7 +221,7 @@ CREATE TABLE IF NOT EXISTS asset_registry (
   display_name         TEXT NOT NULL,
   source               TEXT NOT NULL CHECK (source IN ('chain','manual')),
   chain_object_id      TEXT,
-  chain_object_version TEXT,
+  metadata_cap_state   TEXT CHECK (metadata_cap_state IS NULL OR metadata_cap_state IN ('UNKNOWN','CLAIMED','UNCLAIMED','DELETED')),
   fetched_at           TEXT,
   decided_by           TEXT,
   reason               TEXT,

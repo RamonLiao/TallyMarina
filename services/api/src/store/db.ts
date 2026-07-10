@@ -31,6 +31,15 @@ export function openDb(path: string): Db {
     'ALTER TABLE snapshots ADD COLUMN affected_amount_estimate TEXT',
     'ALTER TABLE snapshots ADD COLUMN restatement_requested_by TEXT',
     'ALTER TABLE snapshots ADD COLUMN restatement_approved_by TEXT',
+    // asset_registry.chain_object_version → metadata_cap_state (D16 revision: CoinMetadata
+    // carries no object version; MetadataCapState is the real re-verification anchor). Repo
+    // migration philosophy: schema.sql defines the column for fresh DBs; a pre-existing dev DB
+    // picks it up via this duplicate-column-tolerant ALTER ADD, and columns are NEVER dropped
+    // (see was_anchored_at_reopen) — the old chain_object_version lingers as an inert, never
+    // read/written orphan on such DBs. ASYMMETRY (do not paper over): SQLite cannot attach a
+    // CHECK via ALTER ADD COLUMN, so fresh DBs enforce the IN(...) allow-list on this column
+    // while pre-existing dev DBs get the column WITHOUT the CHECK — same situation as snapshots.seq.
+    'ALTER TABLE asset_registry ADD COLUMN metadata_cap_state TEXT',
   ];
   for (const m of MIGRATIONS) {
     try { db.exec(m); } catch (err) {

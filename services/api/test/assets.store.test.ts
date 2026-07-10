@@ -25,7 +25,7 @@ function seedEntity(db: ReturnType<typeof openDb>): void {
 function row(over: Partial<AssetRow> = {}): AssetRow {
   return {
     entityId: 'e1', coinType: SUI, decimals: 9, symbol: 'SUI', displayName: 'Sui',
-    source: 'chain', chainObjectId: '0xmeta', chainObjectVersion: '7',
+    source: 'chain', chainObjectId: '0xmeta', metadataCapState: 'DELETED',
     fetchedAt: '2026-07-10T00:00:00Z', decidedBy: null, reason: null,
     createdAt: '2026-07-10T00:00:00Z', ...over,
   };
@@ -97,6 +97,23 @@ describe('asset_registry CHECK constraints (monkey — raw SQLite, bypassing the
   it('rejects an unknown log outcome', () => {
     expect(dirty(`INSERT INTO asset_registry_log (entity_id,coin_type,outcome,actor,at)
                   VALUES ('e1','${SUI}','whatever','a','t')`)).toThrow(/CHECK constraint/i);
+  });
+
+  it('rejects a metadata_cap_state outside the four legal values', () => {
+    // WHY (D16): metadata_cap_state is the auditor's "can decimals still be mutated?" anchor.
+    // A garbage value reaching the column would corrupt that verdict at the master-data layer,
+    // exactly the failure the source-column CHECK precedent guards against. The DB, not just the
+    // app layer, must refuse it — dirty values otherwise land as plain strings a reader trusts.
+    expect(dirty(`INSERT INTO asset_registry (entity_id,coin_type,decimals,symbol,display_name,source,metadata_cap_state,created_at)
+                  VALUES ('e1','${SUI}',9,'S','S','chain','HACKED','t')`)).toThrow(/CHECK constraint/i);
+  });
+
+  it('accepts NULL metadata_cap_state (manual rows have no chain cap state)', () => {
+    // WHY: the CHECK is `IS NULL OR IN (...)`; a manual registration legitimately stores NULL.
+    // Guards against a botched CHECK that forbids NULL and would break every manual insert.
+    const db = openDb(freshDbPath()); seedEntity(db);
+    expect(() => db.prepare(`INSERT INTO asset_registry (entity_id,coin_type,decimals,symbol,display_name,source,metadata_cap_state,created_at)
+                  VALUES ('e1','${SUI}',9,'S','S','manual',NULL,'t')`).run()).not.toThrow();
   });
 });
 

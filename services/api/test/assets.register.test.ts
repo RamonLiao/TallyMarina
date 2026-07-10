@@ -23,9 +23,9 @@ const NOW = '2026-07-10T00:00:00Z';
 const REASON = 'private coin, no on-chain metadata published';
 
 const fetcherOf = (fn: (c: string) => Promise<RawCoinInfo | null>): CoinInfoFetcher => ({ getCoinInfo: fn });
-const chainHit: CoinInfoFetcher = fetcherOf(async () => ({ decimals: 9, symbol: 'SUI', name: 'Sui', objectId: '0xmeta', version: '7' }));
+const chainHit: CoinInfoFetcher = fetcherOf(async () => ({ decimals: 9, symbol: 'SUI', name: 'Sui', objectId: '0xmeta', metadataCapState: 'DELETED' }));
 const noMetadata: CoinInfoFetcher = fetcherOf(async () => null);
-const metadataWithoutDecimals: CoinInfoFetcher = fetcherOf(async () => ({ symbol: 'X', name: 'X', objectId: '0xm', version: '1' }));
+const metadataWithoutDecimals: CoinInfoFetcher = fetcherOf(async () => ({ symbol: 'X', name: 'X', objectId: '0xm', metadataCapState: 'UNKNOWN' }));
 const unreachable: CoinInfoFetcher = fetcherOf(async () => { throw new ChainUnreachableError('ECONNRESET'); });
 
 describe('registerAsset — chain path', () => {
@@ -34,8 +34,34 @@ describe('registerAsset — chain path', () => {
     const { status, row } = await registerAsset(db, chainHit, { entityId: 'e1', coinType: SUI, actor: 'demo-controller', now: NOW });
     expect(status).toBe(201);
     expect(row.source).toBe('chain');
-    expect(row.chainObjectVersion).toBe('7');
+    // WHY (D16): metadataCapState is the re-verification anchor — DELETED means decimals are
+    // permanently frozen, so it must survive the round-trip into the persisted row verbatim.
+    expect(row.metadataCapState).toBe('DELETED');
+    expect(getAsset(db, 'e1', SUI_LONG)!.metadataCapState).toBe('DELETED');
     expect(getAsset(db, 'e1', SUI_LONG)!.decimals).toBe(9);
+  });
+
+  it('persists a CLAIMED cap state (decimals still mutable — the verdict has an expiry)', async () => {
+    // WHY: CLAIMED is the opposite pole from DELETED — a holder can still update metadata, so a
+    // "chain-verified" guarantee is time-bounded. The exact state must land, not be flattened.
+    const db = freshDb();
+    const claimed = fetcherOf(async () => ({ decimals: 9, symbol: 'SUI', name: 'Sui', objectId: '0xmeta', metadataCapState: 'CLAIMED' }));
+    const { row } = await registerAsset(db, claimed, { entityId: 'e1', coinType: SUI, actor: 'a', now: NOW });
+    expect(row.metadataCapState).toBe('CLAIMED');
+    expect(getAsset(db, 'e1', SUI_LONG)!.metadataCapState).toBe('CLAIMED');
+  });
+
+  it('throws on an illegal metadataCapState — never silently writes null', async () => {
+    // WHY: the fetcher boundary is the same one a real grpc adapter crosses. An unrecognised
+    // cap state is a value we refuse to interpret; coercing it to null would forge a "cap state
+    // unknown" verdict the source never gave. It must fail loud (COIN_METADATA_INVALID_CAP_STATE),
+    // and — mutation check — this red must come from registerAsset's assert, not the DB CHECK:
+    // a `?? null` shortcut lets the raw string through and the SqliteError, not our code, throws.
+    const db = freshDb();
+    const bogus = fetcherOf(async () => ({ decimals: 9, symbol: 'SUI', name: 'Sui', objectId: '0xmeta', metadataCapState: 'HACKED' }));
+    await expect(registerAsset(db, bogus, { entityId: 'e1', coinType: SUI, actor: 'a', now: NOW }))
+      .rejects.toMatchObject({ code: 'COIN_METADATA_INVALID_CAP_STATE' });
+    expect(getAsset(db, 'e1', SUI_LONG)).toBeNull();
   });
 
   it('is idempotent — re-registering the same decimals returns 200', async () => {
@@ -56,7 +82,7 @@ describe('registerAsset — chain path', () => {
   it('409s when the asset is already registered with different decimals — never UPDATEs', async () => {
     const db = freshDb();
     insertAssetIfAbsent(db, { entityId: 'e1', coinType: SUI_LONG, decimals: 6, symbol: 'S', displayName: 'S',
-      source: 'manual', chainObjectId: null, chainObjectVersion: null, fetchedAt: null,
+      source: 'manual', chainObjectId: null, metadataCapState: null, fetchedAt: null,
       decidedBy: 'a', reason: REASON, createdAt: NOW });
     await expect(registerAsset(db, chainHit, { entityId: 'e1', coinType: SUI, actor: 'a', now: NOW }))
       .rejects.toMatchObject({ code: 'ASSET_DECIMALS_CONFLICT', status: 409 });
@@ -154,7 +180,7 @@ describe('registerAsset — coinType validation', () => {
 describe('correctAsset — zero blast radius only (D7b)', () => {
   function seedRegistered(db: ReturnType<typeof freshDb>) {
     insertAssetIfAbsent(db, { entityId: 'e1', coinType: SUI_LONG, decimals: 6, symbol: 'S', displayName: 'S',
-      source: 'manual', chainObjectId: null, chainObjectVersion: null, fetchedAt: null,
+      source: 'manual', chainObjectId: null, metadataCapState: null, fetchedAt: null,
       decidedBy: 'a', reason: REASON, createdAt: NOW });
   }
 

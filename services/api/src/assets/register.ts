@@ -1,10 +1,29 @@
 import type { SuiGrpcClient } from '@mysten/sui/grpc';
 import type { Db } from '../store/db.js';
 import { canonicalCoinType, CoinTypeError } from './normalize.js';
-import { getAsset, insertAssetIfAbsent, deleteAsset, appendAssetLog, countAssetUsage, type AssetRow } from './store.js';
+import { getAsset, insertAssetIfAbsent, deleteAsset, appendAssetLog, countAssetUsage,
+         type AssetRow, type MetadataCapState } from './store.js';
 
 export const MIN_REASON_LENGTH = 12;
 const PLACEHOLDER_REASON = /^(n\/?a|none|-+|\.+|tbd|todo)$/i;
+
+const METADATA_CAP_STATES: readonly MetadataCapState[] = ['UNKNOWN', 'CLAIMED', 'UNCLAIMED', 'DELETED'];
+
+/**
+ * Maps the proto CoinMetadata.MetadataCapState numeric enum (verified against @mysten/sui@2.19.0,
+ * state_service.mjs: it decodes to a plain `number` 0-3 at runtime, NOT a string) to our stored
+ * string. Fail-loud by design: an out-of-range value throws — NEVER `?? default`. A silent default
+ * would fabricate a mutability verdict ("decimals still frozen?") the chain never actually gave.
+ */
+function metadataCapStateFromEnum(v: number): MetadataCapState {
+  switch (v) {
+    case 0: return 'UNKNOWN';
+    case 1: return 'CLAIMED';
+    case 2: return 'UNCLAIMED';
+    case 3: return 'DELETED';
+    default: throw new Error(`unknown CoinMetadata.MetadataCapState enum value: ${v}`);
+  }
+}
 
 /** Raw, uncoerced CoinMetadata. `decimals` is optional here exactly as the proto declares it. */
 export interface RawCoinInfo {
@@ -12,7 +31,7 @@ export interface RawCoinInfo {
   symbol?: string;
   name?: string;
   objectId?: string;
-  version?: string;
+  metadataCapState?: string;
 }
 
 /** Resolves null when the coin has no metadata object. Throws ChainUnreachableError otherwise. */
@@ -45,6 +64,19 @@ function assertValidDecimals(d: number): void {
 }
 
 /**
+ * Validates a metadataCapState string arriving from a CoinInfoFetcher (the boundary a fake
+ * fetcher also crosses). Fail-loud: an unrecognised value throws rather than being coerced to
+ * null — writing null would silently claim "we don't know the cap state" when in fact the source
+ * asserted something we refused to interpret. Distinct from metadataCapStateFromEnum, which
+ * guards the numeric proto→string edge inside the real grpc fetcher.
+ */
+function assertValidMetadataCapState(s: string): asserts s is MetadataCapState {
+  if (!METADATA_CAP_STATES.includes(s as MetadataCapState)) {
+    throw new RegisterError(502, 'COIN_METADATA_INVALID_CAP_STATE', `unrecognised metadataCapState: ${s}`);
+  }
+}
+
+/**
  * Adapts SuiGrpcClient to CoinInfoFetcher.
  *
  * MUST NOT use the SDK's client.getCoinMetadata helper: it coerces a missing decimals to 0
@@ -57,12 +89,16 @@ function assertValidDecimals(d: number): void {
  *  - RpcOptions (state_service.client.d.mts:22 → @protobuf-ts/runtime-rpc rpc-options.d.ts:47)
  *    names the cancellation field `abort`, not `signal`.
  *  - The proto CoinMetadata (state_service.d.mts:65-117) carries no object `version` — only
- *    `id`, `decimals`, `name`, `symbol`, ... — so chainObjectVersion cannot be sourced here.
+ *    `id`, `decimals`, `name`, `symbol`, `metadata_cap_state`, ... So instead of an object
+ *    version we source `metadataCapState` (field 8), the real audit re-verification anchor:
+ *    it answers whether this coin's decimals can still be mutated (DELETED/UNKNOWN → frozen;
+ *    CLAIMED/UNCLAIMED → a holder can still update metadata). It decodes as a numeric enum
+ *    (0-3) at runtime; metadataCapStateFromEnum maps it and throws on anything else.
  */
 export function makeGrpcCoinInfoFetcher(grpc: SuiGrpcClient, timeoutMs: number): CoinInfoFetcher {
   return {
     async getCoinInfo(coinType: string): Promise<RawCoinInfo | null> {
-      let response: { metadata?: { decimals?: number; symbol?: string; name?: string; id?: string } };
+      let response: { metadata?: { decimals?: number; symbol?: string; name?: string; id?: string; metadataCapState?: number } };
       try {
         ({ response } = await grpc.stateService.getCoinInfo({ coinType }, { abort: AbortSignal.timeout(timeoutMs) }));
       } catch (err) {
@@ -70,7 +106,10 @@ export function makeGrpcCoinInfoFetcher(grpc: SuiGrpcClient, timeoutMs: number):
       }
       if (!response.metadata) return null;
       const m = response.metadata;
-      return { decimals: m.decimals, symbol: m.symbol, name: m.name, objectId: m.id };
+      return {
+        decimals: m.decimals, symbol: m.symbol, name: m.name, objectId: m.id,
+        metadataCapState: m.metadataCapState === undefined ? undefined : metadataCapStateFromEnum(m.metadataCapState),
+      };
     },
   };
 }
@@ -105,10 +144,16 @@ export async function registerAsset(db: Db, fetcher: CoinInfoFetcher, args: Regi
       throw new RegisterError(409, 'CHAIN_DECIMALS_MISMATCH',
         `on-chain metadata says ${info.decimals} decimals; chain wins`);
     }
+    // Validate BEFORE store (fail-loud). Absent → null; present-but-illegal → throw, never null.
+    let metadataCapState: MetadataCapState | null = null;
+    if (info.metadataCapState !== undefined) {
+      assertValidMetadataCapState(info.metadataCapState);
+      metadataCapState = info.metadataCapState;
+    }
     candidate = {
       entityId: args.entityId, coinType, decimals: info.decimals,
       symbol: info.symbol ?? coinType, displayName: info.name ?? info.symbol ?? coinType,
-      source: 'chain', chainObjectId: info.objectId ?? null, chainObjectVersion: info.version ?? null,
+      source: 'chain', chainObjectId: info.objectId ?? null, metadataCapState,
       fetchedAt: args.now, decidedBy: null, reason: null, createdAt: args.now,
     };
   } else {
@@ -126,7 +171,7 @@ export async function registerAsset(db: Db, fetcher: CoinInfoFetcher, args: Regi
     candidate = {
       entityId: args.entityId, coinType, decimals: args.decimals,
       symbol: args.symbol, displayName: args.symbol,
-      source: 'manual', chainObjectId: null, chainObjectVersion: null, fetchedAt: null,
+      source: 'manual', chainObjectId: null, metadataCapState: null, fetchedAt: null,
       decidedBy: args.actor, reason: args.reason!.trim(), createdAt: args.now,
     };
   }
