@@ -43,6 +43,12 @@ export function collectBreaks(db: Db, entityId: string, _periodId: string): Reco
   const { byKey, control } = walletAssetMovements(db, entityId);
 
   // Row keys = union of fixture keys and book-movement keys (two-directional).
+  // KNOWN COSMETIC: keys are raw `wallet|coinType` from the fixture and lot_movement as-written.
+  // If the two sources spell the same asset differently (e.g. un-canonicalized coinType), one
+  // asset yields two rows. This is deliberate — spec §2 lists "normalize pre-existing tables" as a
+  // non-goal, so we do NOT canonicalize here. The authoritative close gate is unaffected:
+  // getAssetDecimals canonicalizes downstream, so the worst case is a cosmetic double row for an
+  // unregistered asset, never a wrong close decision.
   const keys = new Set<string>(fixture.map((f) => `${f.wallet}|${f.coinType}`));
   for (const k of Object.keys(byKey)) keys.add(k);
 

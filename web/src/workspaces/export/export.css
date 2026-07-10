@@ -267,7 +267,10 @@
   border: none;
   padding: 0;
   cursor: pointer;
-  color: var(--aqua);
+  /* Navigation CTA, not on-chain semantics — --aqua is reserved for on-chain meaning
+     (recon.css:29). "Register assets →" routes the operator to the registry, so it takes
+     the brass link colour like other off-chain/navigation affordances. */
+  color: var(--brass);
   font: inherit;
   font-weight: 600;
   text-decoration: underline;

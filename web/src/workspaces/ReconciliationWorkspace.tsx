@@ -32,7 +32,11 @@ export function ReconciliationWorkspace({ entityId }: { entityId: string }) {
   if (error) return <div className="recon-err" role="alert">Failed to load reconciliation: {error}</div>;
   if (!data) return null;
 
-  const allBalanced = data.rows.length === 0 || data.rows.every((r) => BigInt(r.breakMinor) === 0n);
+  // breakMinor is raw minor units (scale-independent); a zero break does NOT mean the scale is
+  // known. An unregistered asset blocks close on the backend regardless of its numeric break, so
+  // it must never be swallowed by the balanced empty state (spec §6.3.1 + §6.5.4).
+  const allBalanced = data.rows.length === 0
+    || (data.summary.unregistered === 0 && data.rows.every((r) => BigInt(r.breakMinor) === 0n));
   if (allBalanced) {
     return (
       <EmptyState
