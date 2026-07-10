@@ -49,6 +49,12 @@ import { makeTriageRunner, type TriageRunner } from '../triage/scheduler.js';
 import type { MemoryClient, MemoryRecord } from '../triage/memory/types.js';
 import { amountBand } from '../triage/memory/format.js';
 import { ingestEvent, PeriodLockedError } from './ingestEvent.js';
+import type { SuiGrpcClient } from '@mysten/sui/grpc';
+import { registerAsset, correctAsset, RegisterError, makeGrpcCoinInfoFetcher } from '../assets/register.js';
+import { listAssets } from '../assets/store.js';
+
+const ASSET_ACTOR = 'demo-controller';      // server-side constant, never a client value (D13)
+const COIN_INFO_TIMEOUT_MS = 5000;
 
 export interface RouteDeps {
   db: Db;
@@ -56,6 +62,10 @@ export interface RouteDeps {
   classifyClient: GeminiClient;
   copilotClient: GeminiClient;
   anchorAdapter: SuiGrpcChainAdapter;
+  // Optional to mirror anchorAdapter: existing route tests construct RouteDeps without a live
+  // gRPC client and never exercise the asset-registration path, which is the only consumer.
+  // The POST /assets handler guards on its presence (see routes.ts anchorAdapter precedent).
+  grpc?: SuiGrpcClient;
   mutex: { run<T>(key: string, fn: () => Promise<T>): Promise<T> };
   triageRunner?: TriageRunner;
   memory: MemoryClient;
@@ -260,6 +270,45 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
       return { verdict: 'VERIFIED', attestation: { wallet: att.wallet, verifiedAt: att.verifiedAt, verifier: att.verifier, templateVersion: att.templateVersion } };
     },
   );
+
+  // Asset registry (Task 5). Chain reads go through stateService.getCoinInfo, never
+  // getCoinMetadata — see makeGrpcCoinInfoFetcher for why.
+  app.get<{ Params: { id: string } }>('/entities/:id/assets', async (req) => {
+    requireEntity(db, req.params.id);
+    return { assets: listAssets(db, req.params.id) };
+  });
+
+  app.post<{ Params: { id: string }; Body: { coinType?: string; decimals?: number; symbol?: string; reason?: string } }>(
+    '/entities/:id/assets', async (req, reply) => {
+      requireEntity(db, req.params.id);
+      const b = req.body ?? {};
+      if (!b.coinType) throw new ApiError(400, 'VALIDATION', 'coinType is required');
+      if (!deps.grpc) throw new ApiError(503, 'CHAIN_CLIENT_UNAVAILABLE', 'no gRPC client configured for chain reads');
+      const coinInfoFetcher = makeGrpcCoinInfoFetcher(deps.grpc, COIN_INFO_TIMEOUT_MS);
+      try {
+        const { status, row } = await registerAsset(db, coinInfoFetcher, {
+          entityId: req.params.id, coinType: b.coinType,
+          decimals: b.decimals, symbol: b.symbol, reason: b.reason,
+          actor: ASSET_ACTOR, now: new Date().toISOString(),
+        });
+        reply.code(status);
+        return row;
+      } catch (e) {
+        if (e instanceof RegisterError) throw new ApiError(e.status, e.code, e.message);
+        throw e;
+      }
+    });
+
+  app.delete<{ Params: { id: string; coinType: string } }>('/entities/:id/assets/:coinType', async (req) => {
+    requireEntity(db, req.params.id);
+    try {
+      correctAsset(db, req.params.id, decodeURIComponent(req.params.coinType), ASSET_ACTOR, new Date().toISOString());
+      return { corrected: true };
+    } catch (e) {
+      if (e instanceof RegisterError) throw new ApiError(e.status, e.code, e.message);
+      throw e;
+    }
+  });
 
   // 1. GET /entities
   app.get('/entities', async () => ({

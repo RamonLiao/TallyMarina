@@ -24,7 +24,7 @@ seed(db, {
   originalPackageId: cfg.anchorOriginalPackageId,
 }, fixture);
 
-const { adapter } = makeGrpcAdapter(cfg);
+const { grpc, adapter } = makeGrpcAdapter(cfg);
 const ai = makeGeminiClient(cfg.geminiApiKey);
 const mutex = makeEntityMutex();
 const memory = createMemoryClient(cfg, db);
@@ -37,7 +37,7 @@ app.addHook('onRequest', async (_req, reply) => {
   reply.header('access-control-allow-headers', 'content-type');
 });
 app.options('/*', async (_req, reply) => reply.code(204).send());
-registerRoutes(app, { db, cfg, classifyClient: ai, copilotClient: ai, anchorAdapter: adapter, mutex, triageRunner, memory });
+registerRoutes(app, { db, cfg, classifyClient: ai, copilotClient: ai, anchorAdapter: adapter, grpc, mutex, triageRunner, memory });
 
 for (const sig of ['SIGINT', 'SIGTERM'] as const) {
   process.once(sig, () => { void memory.close().finally(() => process.exit(0)); });
