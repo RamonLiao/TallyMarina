@@ -21,11 +21,15 @@
 // pre-review seed, so raw is the correct — and only available — type here.
 //
 // STATUS: the invariant is currently VIOLATED by the demo seed, so it is quarantined behind
-// `it.fails`. Three keys disagree — SUI (openingMinor 1.2 vs lot 1000), USDC (5.0 vs 0), WETH
-// (2.0 vs 0) — because the recon seed (2ee4c1d, 2026-06-23) and the opening-lot seed (a67c0b5,
-// 2026-07-05) were authored twelve days apart and never reconciled. Deciding which side is the
-// true opening holding is an accounting call with downstream reach (JE -> leaf hash -> merkle
-// root -> snapshot), so it is not made here.
+// `it.fails`. Three keys disagree, in whole units at each row's own decimals (SUI 9, USDC 6,
+// WETH 8): SUI opening 1.2 vs lot 1000, USDC 5000 vs 0, WETH 2.0 vs 0. The recon seed (2ee4c1d,
+// 2026-06-23) and the opening-lot seed (a67c0b5, 2026-07-05) were authored twelve days apart and
+// never reconciled. Deciding which side is the true opening holding is an accounting call with
+// downstream reach (JE -> leaf hash -> merkle root -> snapshot), so it is not made here.
+//
+// The assertion itself compares MINOR units and never divides, so it is immune to the scale
+// confusion above — which is not hypothetical: the first draft of this comment read USDC as 5.0
+// by assuming 9 decimals, the very `?? 9` default this codebase applies when a lookup misses.
 //
 // `it.fails` rather than `it.skip`: a skip is silent forever, whereas this turns RED the moment
 // the seed is fixed, forcing whoever fixes it to delete the quarantine. To keep that quarantine
