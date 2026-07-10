@@ -48,7 +48,7 @@ import { getProposal, listProposals, decideProposal, revertAcceptedToStale, mark
 import { makeTriageRunner, type TriageRunner } from '../triage/scheduler.js';
 import type { MemoryClient, MemoryRecord } from '../triage/memory/types.js';
 import { amountBand } from '../triage/memory/format.js';
-import { ingestEvent, PeriodLockedError } from './ingestEvent.js';
+import { ingestEvent, PeriodLockedError, AssetGateError } from './ingestEvent.js';
 import type { SuiGrpcClient } from '@mysten/sui/grpc';
 import { registerAsset, correctAsset, RegisterError, makeGrpcCoinInfoFetcher } from '../assets/register.js';
 import { listAssets } from '../assets/store.js';
@@ -411,6 +411,12 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
             details: { periodId: err.periodId, eventTime: err.eventTime },
           },
         });
+      }
+      if (err instanceof AssetGateError) {
+        // Defect A gate rejection: client sent an event referencing an unregistered asset
+        // or a decimal scale that disagrees with the registry. This is a client error, not
+        // a server fault — a 500 here would cause upstream retries that can never succeed.
+        return reply.code(422).send({ error: { code: err.reason, message: err.message } });
       }
       if (err instanceof Error && err.message.startsWith('INVALID_EVENT_TIME')) {
         return reply.code(400).send({ error: { code: 'INVALID_EVENT_TIME', message: err.message } });
