@@ -49,16 +49,16 @@ describe('recon monkey — routes', () => {
   });
 
   it('coinType containing :: round-trips through single-pipe parse', async () => {
-    // acme:pilot-001 fixture has 0xusdc::usdc::USDC with a material break
+    // acme:pilot-001 fixture has 0xbeef::usdc::USDC with a material break
     // (openingMinor=5000000000, statementMinor=5000500000, threshold=100000 → break=500000 ≥ threshold).
     // Entity is seeded in beforeEach so collectBreaks finds the fixture row → 200.
     const res = await app.inject({
       method: 'POST',
-      url: `/recon-breaks/${encodeURIComponent('0xacmeTreasury|0xusdc::usdc::USDC')}/disposition`,
+      url: `/recon-breaks/${encodeURIComponent('0xacmeTreasury|0xbeef::usdc::USDC')}/disposition`,
       payload: { state: 'dismissed', reasonCode: 'unidentified' },
     });
     expect(res.statusCode).toBe(200);
-    expect(res.json().disposition.coinType).toBe('0xusdc::usdc::USDC');
+    expect(res.json().disposition.coinType).toBe('0xbeef::usdc::USDC');
   });
 
   it('unknown reasonCode → 400', async () => {
@@ -105,7 +105,7 @@ describe('recon monkey — disposition service', () => {
       entityId: 'acme:pilot-001',
       periodId: '2026-Q2',
       wallet: '0xacmeTreasury',
-      coinType: '0xweth::weth::WETH',
+      coinType: '0xcafe::weth::WETH',
       to: 'resolved',
       reasonCode: 'in-transit',
       decidedBy: 'demo-controller',

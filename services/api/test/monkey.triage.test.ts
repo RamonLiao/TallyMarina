@@ -12,8 +12,8 @@ const P = '2026-Q2';
 // TEST_ENTITY_ID regardless of what's seeded in the test DB — dismiss its 4 rows so the
 // reconciliation light can go green for any test that needs a real period/lock to succeed.
 const RECON_BREAK_KEYS = [
-  '0xacmeTreasury|0x2::sui::SUI', '0xacmeTreasury|0xusdc::usdc::USDC',
-  '0xacmeTreasury|0xweth::weth::WETH', '0xacmeTreasury|0xusdt::usdt::USDT',
+  '0xacmeTreasury|0x2::sui::SUI', '0xacmeTreasury|0xbeef::usdc::USDC',
+  '0xacmeTreasury|0xcafe::weth::WETH', '0xacmeTreasury|0xdead::usdt::USDT',
 ];
 function dismissReconBreaks(db: Db, periodId: string) {
   for (const key of RECON_BREAK_KEYS) {

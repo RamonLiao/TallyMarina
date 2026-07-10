@@ -14,7 +14,7 @@ const FIXTURES = [
   ],
   [
     { account: '1000', side: 'CREDIT', amountMinor: '7', origCoinType: '0x2::sui::SUI', origQtyMinor: '7' },
-    { account: '6000', side: 'DEBIT', amountMinor: '999999999999999999999', origCoinType: '0xusdc::usdc::USDC', origQtyMinor: '999999999999999999999' },
+    { account: '6000', side: 'DEBIT', amountMinor: '999999999999999999999', origCoinType: '0xbeef::usdc::USDC', origQtyMinor: '999999999999999999999' },
   ],
 ];
 

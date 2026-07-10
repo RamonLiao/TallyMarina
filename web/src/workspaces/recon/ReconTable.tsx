@@ -3,7 +3,7 @@ import type { ReconRowDTO } from '../../api/types';
 import { computeBreak } from '../../lib/reconBreak';
 
 const SYMBOLS: Record<string, string> = {
-  '0x2::sui::SUI': 'SUI', '0xusdc::usdc::USDC': 'USDC', '0xweth::weth::WETH': 'WETH', '0xusdt::usdt::USDT': 'USDT',
+  '0x2::sui::SUI': 'SUI', '0xbeef::usdc::USDC': 'USDC', '0xcafe::weth::WETH': 'WETH', '0xdead::usdt::USDT': 'USDT',
 };
 function symbol(coinType: string): string { return SYMBOLS[coinType] ?? coinType.split('::').pop() ?? coinType; }
 function shortAddr(a: string): string { return a.length > 12 ? `${a.slice(0, 6)}…${a.slice(-4)}` : a; }

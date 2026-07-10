@@ -18,9 +18,9 @@ import { upsertReconDisposition } from '../src/store/reconBreakStore.js';
 // Fixture recon breaks that need dismissal before any snapshot can proceed.
 const RECON_BREAKS = [
   '0xacmeTreasury|0x2::sui::SUI',
-  '0xacmeTreasury|0xusdc::usdc::USDC',
-  '0xacmeTreasury|0xweth::weth::WETH',
-  '0xacmeTreasury|0xusdt::usdt::USDT',
+  '0xacmeTreasury|0xbeef::usdc::USDC',
+  '0xacmeTreasury|0xcafe::weth::WETH',
+  '0xacmeTreasury|0xdead::usdt::USDT',
 ];
 function dismissReconBreaks(database: Db, entityId: string, periodId: string) {
   for (const key of RECON_BREAKS) {

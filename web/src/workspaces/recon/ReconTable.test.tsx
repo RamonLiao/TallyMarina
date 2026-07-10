@@ -32,7 +32,7 @@ describe('ReconTable', () => {
   });
 
   it('non-SUI chain provenance renders em-dash (n/a), not live', () => {
-    render(<ReconTable rows={[row({ coinType: '0xusdc::usdc::USDC', provenance: { computed: 'book', statement: 'mock', chain: 'n/a' } })]} selectedKey={null} onSelect={() => {}} />);
+    render(<ReconTable rows={[row({ coinType: '0xbeef::usdc::USDC', provenance: { computed: 'book', statement: 'mock', chain: 'n/a' } })]} selectedKey={null} onSelect={() => {}} />);
     // WHY: non-SUI assets have no on-chain balance; must never show "live"
     expect(screen.queryByText(/live/i)).not.toBeInTheDocument();
     expect(screen.getByText('—')).toBeInTheDocument();
