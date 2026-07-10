@@ -1992,9 +1992,31 @@ This task is where they die, so this task is where the tripwire follows them. Wi
 const SCAN_ROOTS = ['assets', 'reconciliation', 'lots'].map((d) => join(__dirname, '..', 'src', d));
 ```
 
-Run it **before** deleting the two `?? 9` sites: it must go RED and name both
-`collect.ts:58` and `lots/dto.ts:134`. That is the only proof the widened scan actually
-covers them. Then delete them and watch it go green.
+Run it **before** deleting the `?? 9` sites. It must go RED and name `collect.ts:58`.
+
+It will **not** name `lots/dto.ts:134`, and that is not a bug in the widened root. The guard
+matches `decimals` only as the DIRECT left operand of `??`. `fx?.decimals ?? 9` has that shape;
+`decimals.get(key) ?? 9` does not — the `.` after `decimals` breaks the token boundary. This is
+the guard's own disclosed blind spot (indirect the token and it escapes), showing up in
+production code.
+
+Do **not** widen the regex for this, and do **not** rewrite `dto.ts` into a shape the guard can
+see. Both rewrites of these lines land as `…?.decimals ?? null` — bare-token — so any future
+`?? 9` regression at either site *is* caught by the regex as it stands. The blind spot exists
+only in the old line that is being deleted.
+
+Prove `lots/` is inside the scan a different way, **after** the rewrite:
+
+- [ ] temporarily insert a bare-token `const _canary = someDecimals ?? 9;` into `lots/dto.ts`
+- [ ] run the guard — it must go RED naming `lots/dto.ts` at the canary's line
+- [ ] delete the canary, run again — green
+
+That mutation proves the file is in scope. The Step-2 red proves `reconciliation/` is. Together
+they cover both roots without weakening the guard or the thing it guards.
+
+> Ordering still matters for `collect.ts`. Widening the root before Task 7 would have broken a
+> green suite for two known-and-scheduled bugs. Widening it after they're gone would never prove
+> the scan sees that directory.
 
 > Ordering matters. Widening the root before Task 7 would have broken a green suite for two
 > known-and-scheduled bugs. Widening it after they're gone would never prove it sees them.
