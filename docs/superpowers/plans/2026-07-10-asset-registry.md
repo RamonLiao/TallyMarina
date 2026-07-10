@@ -919,13 +919,18 @@ function walk(dir: string, out: string[] = []): string[] {
 // `decimals` as the DIRECT left operand of ?? / ||, with a substantive right operand.
 //
 //   caught:   decimals ?? 9      row.decimals ?? 0      fx?.decimals ?? DEFAULT
+//             (decimals ?? 9)   foo(decimals ?? 9)     decimals ??\n  9
 //   passed:   row.decimals ?? null          (undefined -> null SQL binding, honest)
 //             decimals < 0 || decimals > 36 (range check, not a fallback)
 //             !decimals || typeof decimals !== 'number'   (boolean guard)
 //
 // `?? null` is honest: "the value is absent, record that it is absent."
 // `?? 9`    invents:   "the value is absent, so here is one." That is the bug.
-const FALLBACK_RE = /(?<![!(])\bdecimals\s*(\?\?|\|\|)\s*(?!null\b|undefined\b|typeof\b|decimals\b)\S/i;
+// `[ \t]*` not `\s*`: JS \s matches \n, which would make a collapse-newlines pre-step an
+// inert no-op whose mutation check can never go red.
+// `(?<!!)` only — do NOT also exclude `(`. `(decimals ?? 9)` and `foo(decimals ?? 9)` are the
+// literal reflex this guard exists to catch, merely parenthesised.
+const FALLBACK_RE = /(?<!!)\bdecimals[ \t]*(\?\?|\|\|)[ \t]*(?!null\b|undefined\b|typeof\b|decimals\b)\S/i;
 
 const SCAN_ROOTS = ['assets'].map((d) => join(__dirname, '..', 'src', d));
 
