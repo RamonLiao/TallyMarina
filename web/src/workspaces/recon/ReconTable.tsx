@@ -124,13 +124,24 @@ export function ReconTable({
                   ? <Amount minor={clientBreak} decimals={null} />
                   : b.direction === 'balanced'
                   ? <span className="brk brk--ok" aria-label="balanced" aria-describedby={descId}>
-                      <BreakProfileNumber text={fmtBreak(clientBreak, r.decimals)} precision={r.precision} />{' '}<span aria-hidden="true">✓</span>
-                      <span id={descId} className="recon-sr-only">{r.precision ? profileLabel(r.precision) : ''}</span>
+                      {/* precision describes r.breakMinor (server-computed), not clientBreak. On drift,
+                          those two numbers differ, so precision would dim the wrong digits of the
+                          client's number — same class of bug as `?? 9` reading asset A's scale onto
+                          asset B's amount. We don't have a precision profile for the client number, and
+                          web must not re-derive breakPrecision (that's a second implementation of
+                          server logic — see reconMovements.ts OPENING_LOT incident). Not knowing beats
+                          guessing: fall back to plain text, sighted and SR alike, until drift clears. */}
+                      <BreakProfileNumber text={fmtBreak(clientBreak, r.decimals)} precision={hasDrift ? null : r.precision} />{' '}<span aria-hidden="true">✓</span>
+                      <span id={descId} className="recon-sr-only">{!hasDrift && r.precision ? profileLabel(r.precision) : ''}</span>
                     </span>
                   : <><span className="brk brk--verdict" aria-label={b.material ? 'material break' : 'immaterial break'} aria-describedby={descId}>
-                      <BreakProfileNumber text={fmtBreak(clientBreak, r.decimals)} precision={r.precision} />{' '}
+                      {/* Same drift guard as the balanced branch above — see comment there. */}
+                      <BreakProfileNumber text={fmtBreak(clientBreak, r.decimals)} precision={hasDrift ? null : r.precision} />{' '}
                       <span className={b.material ? 'brk--material' : 'brk--immaterial'} aria-hidden="true">{b.material ? '⛔' : '⚠'}</span>
-                      <span id={descId} className="recon-sr-only">{r.precision ? profileLabel(r.precision) : ''}</span>
+                      {/* KNOWN GAP (Task 12): this span sits inside a wrapper with its own aria-label.
+                          Some screen readers may re-announce this text on top of the wrapper label —
+                          unverified without a real SR (VoiceOver/NVDA) walkthrough in a real browser. */}
+                      <span id={descId} className="recon-sr-only">{!hasDrift && r.precision ? profileLabel(r.precision) : ''}</span>
                     </span>{' '}<em className="brk-dir">({DIR_LABEL[b.direction]})</em></>}
               </td>
               <td data-label="Chain" className="td--mono recon-chain">

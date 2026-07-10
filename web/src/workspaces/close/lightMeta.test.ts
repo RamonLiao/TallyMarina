@@ -19,4 +19,16 @@ describe('dispatchTarget routes every real cockpit light', () => {
   it('returns null for a light with no destination', () => {
     expect(dispatchTarget('pricing')).toBeNull();
   });
+
+  it('routes the je light to journal', () => {
+    // WHY: same silent-dead-click risk as 'registry' above — without this case, a red 'je'
+    // light still renders and sorts as actionable, but clicking it falls through to default:null.
+    expect(dispatchTarget('je')).toBe('journal');
+  });
+
+  it('routes the completeness light to ingest', () => {
+    // WHY: same silent-dead-click risk — a red 'completeness' light must route somewhere,
+    // not fall through to default:null.
+    expect(dispatchTarget('completeness')).toBe('ingest');
+  });
 });

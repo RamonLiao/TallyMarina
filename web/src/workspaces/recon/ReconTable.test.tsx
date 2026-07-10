@@ -107,4 +107,51 @@ describe('ReconTable', () => {
     render(<ReconTable rows={[r]} selectedKey={null} onSelect={() => {}} clientMovements={{}} />);
     expect(screen.queryByLabelText(/evidence drift/i)).not.toBeInTheDocument();
   });
+
+  it('hides the break precision profile (and its sr-only label) when evidence drift is present', () => {
+    // WHY: r.precision describes the SERVER's break (breakMinor), but on drift the visible
+    // break text is the CLIENT's recompute (clientBreak) — a different number. Dimming by a
+    // precision profile that belongs to a different number silently misinforms screen-reader
+    // users (they have no second channel to catch it). On drift we must render plain text and
+    // an empty sr-only description rather than guess a profile for a number we don't have one for.
+    const r = row({ movementMinor: '3800000000' });
+    const driftedClientMovement = 3700000000n; // disagrees with DTO by 100000000 → hasDrift === true
+    render(<ReconTable rows={[r]} selectedKey={null} onSelect={() => {}} clientMovements={{ [key(r)]: driftedClientMovement }} />);
+    const materialEl = screen.getByLabelText(/material break/i);
+    const breakRow = materialEl.closest('tr')!;
+    // No split spans — the profile-driven dim/bold rendering must not appear on drift.
+    expect(breakRow.querySelector('.brk-profile__flat')).not.toBeInTheDocument();
+    expect(breakRow.querySelector('.brk-profile__sig')).not.toBeInTheDocument();
+    // sr-only description must be empty, not a profileLabel for the wrong number.
+    const srOnly = breakRow.querySelector('.recon-sr-only');
+    expect(srOnly).not.toBeNull();
+    expect(srOnly!.textContent).toBe('');
+  });
+
+  it('renders the flat/significant precision split when there is NO drift and flatToDecimal is mid-string', () => {
+    // WHY: the existing "+1.202000000" fixture has flatToDecimal:null (whole-unit break), so it
+    // takes the `cut = text.length` branch and never exercises the actual split arithmetic
+    // (dot + 1 + flatToDecimal). This test uses a fractional flatToDecimal so the cut lands
+    // strictly inside the string, proving BreakProfileNumber slices at the right decimal place.
+    const r = row({
+      decimals: 6,
+      precision: { exactlyZero: false, flatToDecimal: 2, firstSignificantDecimal: 3, lastSignificantDecimal: 5 },
+      openingMinor: '1000000', movementMinor: '234500', computedMinor: '1234500',
+      statementMinor: '0', breakMinor: '1234500', thresholdMinor: '1000000',
+    });
+    render(<ReconTable rows={[r]} selectedKey={null} onSelect={() => {}} clientMovements={{ [key(r)]: 234500n }} />);
+    const materialEl = screen.getByLabelText(/material break/i);
+    const breakRow = materialEl.closest('tr')!;
+    // fmtBreak(1234500, 6) = "+1.234500"; dot at index 2; cut = 2+1+2 = 5 → "+1.23" | "4500"
+    const flat = breakRow.querySelector('.brk-profile__flat');
+    const sig = breakRow.querySelector('.brk-profile__sig');
+    expect(flat).toBeInTheDocument();
+    expect(sig).toBeInTheDocument();
+    expect(flat!.textContent).toBe('+1.23');
+    expect(sig!.textContent).toBe('4500');
+    // sr-only description carries the real profile label — WHY: SR users get the same info
+    // sighted users get from the dim/bold split.
+    const srOnly = breakRow.querySelector('.recon-sr-only');
+    expect(srOnly!.textContent).toMatch(/flat to decimal 2; unflat from decimal 3/);
+  });
 });
