@@ -2421,19 +2421,31 @@ function profileLabel(p: BreakPrecision): string {
 
 /** Dim the flat run, keep the significant run at full ink. Weight and ink only — never colour:
  *  the profile is information, thresholdMinor is the verdict (spec D9/§7.2). */
-function BreakCell({ r }: { r: ReconRowDTO }) {
-  if (r.decimals === null || r.precision === null) return <Amount minor={r.breakMinor} decimals={null} />;
-  const text = fmtMinor(r.breakMinor, r.decimals);
-  const dot = text.indexOf('.');
-  const cut = dot < 0 || r.precision.flatToDecimal === null ? text.length : dot + 1 + r.precision.flatToDecimal;
-  return (
-    <span className="mono brk-profile" aria-label={profileLabel(r.precision)}>
-      <span className="brk-profile__flat">{text.slice(0, cut)}</span>
-      <span className="brk-profile__sig">{text.slice(cut)}</span>
-    </span>
-  );
-}
 ```
+
+> **Implementer: do not write a BreakCell from scratch.** The existing Break cell already
+> renders a *client-recomputed, drift-aware* break (`clientComputed − statement`), a U+2212
+> minus, a `⛔/⚠/✓` marker, a direction label (`book over statement`) and a semantic-colour
+> `brk--material` pill, and three existing tests assert those. Replacing it deletes shipped
+> behaviour.
+>
+> Worse, §7.2's rule ("the profile must not use semantic colour or it double-signals with the
+> material pill") was written without knowing **the pill wraps the number itself**. Ink dimming
+> on white-on-red is not a thing.
+>
+> The resolution — which implements D9 at the pixel level better than this plan did:
+>
+> - **the number is information** → flat run `--ink-soft`, significant run full ink + bold
+> - **the marker, direction and material pill are the verdict** → semantic colour
+> - they no longer overlap: the pill wraps the *marker*, not the number
+>
+> Keep every existing behavioural assertion green. If moving the number out of the pill reds a
+> test that asserts the pill's `textContent`, stop and report rather than rewriting it.
+>
+> Accessibility: nesting `aria-label` inside `aria-label` overrides the accessible name. Put the
+> profile's label on the number element, leave `material break` on the marker, and verify the
+> screen reader announces neither twice nor contradictorily — `aria-describedby` or an
+> `sr-only` span if nesting collides.
 
 Replace each `fmtMinor(r.xxxMinor, r.decimals)` call with `<Amount minor={r.xxxMinor} decimals={r.decimals} />`, and the break cell with `<BreakCell r={r} />`. Add an `[⛔ Unregistered]` pill to the first cell when `r.unregisteredAsset`, and apply `recon-row--material`'s left rail to those rows too.
 
@@ -3039,7 +3051,13 @@ Expected: `201` for all five; SUI reports `source=chain`, the other four `source
 
 Then start api (`npm start`) and web (`cd web && npm run dev`), hard-reload, and with Playwright walk:
 1. Onboarding → registry panel lists five assets, SUI `↗ chain-verified` (aqua), four `✎ manual · unverified` (brass)
-2. Reconciliation → no unregistered pills; precision profile visible on the SUI and USDC breaks
+2. Reconciliation → no unregistered pills; precision profile visible on the SUI and USDC breaks.
+   **Look at the Break cell specifically**: the number's flat run must be dimmed and its
+   significant run full-ink, and the `⛔`/`⚠` marker + direction label must sit *outside* the
+   number, not wrapped around it (Task 9 moved the `brk--material` pill off the number so the
+   profile's ink dimming is legible). jsdom cannot see this — only a screenshot can.
+   Also drive a row with `decimals: null`: amounts must render as raw minor units in a mono
+   chip tagged `scale unknown`, with no decimal alignment attempted.
 3. Close cockpit → `registry` light green; click it → routes to onboarding
 4. Export → bundle builds; manual-disclosure card lists four assets; `journal.csv` has `origDecimals` / `origQty` / `origSource`
 5. Delete a registry row via `DELETE /entities/acme:pilot-001/assets/<encoded>` for an unused coinType, reload → that asset shows `⛔ Unregistered`, ReconDetail offers no Dismiss, export refuses, cockpit light red
