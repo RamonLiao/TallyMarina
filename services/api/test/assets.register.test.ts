@@ -4,8 +4,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openDb } from '../src/store/db.js';
 import { getAsset, insertAssetIfAbsent } from '../src/assets/store.js';
-import { registerAsset, correctAsset, ChainUnreachableError, RegisterError,
+import { registerAsset, correctAsset, makeGrpcCoinInfoFetcher, ChainUnreachableError, RegisterError,
          type CoinInfoFetcher, type RawCoinInfo } from '../src/assets/register.js';
+import type { SuiGrpcClient } from '@mysten/sui/grpc';
 
 const tmpDirs: string[] = [];
 function freshDb() {
@@ -116,6 +117,77 @@ describe('registerAsset — the SDK traps (V1, V6)', () => {
     const bad = fetcherOf(async () => ({ decimals: 99, symbol: 'X', name: 'X' }));
     await expect(registerAsset(db, bad, { entityId: 'e1', coinType: SUI, actor: 'a', now: NOW }))
       .rejects.toMatchObject({ code: 'COIN_METADATA_INVALID_DECIMALS' });
+  });
+});
+
+// The grpc adapter is the ONE boundary the 500+ fetcher-injecting tests above never cross — and
+// it is exactly where "no metadata" vs "transport error" get conflated. Verified live (testnet,
+// scripts/spike-coin-info.ts, 2026-07-10): a non-existent coin makes getCoinInfo THROW an RpcError
+// with .code==='NOT_FOUND', it does NOT resolve an empty response. So these drive the real
+// makeGrpcCoinInfoFetcher with a fake grpc that reproduces that shape.
+function rpcError(code: string, message = 'boom'): Error {
+  const e = new Error(message); e.name = 'RpcError'; (e as { code?: unknown }).code = code; return e;
+}
+function grpcThrowing(err: unknown): SuiGrpcClient {
+  return { stateService: { getCoinInfo: async () => { throw err; } } } as unknown as SuiGrpcClient;
+}
+
+describe('makeGrpcCoinInfoFetcher — the boundary every other test skips', () => {
+  it('a NOT_FOUND coin resolves null → registerAsset takes the MANUAL branch (not 503)', async () => {
+    // WHY (Finding 1): NOT_FOUND is the ONLY path that reaches manual registration in production.
+    // The original catch rethrew everything as ChainUnreachableError, so 503 shadowed manual and
+    // manual — the whole reason the table tolerates metadata-less coins — was dead code. This must
+    // land on 400 MANUAL_DECIMALS_REQUIRED (chain said "no metadata", operator supplied nothing),
+    // NOT 503.
+    const db = freshDb();
+    const fetcher = makeGrpcCoinInfoFetcher(grpcThrowing(rpcError('NOT_FOUND')), 15000);
+    await expect(registerAsset(db, fetcher, { entityId: 'e1', coinType: SUI, actor: 'a', now: NOW }))
+      .rejects.toMatchObject({ code: 'MANUAL_DECIMALS_REQUIRED', status: 400 });
+    expect(getAsset(db, 'e1', SUI_LONG)).toBeNull();
+  });
+
+  it('a NOT_FOUND coin with full manual args registers as source=manual', async () => {
+    // WHY: proves null→manual is actually usable end-to-end, not merely a different error code.
+    const db = freshDb();
+    const fetcher = makeGrpcCoinInfoFetcher(grpcThrowing(rpcError('NOT_FOUND')), 15000);
+    const { status, row } = await registerAsset(db, fetcher,
+      { entityId: 'e1', coinType: SUI, decimals: 6, symbol: 'FAKE', reason: REASON, actor: 'a', now: NOW });
+    expect(status).toBe(201);
+    expect(row.source).toBe('manual');
+  });
+
+  for (const code of ['UNAVAILABLE', 'DEADLINE_EXCEEDED']) {
+    it(`a ${code} RpcError is 503 CHAIN_UNREACHABLE with zero DB rows`, async () => {
+      // WHY (Finding 1): a transport failure must NEVER be read as "no metadata" — that would
+      // permanently downgrade a chain-verifiable asset to source='manual' (D7: decimals never UPDATE).
+      const db = freshDb();
+      const fetcher = makeGrpcCoinInfoFetcher(grpcThrowing(rpcError(code)), 15000);
+      await expect(registerAsset(db, fetcher, { entityId: 'e1', coinType: SUI, decimals: 9, symbol: 'SUI', reason: REASON, actor: 'a', now: NOW }))
+        .rejects.toMatchObject({ code: 'CHAIN_UNREACHABLE', status: 503 });
+      expect(getAsset(db, 'e1', SUI_LONG)).toBeNull();
+    });
+  }
+
+  it('an UNRECOGNISED error (not an RpcError, no known code) is 503 — allow-list, never deny-list', async () => {
+    // WHY (Finding 1, the mutation guard): this is the case a deny-list ("anything that isn't
+    // UNAVAILABLE → null") leaks through. A plain Error we cannot classify MUST be treated as
+    // unreachable, not silently accepted as "no metadata". If this ever goes green under a deny-list
+    // rewrite, the classifier is fabricating a manual downgrade from an error it never understood.
+    const db = freshDb();
+    const fetcher = makeGrpcCoinInfoFetcher(grpcThrowing(new Error('who knows')), 15000);
+    await expect(registerAsset(db, fetcher, { entityId: 'e1', coinType: SUI, decimals: 9, symbol: 'SUI', reason: REASON, actor: 'a', now: NOW }))
+      .rejects.toMatchObject({ code: 'CHAIN_UNREACHABLE', status: 503 });
+    expect(getAsset(db, 'e1', SUI_LONG)).toBeNull();
+  });
+
+  it('a NOT_FOUND-code error whose name is NOT RpcError is still 503 (shape, not just code)', async () => {
+    // WHY: the allow-list requires BOTH name==='RpcError' AND code==='NOT_FOUND'. A stray object
+    // carrying code:'NOT_FOUND' but not the RpcError shape must not sneak into the manual branch.
+    const db = freshDb();
+    const rogue = new Error('nope'); (rogue as { code?: unknown }).code = 'NOT_FOUND'; // name stays 'Error'
+    const fetcher = makeGrpcCoinInfoFetcher(grpcThrowing(rogue), 15000);
+    await expect(registerAsset(db, fetcher, { entityId: 'e1', coinType: SUI, decimals: 9, symbol: 'SUI', reason: REASON, actor: 'a', now: NOW }))
+      .rejects.toMatchObject({ code: 'CHAIN_UNREACHABLE', status: 503 });
   });
 });
 

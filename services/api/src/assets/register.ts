@@ -39,6 +39,32 @@ export interface CoinInfoFetcher {
   getCoinInfo(coinType: string): Promise<RawCoinInfo | null>;
 }
 
+/**
+ * Positively identifies "this coin has no on-chain metadata" and NOTHING else.
+ *
+ * Verified live against testnet (scripts/spike-coin-info.ts, 2026-07-10): a struct-tag that is
+ * legal but absent on chain makes stateService.getCoinInfo *throw* — it does NOT resolve with an
+ * empty response. The throw is a protobuf-ts RpcError with `.name === 'RpcError'` and the string
+ * `.code === 'NOT_FOUND'`. (@protobuf-ts/runtime-rpc is only a transitive dep, so we duck-type on
+ * the shape rather than import the class.)
+ *
+ * This MUST stay an allow-list, not a deny-list. Only a recognised NOT_FOUND returns null → the
+ * manual branch. Every unrecognised error (UNAVAILABLE / DEADLINE_EXCEEDED / abort-TimeoutError /
+ * any bare network throw) is treated as unreachable. Rationale:
+ *  - Mistaking a transient transport error for "no metadata" pushes an operator to hand-declare a
+ *    coin the chain could actually verify, and D7 says decimals never UPDATE — that downgrade to
+ *    source='manual' is *permanent*. A deny-list leaks such errors through by omission, and this
+ *    project already shipped one deny-list bug on 2026-07-10 (`d === null || d.state === 'open'`).
+ *  - This is the exact mirror of the SDK bug this whole table exists to route around: core.mjs:152
+ *    `catch { return { coinMetadata: null } }` conflates "network died" with "no metadata". We very
+ *    nearly re-committed it here — the original catch below threw ChainUnreachableError for *every*
+ *    error, which swallowed NOT_FOUND and made the manual branch dead code in production.
+ */
+function isCoinMetadataNotFound(err: unknown): boolean {
+  return err instanceof Error && err.name === 'RpcError'
+    && (err as { code?: unknown }).code === 'NOT_FOUND';
+}
+
 export class ChainUnreachableError extends Error {
   constructor(cause: string) { super(`chain unreachable: ${cause}`); this.name = 'ChainUnreachableError'; }
 }
@@ -102,8 +128,14 @@ export function makeGrpcCoinInfoFetcher(grpc: SuiGrpcClient, timeoutMs: number):
       try {
         ({ response } = await grpc.stateService.getCoinInfo({ coinType }, { abort: AbortSignal.timeout(timeoutMs) }));
       } catch (err) {
+        // A coin with no metadata throws NOT_FOUND (not an empty response). Only that maps to the
+        // manual branch; everything else is a transport failure that must NOT masquerade as "no
+        // metadata" — see isCoinMetadataNotFound. Allow-list, never deny-list.
+        if (isCoinMetadataNotFound(err)) return null;
         throw new ChainUnreachableError((err as Error).message);
       }
+      // Belt-and-braces: if a future endpoint ever resolves with an empty response instead of
+      // throwing NOT_FOUND, treat that as "no metadata" too.
       if (!response.metadata) return null;
       const m = response.metadata;
       return {

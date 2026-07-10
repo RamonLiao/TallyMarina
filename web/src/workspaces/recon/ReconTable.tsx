@@ -50,7 +50,13 @@ function profileLabel(p: BreakPrecision): string {
 function BreakProfileNumber({ text, precision }: { text: string; precision: BreakPrecision | null }) {
   if (precision === null) return <span className="brk-profile">{text}</span>;
   const dot = text.indexOf('.');
-  const cut = dot < 0 || precision.flatToDecimal === null ? text.length : dot + 1 + precision.flatToDecimal;
+  // `cut` = how many LEADING characters are flat (dimmed leading-zero run); the rest is significant
+  // (full ink + bold). flatToDecimal===null means "the break reaches whole units — NOT ONE digit is
+  // flat", the most material kind of break; it must render entirely significant, so cut=0. (The old
+  // code sent that case to text.length, dumping the WHOLE number into the dimmed run and leaving the
+  // significant run empty — the single most important break drawn as the least visible.) Every other
+  // case (including exactlyZero, where the whole number is flat) cuts at the decimal place.
+  const cut = precision.flatToDecimal === null ? 0 : dot < 0 ? text.length : dot + 1 + precision.flatToDecimal;
   return (
     <span className="brk-profile">
       <span className="brk-profile__flat">{text.slice(0, cut)}</span>
