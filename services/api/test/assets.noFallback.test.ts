@@ -127,13 +127,20 @@ function lineInfoAt(src: string, offset: number): { line: number; text: string }
 describe('structural guard: no decimals fallback', () => {
   // WHY: `?? 9` was not a typo. It was someone thinking "a default seems reasonable here".
   // The next person will think it too. Make the codebase say no on their behalf.
-  it('services/api/src/assets contains no ?? or || fallback on a decimals expression', () => {
+  // The two `?? 9` bugs this guard exists to prevent lived in reconciliation/ and lots/, one
+  // directory over from assets/. Widened here (Task 7) once those sites carry the bare-token
+  // `?? null` shape, so any future `?? <number>` regression in these dirs is caught.
+  const SCAN_ROOTS = ['assets', 'reconciliation', 'lots'].map((d) => join(__dirname, '..', 'src', d));
+
+  it('services/api/src/{assets,reconciliation,lots} contain no ?? or || fallback on a decimals expression', () => {
     const offenders: string[] = [];
-    for (const file of walk(join(__dirname, '..', 'src', 'assets'))) {
-      const src = readFileSync(file, 'utf8');
-      for (const { index } of findFallbackOffenders(src)) {
-        const { line, text } = lineInfoAt(src, index);
-        offenders.push(`${file}:${line}: ${text}`);
+    for (const root of SCAN_ROOTS) {
+      for (const file of walk(root)) {
+        const src = readFileSync(file, 'utf8');
+        for (const { index } of findFallbackOffenders(src)) {
+          const { line, text } = lineInfoAt(src, index);
+          offenders.push(`${file}:${line}: ${text}`);
+        }
       }
     }
     expect(offenders, `decimals must never have a fallback (spec D6/V1):\n${offenders.join('\n')}`).toEqual([]);

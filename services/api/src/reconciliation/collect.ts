@@ -6,10 +6,20 @@ import { loadReconFixture } from './fixture.js';
 import { walletAssetMovements } from './movement.js';
 import { getReconDisposition } from '../store/reconBreakStore.js';
 import { blocksClose } from '../exceptions/disposition.js';
+import { getAssetDecimals } from '../assets/registry.js';
+import { breakPrecision, type BreakPrecision } from '../assets/precision.js';
+import type { AssetSource } from '../assets/store.js';
 
 
 export interface ReconBreak {
-  wallet: string; coinType: string; decimals: number;
+  wallet: string; coinType: string;
+  /** null = this asset is not registered; its scale is unknown. Never a default (spec D6). */
+  decimals: number | null;
+  symbol: string | null;
+  assetSource: AssetSource | null;
+  unregisteredAsset: boolean;
+  /** null when decimals is null — a scale profile without a scale is a lie. */
+  precision: BreakPrecision | null;
   openingMinor: string; movementMinor: string; computedMinor: string;
   statementMinor: string; breakMinor: string; thresholdMinor: string;
   material: boolean;
@@ -54,10 +64,17 @@ export function collectBreaks(db: Db, entityId: string, _periodId: string): Reco
     // material = a nonzero break at or above threshold. A zero break is always balanced,
     // even when threshold === 0 (zero-tolerance still requires an actual difference).
     const material = abs > 0n && abs >= threshold;
+    const asset = getAssetDecimals(db, entityId, coinType);
+    const breakMinor = brk.toString();
     out.push({
-      wallet, coinType, decimals: fx?.decimals ?? 9,
+      wallet, coinType,
+      decimals: asset?.decimals ?? null,
+      symbol: asset?.symbol ?? null,
+      assetSource: asset?.source ?? null,
+      unregisteredAsset: asset === null,
+      precision: asset === null ? null : breakPrecision(breakMinor, asset.decimals),
       openingMinor: opening.toString(), movementMinor: movement.toString(), computedMinor: computed.toString(),
-      statementMinor: statement.toString(), breakMinor: brk.toString(), thresholdMinor: threshold.toString(),
+      statementMinor: statement.toString(), breakMinor, thresholdMinor: threshold.toString(),
       material,
       control: { debitMinor: ctl.debit.toString(), creditMinor: ctl.credit.toString(), legs: ctl.legs },
     });

@@ -8,7 +8,8 @@ describe('loadReconFixture', () => {
     const sui = rows.find((r) => r.coinType === '0x2::sui::SUI');
     expect(sui).toBeTruthy();
     expect(() => BigInt(sui!.openingMinor)).not.toThrow();
-    expect(sui!.decimals).toBe(9);
+    // decimals removed from ReconFixtureRow (Task 7): the registry is the sole scale authority,
+    // the fixture no longer carries it. Nothing to assert here anymore.
   });
 
   it('throws on unknown entity (fail-loud, no silent empty)', () => {

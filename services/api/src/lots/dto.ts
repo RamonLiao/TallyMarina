@@ -2,7 +2,7 @@
 // ledger + a recompute-on-read simulation. No writes.
 import type { Db } from '../store/db.js';
 import { listLotMovements, foldRemainingLots, acquireLotSeq, type LotMovementRow } from '../store/lotMovementStore.js';
-import { loadReconFixture } from '../reconciliation/fixture.js';
+import { getAssetDecimals } from '../assets/registry.js';
 import { simulateLots } from './simulate.js';
 
 // Frontend-reviewed contract (spec §5). Amounts are BigInt strings throughout.
@@ -11,7 +11,7 @@ import { simulateLots } from './simulate.js';
 export interface LotsDTO {
   simulationGaps: string[];
   groups: Array<{
-    wallet: string; coinType: string; decimals: number;
+    wallet: string; coinType: string; decimals: number | null;
     lots: Array<{
       lotId: string; lotSeq: string; origin: 'opening' | 'derived';
       remainingQtyMinor: string; costMinor: string; originEventId: string;
@@ -26,24 +26,10 @@ export interface LotsDTO {
   }>;
 }
 
-// decimals convention mirrors reconciliation/collect.ts:60 — fixture row's decimals, else 9.
-// Missing/malformed fixture is tolerated as "not configured" (empty) exactly like collectBreaks.
-function decimalsLookup(entityId: string): Map<string, number> {
-  const m = new Map<string, number>();
-  try {
-    for (const f of loadReconFixture(entityId)) m.set(`${f.wallet}|${f.coinType}`, f.decimals);
-  } catch (e) {
-    if (e instanceof Error && e.message === `no recon fixture for entity ${entityId}`) return m; // not configured
-    throw e; // malformed fixture — fail loud (Rule 12)
-  }
-  return m;
-}
-
 type LotEntry = LotsDTO['groups'][number]['lots'][number];
 
 export function buildLotsDTO(db: Db, entityId: string): LotsDTO {
   const { lots: sim, simulationGaps, gapPools } = simulateLots(db, entityId);
-  const decimals = decimalsLookup(entityId);
   const hasGaps = simulationGaps.length > 0;
 
   // Union of (wallet, coinType) pools from BOTH the persisted ledger and the recompute —
@@ -131,7 +117,7 @@ export function buildLotsDTO(db: Db, entityId: string): LotsDTO {
     }
 
     if (lots.length === 0) continue; // fully-consumed pool with no sim divergence
-    groups.push({ wallet, coinType, decimals: decimals.get(key) ?? 9, lots });
+    groups.push({ wallet, coinType, decimals: getAssetDecimals(db, entityId, coinType)?.decimals ?? null, lots });
   }
   return { simulationGaps, groups };
 }

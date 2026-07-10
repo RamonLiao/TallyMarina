@@ -23,14 +23,13 @@ export function validateReconRows(raw: unknown, entityId: string): ReconFixtureR
   const seen = new Set<string>();
   return raw.map((r0) => {
     const r = r0 as Record<string, unknown>;
-    const wallet = r.wallet, coinType = r.coinType, decimals = r.decimals;
+    const wallet = r.wallet, coinType = r.coinType;
     if (typeof wallet !== 'string' || typeof coinType !== 'string') throw new Error(`recon fixture: wallet/coinType must be strings`);
-    if (typeof decimals !== 'number' || !Number.isInteger(decimals) || decimals < 0) throw new Error(`recon fixture ${wallet}|${coinType}: decimals must be a non-negative integer`);
     const key = `${wallet}|${coinType}`;
     if (seen.has(key)) throw new Error(`recon fixture: duplicate row ${key}`);
     seen.add(key);
     return {
-      wallet, coinType, decimals,
+      wallet, coinType,
       openingMinor: assertMinor(r.openingMinor, 'openingMinor', key),
       statementMinor: assertMinor(r.statementMinor, 'statementMinor', key),
       thresholdMinor: assertMinor(r.thresholdMinor, 'thresholdMinor', key),
