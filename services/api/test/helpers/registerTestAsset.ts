@@ -18,3 +18,21 @@ export function registerTestAsset(db: Db, entityId: string, coinType: string, de
     createdAt: '2026-01-01T00:00:00Z',
   });
 }
+
+/**
+ * The four assets acme:pilot-001's recon fixture references, with their real decimals.
+ * (NOT five — 0xface::tok::TOK belongs to opening-lot-recon-test:entity.)
+ *
+ * Registering these is the master-data precondition the registry close-gate checks. Tests that
+ * exercise lock/snapshot/cockpit for acme now must supply it — the gate is new, so the fixture's
+ * assets are unregistered until a test provides this row set. This SUPPLIES the precondition; it
+ * does not weaken the gate (which still blocks whenever any held asset has no registered scale).
+ */
+export const ACME_FIXTURE_ASSETS: ReadonlyArray<readonly [string, number]> = [
+  ['0x2::sui::SUI', 9], ['0xbeef::usdc::USDC', 6],
+  ['0xcafe::weth::WETH', 8], ['0xdead::usdt::USDT', 6],
+];
+
+export function registerAcmeFixtureAssets(db: Db, entityId = 'acme:pilot-001'): void {
+  for (const [ct, dp] of ACME_FIXTURE_ASSETS) registerTestAsset(db, entityId, ct, dp);
+}

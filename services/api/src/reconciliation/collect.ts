@@ -90,3 +90,23 @@ export function openMaterialReconBlockers(db: Db, entityId: string, periodId: st
   return collectBreaks(db, entityId, periodId)
     .filter((b) => b.material && blocksClose(getReconDisposition(db, entityId, periodId, b.wallet, b.coinType)));
 }
+
+/**
+ * The registry half of the close gate. Deliberately NOT folded into blocksClose(): that
+ * predicate answers "has a human decided this break?", which is a different question from
+ * "do we know this asset's scale?". An unregistered asset blocks close no matter what anybody
+ * dismissed, because a dismissal of an amount at an unknown scale decides nothing. It is also
+ * orthogonal to `material`: an unregistered asset blocks even when its break is below threshold,
+ * because "below threshold" is itself computed against a scale we do not have.
+ *
+ * Call sites (all six, enumerated so nobody has to grep):
+ *   1. this function                       — the predicate
+ *   2. routes.ts GET /close-readiness      — readiness must match the gate
+ *   3. routes.ts POST /snapshot            — the freeze gate
+ *   4. routes.ts reconDTO                  — summary.unregistered, the UI badge tally
+ *   5. periodLock/cockpit.ts               — the 'registry' light
+ *   6. web ReconDetail.tsx                 — suppresses disposition controls (Task 9)
+ */
+export function unregisteredAssetBlockers(db: Db, entityId: string, periodId: string): ReconBreak[] {
+  return collectBreaks(db, entityId, periodId).filter((b) => b.unregisteredAsset);
+}

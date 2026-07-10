@@ -7,6 +7,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import type { Db } from '../src/store/db.js';
 import { buildTestApp, TEST_ENTITY_ID } from './helpers/app.js';
+import { registerAcmeFixtureAssets } from './helpers/registerTestAsset.js';
 import { upsertReconDisposition } from '../src/store/reconBreakStore.js';
 import { getSnapshot } from '../src/store/snapshotStore.js';
 
@@ -37,6 +38,7 @@ async function seedLockedPeriodWithJE(ctx: Ctx) {
   await app.inject({ method: 'POST', url: `/entities/${entityId}/ingest`, payload: {} });
   await app.inject({ method: 'POST', url: `/entities/${entityId}/run-rules`, payload: { periodId } });
   dismissReconBreaks(db, entityId, periodId);
+  registerAcmeFixtureAssets(db, entityId); // registry close-gate precondition (assets have known scale)
   const lockR = await app.inject({ method: 'POST', url: `/entities/${entityId}/period/lock`, payload: { periodId } });
   if (lockR.statusCode !== 200) {
     throw new Error(`seedLockedPeriodWithJE: lock failed ${lockR.statusCode} ${lockR.body}`);

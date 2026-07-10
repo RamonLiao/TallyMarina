@@ -4,6 +4,7 @@ import { buildTestApp, TEST_ENTITY_ID } from './helpers.js';
 import type { GeminiClient } from '../src/ai/geminiClient.js';
 import { insertProposal, getProposal, listProposals, decideProposal } from '../src/store/proposalStore.js';
 import { upsertReconDisposition } from '../src/store/reconBreakStore.js';
+import { registerAcmeFixtureAssets } from './helpers/registerTestAsset.js';
 import type { Db } from '../src/store/db.js';
 
 const P = '2026-Q2';
@@ -166,6 +167,7 @@ describe('monkey: triage', () => {
       reasonCode: 'PENDING_DOC', decidedBy: 'demo-controller', now: 1,
     });
     dismissReconBreaks(app._db, P);
+    registerAcmeFixtureAssets(app._db); // registry close-gate precondition (assets have known scale)
     const lockRes = await app.inject({ method: 'POST', url: `/entities/${encodeURIComponent(TEST_ENTITY_ID)}/period/lock`, payload: { periodId: P } });
     expect(lockRes.statusCode).toBe(200);
     const acc = await app.inject({ method: 'POST', url: `/triage/proposals/${p.id}/accept` });

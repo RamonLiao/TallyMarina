@@ -19,6 +19,7 @@ import { insertEvent, setAiSuggestion } from '../src/store/eventStore.js';
 import { openMaterialReconBlockers } from '../src/reconciliation/collect.js';
 import { applyReconDisposition } from '../src/reconciliation/disposition.js';
 import { loadReconFixture } from '../src/reconciliation/fixture.js';
+import { registerAcmeFixtureAssets } from './helpers/registerTestAsset.js';
 
 const EID = 'acme:pilot-001';
 const PERIOD = '2026-Q2';
@@ -124,6 +125,7 @@ describe('freeze gate honours deferred', () => {
   let db: Db; let app: FastifyInstance;
   beforeEach(async () => {
     db = openDb(':memory:'); seedEntity(db); lockPeriod(db);
+    registerAcmeFixtureAssets(db); // registry close-gate precondition (this suite exercises the freeze/readiness gates)
     app = Fastify();
     registerRoutes(app, { db, cfg: { reconLiveWallet: '0xreal', explorerBase: 'https://x' } as never, classifyClient: {} as never, copilotClient: {} as never, anchorAdapter: null as never, mutex: { run: (_k: string, fn: () => Promise<never>) => fn() }, memory: new OffMemory() });
     await app.ready();

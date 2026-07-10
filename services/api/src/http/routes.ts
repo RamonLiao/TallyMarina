@@ -19,7 +19,7 @@ import { applyDisposition, blocksClose } from '../exceptions/disposition.js';
 import { getDisposition } from '../store/dispositionStore.js';
 import { BLOCKING_CATEGORIES, REASON_CODES, type DispositionState } from '../exceptions/types.js';
 import { listAnchors } from '../store/anchorStore.js';
-import { collectBreaks, openMaterialReconBlockers } from '../reconciliation/collect.js';
+import { collectBreaks, openMaterialReconBlockers, unregisteredAssetBlockers } from '../reconciliation/collect.js';
 import { applyReconDisposition } from '../reconciliation/disposition.js';
 import { getReconDisposition } from '../store/reconBreakStore.js';
 import { RECON_REASON_CODES, type ReconReasonCode } from '../reconciliation/types.js';
@@ -176,7 +176,11 @@ function reconDTO(db: Db, entityId: string, periodId: string, liveWallet: string
   // route still 409'd.
   const blockingMaterial = rows.filter((r) => r.material && blocksClose(r.disposition)).length;
   const balanced = rows.filter((r) => BigInt(r.breakMinor) === 0n).length;
-  return { rows, realWallet: liveWallet ?? null, summary: { material, blockingMaterial, balanced } };
+  // Registry tally (call site 4): assets whose scale we do not know. Counted separately from
+  // `material` because it is orthogonal to both materiality and disposition — see
+  // unregisteredAssetBlockers. The UI renders this as its own badge / suppresses controls.
+  const unregistered = rows.filter((r) => r.unregisteredAsset).length;
+  return { rows, realWallet: liveWallet ?? null, summary: { material, blockingMaterial, balanced, unregistered } };
 }
 
 export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
@@ -594,10 +598,12 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     const exBlockers = exceptionDTO(db, req.params.id, periodId, cfg.exceptionLowConfidence)
       .filter((e) => BLOCKING_CATEGORIES.includes(e.category) && blocksClose(e.disposition));
     const reconBlockers = openMaterialReconBlockers(db, req.params.id, periodId);
+    const registryBlockers = unregisteredAssetBlockers(db, req.params.id, periodId);
     return {
       exceptions: { blocking: exBlockers.length, blockers: exBlockers },
       recon: { blocking: reconBlockers.length, blockers: reconBlockers.map((b) => encodeReconBreakId(b.wallet, b.coinType)) },
-      closeable: exBlockers.length === 0 && reconBlockers.length === 0,
+      registry: { blocking: registryBlockers.length, blockers: registryBlockers.map((b) => b.coinType) },
+      closeable: exBlockers.length === 0 && reconBlockers.length === 0 && registryBlockers.length === 0,
     };
   });
 
@@ -843,6 +849,15 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
       if (reconBlockers.length > 0) {
         throw new ApiError(409, 'RECON_BREAKS_BLOCKING',
           `${reconBlockers.length} undecided material break(s) block close: ${reconBlockers.map((b) => encodeReconBreakId(b.wallet, b.coinType)).join(', ')}`);
+      }
+      // Registry gate (call site 3): orthogonal to the recon gate above. A break can be dismissed
+      // (clearing the recon gate) yet still carry an unknown scale — freezing over it would anchor
+      // an amount we cannot interpret. Placed AFTER the recon check so a decided break still trips
+      // here on its registry status alone.
+      const registryBlockers = unregisteredAssetBlockers(db, req.params.id, periodId);
+      if (registryBlockers.length > 0) {
+        throw new ApiError(409, 'UNREGISTERED_ASSETS_BLOCKING',
+          `${registryBlockers.length} asset(s) have no registered decimals: ${registryBlockers.map((b) => b.coinType).join(', ')}`);
       }
       const jes: JournalEntry[] = listJournal(db, req.params.id, periodId).map((r) => JSON.parse(r.jeJson) as JournalEntry);
       const outputs = jes.map((je) => ({

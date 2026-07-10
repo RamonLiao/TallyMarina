@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { buildTestApp, TEST_ENTITY_ID } from './helpers/app.js';
+import { registerAcmeFixtureAssets } from './helpers/registerTestAsset.js';
 import type { FastifyInstance } from 'fastify';
 import type { Db } from '../src/store/db.js';
 import { insertEvent, setAiSuggestion } from '../src/store/eventStore.js';
@@ -23,7 +24,7 @@ const EID = TEST_ENTITY_ID; // 'acme:pilot-001' — matches fixture rawJson enti
 describe('exceptions routes + close gate', () => {
   let app: FastifyInstance & { _db: Db };
 
-  beforeEach(async () => { app = await buildTestApp(); });
+  beforeEach(async () => { app = await buildTestApp(); registerAcmeFixtureAssets(app._db); }); // registry close-gate precondition
 
   it('GET /entities/:id/exceptions returns categorized list + summary', async () => {
     // Seed a NEEDS_REVIEW event so collectExceptions surfaces CLASSIFY_REVIEW

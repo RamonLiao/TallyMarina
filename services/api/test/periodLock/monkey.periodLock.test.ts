@@ -6,6 +6,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { openDb, type Db } from '../../src/store/db.js';
+import { registerAcmeFixtureAssets } from '../helpers/registerTestAsset.js';
 import { seed } from '../../src/store/seed.js';
 import { registerRoutes } from '../../src/http/routes.js';
 import { OffMemory } from '../../src/triage/memory/offMemory.js';
@@ -73,6 +74,7 @@ beforeEach(async () => {
     entityCapId: cfg.entityCapId,
     originalPackageId: cfg.anchorOriginalPackageId,
   }, fixture as FixtureBundle);
+  registerAcmeFixtureAssets(db, cfg.entityId); // registry close-gate precondition (assets have known scale)
   app = Fastify();
   registerRoutes(app, {
     db, cfg, classifyClient, copilotClient: classifyClient,
