@@ -90,7 +90,7 @@ progress.md 引用的 `services/api/src/audit/buildBundle.ts` **不存在**。ex
 | D13 | `decided_by` 取 **server-side 常數**，絕不收 client body | 既有 pattern：`routes.ts:633,926` 硬編 `'demo-controller'`、`:723` 用 `LOCKED_BY` |
 | **D14** | **鏈上讀取一律走 `client.stateService.getCoinInfo()`，禁用 `client.getCoinMetadata()`** | **SUI Critical**。見 §3.2 |
 | **D15** | **網路/傳輸錯誤必須 propagate（`503`），絕不得與「鏈上無 metadata」混為一談，絕不引導至 manual** | **SUI Critical × CPA Critical 的交集**。見 §3.2 |
-| **D16** | registry 存 `symbol` / `display_name`（chain 自動擷取、manual 必填）與 `chain_object_version` | **CPA + SUI**。沒有人類可讀識別，審計師無法用 64-hex struct tag re-perform；沒有物件版本，日後重驗讀到的是當下鏈上狀態，無版本錨點 |
+| **D16** | registry 存 `symbol` / `display_name`（chain 自動擷取、manual 必填）與 **`metadata_cap_state`** | **CPA + SUI，2026-07-10 於 Task 5 實作時修正**。沒有人類可讀識別，審計師無法用 64-hex struct tag re-perform。原本要求存 `chain_object_version` 當重驗錨點 —— **實查後推翻：`CoinMetadata` proto 沒有 `version` 欄位**（見 §3.2）。改存 `metadata_cap_state`，它更直接地回答審計師的問題：**這個 coin 的 decimals 現在還能不能被改** |
 
 ### 3.1 Open control gap（不假裝有控制）
 
@@ -129,7 +129,31 @@ grpc/core.mjs:147-164
    → **D15**：transport error 必須 propagate，onboarding 回 `503 CHAIN_UNREACHABLE`，**不**引導去 manual。
    → D7b 的更正路徑是這條的第二道保險。
 
-**未驗證項（誠實標註）**：新的 `CoinRegistry` 模型暴露了 `MetadataCap`，proto 註解稱其「allows updating the coin's metadata fields」（`state_service.d.mts:104-116`），且 metadata 可能來自 live `coin_registry::Currency` object（`:68`）而非 frozen object。**`set_decimals` 是否存在於 CoinRegistry，未對框架原始碼查證。** D16 的 `chain_object_version` 錨點讓這個未知變得無關緊要：重驗永遠針對當初擷取的版本。
+### 3.3 D16 修正：沒有 version，但有更好的東西（2026-07-10，Task 5 實作時實查）
+
+SUI 審當初建議「記 `chain_object_version` 而非只記 `chain_object_id`，否則審計師重驗讀到的是當下鏈上狀態，沒有版本錨點」。**已採納為 D16 —— 然後被實作推翻。**
+
+`CoinMetadata` 這個 proto message **沒有 `version` 欄位**（實查 `state_service.d.mts`，欄位為 `id` / `decimals` / `name` / `symbol` / `description` / `iconUrl` / `metadataCapId` / `metadataCapState`）。版本錨點不可實作。
+
+而且版本錨點本身其實**弱**：Sui 全節點會修剪舊版本物件，審計師拿著一個歷史 version 未必讀得到。
+
+同一個 message 帶了兩個更有用的欄位：
+
+```
+metadataCapId?:    string;
+metadataCapState?: CoinMetadata_MetadataCapState;   // UNKNOWN=0, CLAIMED=1, UNCLAIMED=2, DELETED=3
+```
+
+| 值 | 意義 | 對 `source='chain'` 的可稽核性 |
+|---|---|---|
+| `DELETED` | MetadataCap 已銷毀 | metadata **永久凍結**，decimals 永久可信 |
+| `UNKNOWN` | 該 coin 未遷移到 CoinRegistry，走 legacy `0x2::coin::CoinMetadata` | legacy 無 `update_decimals`（只能改 name/symbol/description/icon）→ decimals 不可變 |
+| `CLAIMED` | 有人持有 MetadataCap | **可以更新 metadata** → 「chain-verified」的保證有時效性 |
+| `UNCLAIMED` | cap 存在但未認領 | 同上，任何人認領後即可改 |
+
+**裁決**：`chain_object_version` 欄位刪除，改存 `metadata_cap_state`。零額外 RPC（同一次 `getCoinInfo` 就回傳了）。UI 與 export disclosure 應在 `CLAIMED` / `UNCLAIMED` 時對「chain-verified」徽章帶保留。
+
+**仍未驗證（誠實標註）**：proto 註解稱 `MetadataCap`「allows updating the coin's metadata fields」，但 **`decimals` 是否在可更新欄位之列，未對 Move 框架原始碼查證**。若不在，`CLAIMED` 也不影響 decimals 的可信度，`metadata_cap_state` 就只是資訊而非警示。此問題不阻擋本 spec：無論答案為何，記錄該狀態都是正確的，且比記錄一個取不到的 version 好。
 
 （`RegulatedCoinMetadata`（`:205`）是**獨立物件**，只帶 deny-list 資訊，不帶 decimals。DenyList 不會讓「一個 coinType 對應唯一 decimals」失效 —— 查證後無需處置。）
 
@@ -145,8 +169,8 @@ CREATE TABLE IF NOT EXISTS asset_registry (
   symbol               TEXT NOT NULL,                                  -- D16：人類可讀
   display_name         TEXT NOT NULL,
   source               TEXT NOT NULL CHECK (source IN ('chain','manual')),
-  chain_object_id      TEXT,                                           -- source='chain'
-  chain_object_version TEXT,                                           -- D16：重驗的版本錨點
+  chain_object_id      TEXT,                                           -- source='chain'：CoinMetadata object id
+  metadata_cap_state   TEXT,                                           -- D16：DELETED=decimals 永久凍結
   fetched_at           TEXT,                                           -- source='chain'
   decided_by           TEXT,                                           -- source='manual'
   reason               TEXT,                                           -- source='manual'，最小長度驗證
@@ -596,7 +620,7 @@ i = frac 中第一個非零字元的 0-based index
 
 | 審 | Verdict | 收 | 不收 / 改寫 |
 |---|---|---|---|
-| **SUI**（`sui-architect`） | `READY-WITH-FIXES` | Critical: `getCoinMetadata` 的 `?? 0` coercion → D14；bare `catch` 混淆 transport error 與 no-metadata → D15/V6；MVR named package 破壞 V2 → `400`；`chain_object_version` 版本錨點 → D16 | — |
+| **SUI**（`sui-architect`） | `READY-WITH-FIXES` | Critical: `getCoinMetadata` 的 `?? 0` coercion → D14；bare `catch` 混淆 transport error 與 no-metadata → D15/V6；MVR named package 破壞 V2 → `400` | **`chain_object_version` 版本錨點 → 實作時實查推翻**（proto 無 version 欄位），改存 `metadata_cap_state`，見 §3.3。這是 reviewer 正確的直覺配上一個不存在的欄位 |
 | **CPA** | `READY-WITH-FIXES` | Critical: 零爆炸半徑更正路徑 → D7b；manual SoD 缺口 → §3.1 open control gap + close-window 標紅；剖面 overclaim → §7.3 + 目標 4 改寫；completeness assertion → §2.1；`symbol`/`name` → D16；CSV 格式契約 → §6.4.1；log 未 anchor → §4.3；`claimed/chain_decimals` 結構化 → §4；`reason` 最小長度 → §3.1；兩個 log 的完整性測試涵蓋 → §6.2 | 資產分類 / 公允價值 level / 減損政策**不塞進本表**（CPA 自己反對，僅留痕 → §10-7）。maker-checker 本輪不做（兩個 server 常數互相覆核是假控制）→ §10-3 |
 | **frontend** | `READY-WITH-FIXES` | Critical: `AssetRegistryPanel` + 6 狀態 → §6.5.1；`decimals === null` 的渲染契約 → §6.3.1；**`ReconDetail.tsx:93` 讓未登錄列可被 cosmetic dismiss** → §6.3.2 第 6 個 call site；`summary.unregistered` 第三個 badge；統一視覺詞彙四介面 + 專屬 cockpit 燈 → §6.5.4；錯誤文案表 → §6.5.3；`chain`=aqua / `manual`=brass（既有慣例強制）→ §6.5.2；剖面禁用語意色 → §7.2；≤640px card 化 → §6.5.5 | place-value ruler（寬度不可行）→ §10-12。**更正我派工時的錯誤假設**：此 app 無暗色模式；recon 斷點是 640/1024 非 390/1280 |
 
