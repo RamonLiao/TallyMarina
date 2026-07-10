@@ -20,35 +20,67 @@ export class AssetGateError extends Error {
 }
 
 /**
- * Defect A gate. event.assetDecimals is a per-event field that feeds mulUnitPrice -> cost
- * basis -> JE -> leaf -> merkle root -> chain; two events for one coinType could carry
- * different scales with no invariant to stop them. The registry VALIDATES the claim — it
- * does not replace the value, so rules-engine, JE encoding, leaf hashes, merkle roots and
- * every previously anchored snapshot stay byte-identical. All this adds is a door.
+ * Defect A gate. It guards BOTH legs of an event, because any per-event decimals field that
+ * reaches mulUnitPrice -> cost basis -> JE -> leaf -> merkle root -> chain is a fail-open hole
+ * if left unchecked, not just the sold leg's `assetDecimals`:
+ *   - sold leg:          `coinType`           + `assetDecimals`
+ *   - consideration leg: `considerationAsset` + `considerationDecimals`  (the buy leg of a swap)
+ * The consideration leg is the more dangerous one: `considerationDecimals` divides the swap's
+ * fair value in p06_pricefx, so an unvalidated scale silently rescales cost basis by 10^n and
+ * anchors it. Both legs run through the SAME check (checkAssetLeg) so the two can never drift.
+ *
+ * The registry VALIDATES the claim — it does not replace the value, so rules-engine, JE
+ * encoding, leaf hashes, merkle roots and every previously anchored snapshot stay
+ * byte-identical. All this adds is a door.
  *
  * getAssetDecimals is a synchronous, no-network read (safe on the hot path) and internally
- * canonicalizes; an invalid coinType reads as null -> ASSET_NOT_REGISTERED, which is correct
+ * canonicalizes; an invalid coinType reads as null -> *_NOT_REGISTERED, which is correct
  * (an event whose coinType string is unparseable must not post).
  */
-function assetGate(db: Db, entityId: string, parsed: Record<string, unknown>): void {
-  const coinType = parsed.coinType;
-  const assetDecimals = parsed.assetDecimals;
+interface LegLabels {
+  notRegistered: string;
+  decimalsMismatch: string;
+  decimalsWithoutCoin: string;
+}
 
+const SOLD_LEG_LABELS: LegLabels = {
+  notRegistered: 'ASSET_NOT_REGISTERED',
+  decimalsMismatch: 'ASSET_DECIMALS_MISMATCH',
+  decimalsWithoutCoin: 'ASSET_DECIMALS_WITHOUT_COIN_TYPE',
+};
+
+const CONSIDERATION_LEG_LABELS: LegLabels = {
+  notRegistered: 'CONSIDERATION_ASSET_NOT_REGISTERED',
+  decimalsMismatch: 'CONSIDERATION_DECIMALS_MISMATCH',
+  decimalsWithoutCoin: 'CONSIDERATION_DECIMALS_WITHOUT_COIN_TYPE',
+};
+
+/**
+ * One leg's registry check. `null` and `undefined` both mean "this leg is absent": a non-swap
+ * event carries considerationAsset/considerationDecimals as explicit nulls, and those must pass
+ * through untouched. A decimals value present without its coinType is structurally incoherent.
+ */
+function checkAssetLeg(db: Db, entityId: string, coinType: unknown, decimals: unknown, labels: LegLabels): void {
   if (typeof coinType !== 'string') {
-    if (assetDecimals !== undefined) {
-      throw new AssetGateError('ASSET_DECIMALS_WITHOUT_COIN_TYPE', 'assetDecimals present with no coinType');
+    if (decimals !== undefined && decimals !== null) {
+      throw new AssetGateError(labels.decimalsWithoutCoin, 'decimals present with no coinType');
     }
-    return; // fiat / gas events carry no asset scale
+    return; // fiat / gas events, or a swap's absent buy leg, carry no asset scale
   }
 
   const info = getAssetDecimals(db, entityId, coinType);
   if (info === null) {
-    throw new AssetGateError('ASSET_NOT_REGISTERED', `${coinType} is not registered for ${entityId}`);
+    throw new AssetGateError(labels.notRegistered, `${coinType} is not registered for ${entityId}`);
   }
-  if (assetDecimals !== info.decimals) {
-    throw new AssetGateError('ASSET_DECIMALS_MISMATCH',
-      `${coinType}: event says ${String(assetDecimals)}, registry says ${info.decimals}`);
+  if (decimals !== info.decimals) {
+    throw new AssetGateError(labels.decimalsMismatch,
+      `${coinType}: event says ${String(decimals)}, registry says ${info.decimals}`);
   }
+}
+
+function assetGate(db: Db, entityId: string, parsed: Record<string, unknown>): void {
+  checkAssetLeg(db, entityId, parsed.coinType, parsed.assetDecimals, SOLD_LEG_LABELS);
+  checkAssetLeg(db, entityId, parsed.considerationAsset, parsed.considerationDecimals, CONSIDERATION_LEG_LABELS);
 }
 
 /**
