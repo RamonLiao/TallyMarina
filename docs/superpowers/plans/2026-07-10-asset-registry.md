@@ -771,11 +771,18 @@ function coinTypesOf(json: string): Set<string> | null {
  * fully posted. That failure direction deletes master data for a live asset; it must not exist.
  *
  * Slower than SQL, and correctly so: correction is a rare, destructive operation.
+ *
+ * The coinType PARAMETER is canonicalised too, and an uncanonicalisable one THROWS rather
+ * than reading as "unused". Note this is the opposite choice from getAssetDecimals(), which
+ * returns null for a malformed coinType: a read path must not explode on a legacy row, but
+ * the gate on a destructive operation must not answer "safe to delete" for a string it does
+ * not understand. Do not "unify" these two.
  */
 export function countAssetUsage(db: Db, entityId: string, coinType: string): { events: number; jes: number; anchored: number } {
+  const target = canonicalCoinType(coinType);       // throws CoinTypeError — see above
   const uses = (json: string): boolean => {
     const types = coinTypesOf(json);
-    return types === null || types.has(coinType);   // unparseable => assume in use
+    return types === null || types.has(target);     // unparseable => assume in use
   };
 
   const eventRows = db.prepare(`SELECT raw_json FROM events WHERE entity_id=?`).all(entityId) as { raw_json: string }[];
