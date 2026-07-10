@@ -2,6 +2,7 @@
 // CHROME+DATA hybrid — mascot allowed only in empty-state zone (§8.4).
 import { useState, useCallback } from 'react';
 import { useEntityCtx } from '../../app/EntityContext';
+import { useWorkspace } from '../../app/WorkspaceContext';
 import { useExportData } from '../../data/useExportData';
 import { useCloseCockpit } from '../../data/useCloseCockpit';
 import { assembleExport } from './assembleExport';
@@ -178,6 +179,60 @@ function StaleRestatementCard({
   );
 }
 
+// ── Unregistered-assets block card ──────────────────────────────────────────
+// A genuine blocker (red): an asset with no registered scale cannot be exported, because a
+// quantity at an unknown scale entering an ERP is read at *some* scale. Lists the offending
+// coinTypes and routes to the registry so the user can fix it. Calls useWorkspace() — rendered
+// only on the 'unregistered' outcome, so it must sit under a WorkspaceProvider.
+function UnregisteredAssetsCard({ coinTypes }: { coinTypes: string[] }) {
+  const { setWorkspace } = useWorkspace();
+  return (
+    <div data-testid="unregistered-assets-card" className="card light--red export-status-card">
+      <div className="export-status-card__head">
+        <span className="export-status-badge">⛔ UNREGISTERED ASSETS</span>
+      </div>
+      <p className="export-imbalance-msg">
+        <strong>Cannot export — {coinTypes.length} asset(s) have no registered decimals.</strong>
+      </p>
+      <div className="mono export-asset-list">
+        {coinTypes.map((ct) => (
+          <span key={ct}>{ct}</span>
+        ))}
+      </div>
+      <button
+        type="button"
+        data-testid="register-assets-link"
+        className="export-register-link"
+        onClick={() => setWorkspace('onboarding')}
+      >
+        Register assets →
+      </button>
+    </div>
+  );
+}
+
+// ── Manual-source disclosure card (NOT red — a disclosure, not a defect) ─────
+// Surfaces assets whose decimals a human declared rather than the chain verifying. Brass, never
+// red: red would nudge an operator to fabricate a chain value under close pressure (V7).
+function ManualDisclosureCard({ coinTypes }: { coinTypes: string[] }) {
+  return (
+    <div data-testid="manual-disclosure-card" className="card export-status-card export-manual-disclosure">
+      <div className="export-status-card__head">
+        <span className="export-status-badge export-manual-badge">ⓘ SOURCE DISCLOSURE</span>
+      </div>
+      <p className="export-disclosure-note">
+        {coinTypes.length} asset(s) 為人工宣稱的 decimals（未經鏈上驗證）。These export correctly;
+        this is a disclosure of provenance, not a defect.
+      </p>
+      <div className="mono export-asset-list">
+        {coinTypes.map((ct) => (
+          <span key={ct}>{ct}</span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Imbalance card ────────────────────────────────────────────────────────
 function ImbalanceCard({ debit, credit }: { debit: string; credit: string }) {
   const delta = (BigInt(debit) - BigInt(credit)).toString();
@@ -287,6 +342,9 @@ export function ExportWorkspace({ entityId }: { entityId: string }) {
   const isImbalance = outcome && !outcome.ok && outcome.kind === 'imbalance';
   const isEmpty = outcome && !outcome.ok && (outcome as { kind: string }).kind === 'empty';
   const isStaleRestatement = outcome && !outcome.ok && (outcome as { kind: string }).kind === 'stale-restatement';
+  const isUnregistered = outcome && !outcome.ok && (outcome as { kind: string }).kind === 'unregistered';
+  // ?? [] guards runtime shapes (e.g. test mocks) that omit manualAssets; not a decimals default.
+  const manualAssets = outcome?.ok ? (outcome.manualAssets ?? []) : [];
   const downloadEnabled = outcome?.ok === true && !isImbalance;
 
   // merkleRoot and explorerUrl are returned by assembleExport on verified path (spec §7).
@@ -341,6 +399,12 @@ export function ExportWorkspace({ entityId }: { entityId: string }) {
               anchoredSeq={(outcome as { anchoredSeq: number }).anchoredSeq}
               latestSnapshotSeq={(outcome as { latestSnapshotSeq: number }).latestSnapshotSeq}
             />
+          )}
+          {isUnregistered && (
+            <UnregisteredAssetsCard coinTypes={(outcome as { coinTypes: string[] }).coinTypes} />
+          )}
+          {outcome.ok && manualAssets.length > 0 && (
+            <ManualDisclosureCard coinTypes={manualAssets} />
           )}
           {outcome.ok && outcome.verified && (
             <VerifiedCard

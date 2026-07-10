@@ -52,6 +52,7 @@ import { ingestEvent, PeriodLockedError, AssetGateError } from './ingestEvent.js
 import type { SuiGrpcClient } from '@mysten/sui/grpc';
 import { registerAsset, correctAsset, RegisterError, makeGrpcCoinInfoFetcher } from '../assets/register.js';
 import { listAssets } from '../assets/store.js';
+import { getAssetDecimals } from '../assets/registry.js';
 
 const ASSET_ACTOR = 'demo-controller';      // server-side constant, never a client value (D13)
 const COIN_INFO_TIMEOUT_MS = 5000;
@@ -122,11 +123,30 @@ function isOpen(d: { state: DispositionState } | null): boolean {
   return d === null || d.state === 'open';
 }
 
+// Read-DTO only. Enriches each JE line with the asset registry's decimals/source so the export
+// can stamp an exact, scaled quantity (and refuse to build when a held asset has no registered
+// scale). CRITICAL: this NEVER touches the stored je_json, the leafHash, or any merkle/leaf-codec
+// input — the leaf codec whitelists its fields (JE_LEAF_BCS_V1), so these additive fields cannot
+// enter the preimage. getAssetDecimals canonicalizes the coinType internally, so origCoinType may
+// be short form here and still match the canonical registry key. `?? null` (never `?? <number>`):
+// an unregistered or asset-less leg is a real "unknown scale" state, never a default (spec D6).
+function enrichLine(db: Db, entityId: string, line: Record<string, unknown>): Record<string, unknown> {
+  const coinType = typeof line.origCoinType === 'string' ? line.origCoinType : null;
+  const asset = coinType !== null ? getAssetDecimals(db, entityId, coinType) : null;
+  return { ...line, origDecimals: asset?.decimals ?? null, origSource: asset?.source ?? null };
+}
+
 function journalDTO(db: Db, entityId: string) {
-  return listJournal(db, entityId).map((r) => ({
-    id: r.id, eventId: r.eventId, idempotencyKey: r.idempotencyKey, leafHash: r.leafHash,
-    je: JSON.parse(r.jeJson) as unknown,
-  }));
+  return listJournal(db, entityId).map((r) => {
+    const je = JSON.parse(r.jeJson) as { lines?: unknown; [k: string]: unknown };
+    const enriched = Array.isArray(je.lines)
+      ? { ...je, lines: (je.lines as Record<string, unknown>[]).map((l) => enrichLine(db, entityId, l)) }
+      : je;
+    return {
+      id: r.id, eventId: r.eventId, idempotencyKey: r.idempotencyKey, leafHash: r.leafHash,
+      je: enriched as unknown,
+    };
+  });
 }
 
 function requireEntity(db: Db, id: string) {

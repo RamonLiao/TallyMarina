@@ -46,6 +46,13 @@ export interface JournalLine {
   priceRef: string | null;
   fxRef: string | null;
   leg: unknown;
+  // Read-DTO join off the asset registry (GET /entities/:id/journal, additive — never part of
+  // the leaf preimage). null = this asset's scale is unknown (unregistered) or the leg carries
+  // no asset (fiat/gas). Never a default (spec D6): the wire sends null, and the export refuses
+  // to build a bundle when a leg has an origCoinType but a null origDecimals. Optional on the
+  // type because the many existing test fixtures predate the columns; production always sends them.
+  origDecimals?: number | null;
+  origSource?: 'chain' | 'manual' | null;
 }
 
 export interface JournalEntryBody {

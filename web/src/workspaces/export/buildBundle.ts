@@ -3,6 +3,21 @@ import type { JournalDTO, InclusionProof } from '../../api/types';
 import { trialActivity } from '../../lib/trialActivity';
 import { quantityRecon } from '../../lib/quantityRecon';
 import { csvRows, headerBlock, formatMinor } from '../../lib/exportCsv';
+import { DATA_DICTIONARY } from './dataDictionary';
+
+/**
+ * A quantity without a scale entering an ERP is interpreted at *some* scale — the exact
+ * silent scale error this spec exists to kill, relocated downstream. When any journal leg
+ * carries an origCoinType whose origDecimals is null (asset not registered), the bundle
+ * refuses to build rather than emit an under-scaled quantity. The message lists every
+ * offending coinType so the user can go register them.
+ */
+export class UnregisteredAssetError extends Error {
+  constructor(public readonly coinTypes: string[]) {
+    super(`cannot export: ${coinTypes.length} asset(s) have no registered decimals: ${coinTypes.join(', ')}`);
+    this.name = 'UnregisteredAssetError';
+  }
+}
 
 export interface BundleInput {
   entityId: string;
@@ -57,15 +72,34 @@ export async function buildBundle(input: BundleInput): Promise<BuiltBundle> {
 
   const allLines = journal.flatMap((r) => r.je.lines);
 
+  // ---- fail closed: refuse to emit a single row if any asset leg lacks a registered scale ----
+  // Deduped, insertion-order-stable so the error message is deterministic. A leg with no
+  // origCoinType (fiat/gas) carries no asset scale and is exempt. origDecimals == null covers
+  // both the wire's explicit null (unregistered) and a missing field (defensive).
+  const unregistered: string[] = [];
+  const seen = new Set<string>();
+  for (const line of allLines) {
+    if (line.origCoinType != null && line.origDecimals == null && !seen.has(line.origCoinType)) {
+      seen.add(line.origCoinType);
+      unregistered.push(line.origCoinType);
+    }
+  }
+  if (unregistered.length > 0) throw new UnregisteredAssetError(unregistered);
+
   // ---- journal.csv ----
   const csvMeta = { entityId, periodId, functionalCurrency, reportingBasis: 'IAS38 cost', generatedAt };
-  const journalHeader = ['date', 'reference', 'reversalOf', 'account', 'leg', 'debit', 'credit', 'currency', 'origCoinType', 'origQtyMinor', 'priceRef', 'fxRef'];
+  // Additive columns (origDecimals, origQty, origSource) appended around the existing ones —
+  // existing column order is never disturbed (ERP column maps stay valid).
+  const journalHeader = ['date', 'reference', 'reversalOf', 'account', 'leg', 'debit', 'credit', 'currency', 'origCoinType', 'origDecimals', 'origQtyMinor', 'origQty', 'origSource', 'priceRef', 'fxRef'];
   const journalRows: string[][] = [];
   for (const row of journal) {
     const date = dateByEventId[row.eventId];
     if (!date) throw new Error(`buildBundle: missing date for eventId=${row.eventId}`);
     for (const line of row.je.lines) {
       const formatted = formatMinor(line.amountMinor, scale);
+      // For asset legs origDecimals is a number (we threw above if it were null); origQty is
+      // the lossless rescale of origQtyMinor by the asset's own scale (never the fiat scale).
+      const hasAsset = line.origCoinType != null;
       journalRows.push([
         date,
         row.je.idempotencyKey,
@@ -76,7 +110,10 @@ export async function buildBundle(input: BundleInput): Promise<BuiltBundle> {
         line.side === 'CREDIT' ? formatted : '',
         functionalCurrency,
         line.origCoinType ?? '',
+        hasAsset ? String(line.origDecimals) : '',
         line.origQtyMinor ?? '',
+        hasAsset && line.origQtyMinor != null ? formatMinor(line.origQtyMinor, line.origDecimals as number) : '',
+        hasAsset ? (line.origSource ?? '') : '',
         line.priceRef ?? '',
         line.fxRef ?? '',
       ]);
@@ -95,14 +132,31 @@ export async function buildBundle(input: BundleInput): Promise<BuiltBundle> {
   const accountActivityCsv = headerBlock(csvMeta) + '\n' + csvRows(actHeader, actRows);
 
   // ---- quantity-recon.csv ----
+  // Asset scale/source per coinType, joined off the same journal legs (same key space as
+  // quantityRecon). Every recon coinType has a registered scale — we threw above otherwise —
+  // so origDecimals is a number here. First leg wins (an asset's scale is invariant).
+  const assetMeta = new Map<string, { decimals: number; source: string | null }>();
+  for (const line of allLines) {
+    if (line.origCoinType != null && !assetMeta.has(line.origCoinType)) {
+      assetMeta.set(line.origCoinType, { decimals: line.origDecimals as number, source: line.origSource ?? null });
+    }
+  }
   const recon = quantityRecon(allLines);
-  const reconHeader = ['coinType', 'acquiredMinor', 'disposedMinor', 'netMinor'];
-  const reconRows = recon.map((r) => [
-    r.coinType,
-    r.acquiredMinor.toString(),
-    r.disposedMinor.toString(),
-    r.netMinor.toString(),
-  ]);
+  const reconHeader = ['coinType', 'decimals', 'source', 'acquiredMinor', 'acquired', 'disposedMinor', 'disposed', 'netMinor', 'net'];
+  const reconRows = recon.map((r) => {
+    const meta = assetMeta.get(r.coinType)!;
+    return [
+      r.coinType,
+      String(meta.decimals),
+      meta.source ?? '',
+      r.acquiredMinor.toString(),
+      formatMinor(r.acquiredMinor.toString(), meta.decimals),
+      r.disposedMinor.toString(),
+      formatMinor(r.disposedMinor.toString(), meta.decimals),
+      r.netMinor.toString(),
+      formatMinor(r.netMinor.toString(), meta.decimals),
+    ];
+  });
   const quantityReconCsv = headerBlock(csvMeta) + '\n' + csvRows(reconHeader, reconRows);
 
   // ---- journal.json (canonical leaf preimage source) ----
@@ -121,6 +175,7 @@ export async function buildBundle(input: BundleInput): Promise<BuiltBundle> {
     { name: 'quantity-recon.csv', content: quantityReconCsv },
     { name: 'journal.json', content: journalJson },
     { name: 'VERIFY.md', content: verifyMd },
+    { name: 'data-dictionary.md', content: DATA_DICTIONARY },
   ];
 
   const fileHashes = await Promise.all(

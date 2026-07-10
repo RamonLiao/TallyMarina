@@ -4,7 +4,7 @@ import type { JournalDTO, EventDTO, AnchorDTO, InclusionProof, AnchorStaleness }
 import { leafHash } from '../../lib/leafEncode';
 import { resolveProofState } from '../../lib/proofVerify';
 import { ImbalanceError } from '../../lib/trialActivity';
-import { buildBundle } from './buildBundle';
+import { buildBundle, UnregisteredAssetError } from './buildBundle';
 import type { BundleSummary } from './buildBundle';
 
 export interface ExportResult {
@@ -17,12 +17,17 @@ export interface ExportResult {
   merkleRoot?: string;
   /** Present when verified=true. Explorer URL for the on-chain anchor transaction. */
   explorerUrl?: string;
+  /** coinTypes of exported legs whose decimals were declared manually (source==='manual').
+   *  A disclosure, not a defect — surfaced non-red so operators are not pushed to fake a
+   *  chain value under close pressure (the V7 attack vector). */
+  manualAssets: string[];
 }
 
 export type ExportFailure =
   | { ok: false; kind: 'imbalance'; debit: string; credit: string }
   | { ok: false; kind: 'empty' }
   | { ok: false; kind: 'stale-restatement'; anchoredSeq: number; latestSnapshotSeq: number }
+  | { ok: false; kind: 'unregistered'; coinTypes: string[] }
   | { ok: false; kind: 'error'; message: string };
 
 export type ExportOutcome = ExportResult | ExportFailure;
@@ -168,18 +173,37 @@ export async function assembleExport(args: {
       ? `export-${entityId}-${periodId}.zip`
       : `export-${entityId}-${periodId}-UNVERIFIED-DRAFT.zip`;
 
+    // Manual-source disclosure: distinct coinTypes whose decimals a human declared (not chain-
+    // verified). Insertion-order stable for a deterministic card.
+    const manualAssets: string[] = [];
+    const seenManual = new Set<string>();
+    for (const row of journal) {
+      for (const line of row.je.lines) {
+        if (line.origCoinType != null && line.origSource === 'manual' && !seenManual.has(line.origCoinType)) {
+          seenManual.add(line.origCoinType);
+          manualAssets.push(line.origCoinType);
+        }
+      }
+    }
+
     return {
       ok: true,
       verified,
       filename,
       zip,
       summary: built.summary,
+      manualAssets,
       ...(binding !== null && {
         merkleRoot: binding.anchor.merkleRoot,
         explorerUrl: binding.anchor.explorerUrl,
       }),
     };
   } catch (err) {
+    if (err instanceof UnregisteredAssetError) {
+      // Fail-closed: an asset with no registered scale cannot be exported. Surfaced as a
+      // distinct blocking outcome so the UI can list the coinTypes and route to the registry.
+      return { ok: false, kind: 'unregistered', coinTypes: err.coinTypes };
+    }
     if (err instanceof ImbalanceError) {
       return {
         ok: false,
