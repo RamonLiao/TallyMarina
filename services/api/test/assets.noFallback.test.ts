@@ -70,9 +70,21 @@ function collapseNewlines(s: string): string {
 //    that shape.
 //  - a boolean guard of the shape `!decimals || typeof decimals !== 'number'` puts `decimals`
 //    as the operand of `||`, but negated (`!decimals`) — that's "is this value falsy", not
-//    "substitute a default". Handled by the `(?<![!(])` negative lookbehind: a fabricated
-//    default is never written as `!decimals ?? x` or `(decimals ?? x)` with the guard word
-//    glued directly onto a preceding `!`.
+//    "substitute a default". Handled by the `(?<!!)` negative lookbehind: a fabricated
+//    default is never written as `!decimals ?? x` with the guard word glued directly onto a
+//    preceding `!`.
+//
+// Only `!` is excluded from the lookbehind — NOT `(`. An earlier version used
+// `(?<![!(])`, which also excluded a preceding `(`. That was a hole: a fabricated default is
+// routinely written with a wrapping paren, and all three of these literal shapes escaped the
+// old regex entirely (zero matches):
+//   - `(decimals ?? 9)`               — parenthesized expression
+//   - `foo(decimals ?? 9)`            — as a function-call argument
+//   - `return (decimals ?? 9)`        — parenthesized return value
+// None of those are boolean guards; they're the exact reflex this guard exists to catch, just
+// with parens around it. Narrowing the lookbehind to `(?<!!)` catches all three while still
+// passing `!decimals || typeof decimals !== 'number'` (the `!` there is glued directly to
+// `decimals`, not to a paren).
 //
 // `?? 9` / `|| 6` directly on `decimals` supplies an actual numeric default for an
 // authoritative decimals value, which is exactly the bug this guard exists to catch.
@@ -82,7 +94,7 @@ function collapseNewlines(s: string): string {
 // mutation (removing the collapse step would silently do nothing, since \s already spans
 // lines). Restricting to intraline whitespace makes collapseNewlines the ONLY thing that lets
 // a Prettier-wrapped fallback match — which is the guarantee finding (1) requires.
-const FALLBACK_RE = /(?<![!(])\bdecimals\b[ \t]*(\?\?|\|\|)[ \t]*(?!null\b|undefined\b)\S/i;
+const FALLBACK_RE = /(?<!!)\bdecimals\b[ \t]*(\?\?|\|\|)[ \t]*(?!null\b|undefined\b)\S/i;
 
 function findFallbackOffenders(src: string): { index: number; matchText: string }[] {
   const collapsed = collapseNewlines(stripComments(src));
@@ -142,6 +154,12 @@ describe('the guard itself', () => {
     // Finding (1): a formatter wrapping a long line splits the fallback across two lines.
     // Nobody has to "try" to hide this — Prettier does it for free. Must still be caught.
     ['cross-line decimals ??\\n  9 (Prettier-wrapped)', 'const d = row.decimals ??\n  9;'],
+    // Fix wave 2: parenthesized fallbacks previously escaped `(?<![!(])` entirely (a `(`
+    // directly before `decimals` blocked the match). These are the same reflex, just wrapped
+    // in parens — must be caught by `(?<!!)`.
+    ['(decimals ?? 9)', '(decimals ?? 9)'],
+    ['foo(decimals ?? 9)', 'foo(decimals ?? 9)'],
+    ['return (decimals ?? 9)', 'return (decimals ?? 9)'],
   ];
 
   const mustPass: [name: string, snippet: string][] = [
@@ -177,5 +195,43 @@ describe('the guard itself', () => {
     // someone goes to that trouble, they've already made a conscious choice this guard was
     // never trying to police. A lint rule that blocks reflexes doesn't need to also defeat
     // deliberate evasion to be worth keeping.
+  });
+
+  // Mutation check, direction 1: restoring the old, too-wide exclusion `(?<![!(])` must make
+  // all three parenthesized mustCatch cases stop matching (go red), proving those assertions
+  // actually depend on the `(` no longer being excluded — not on some other part of the regex.
+  it('mutation check: reverting to (?<![!(]) un-catches the parenthesized fallbacks', () => {
+    const oldRe = /(?<![!(])\bdecimals\b[ \t]*(\?\?|\|\|)[ \t]*(?!null\b|undefined\b)\S/i;
+    const parenthesized = ['(decimals ?? 9)', 'foo(decimals ?? 9)', 'return (decimals ?? 9)'];
+    for (const snippet of parenthesized) {
+      const m = new RegExp(oldRe.source, 'gi').exec(snippet);
+      expect(m, `expected (?<![!(]) to NOT match: ${snippet}`).toBeNull();
+    }
+  });
+
+  // Mutation check, direction 2: dropping the lookbehind entirely must make the negated
+  // boolean guard (`!decimals || ...`) start matching (go red), proving `(?<!!)` is load-bearing
+  // — not merely decorative — and that `(?<!!)` is exactly as narrow as needed (removing it
+  // reopens finding (2); the earlier check proves widening it to `(?<![!(])` reopens finding (1)-adjacent
+  // parenthesized cases). Together these bound `(?<!!)` as the correct, minimal exclusion.
+  it('mutation check: dropping the lookbehind entirely re-catches the negated boolean guard', () => {
+    const noLookbehindRe = /\bdecimals\b[ \t]*(\?\?|\|\|)[ \t]*(?!null\b|undefined\b)\S/i;
+    const snippet = "!decimals || typeof decimals !== 'number'";
+    const m = new RegExp(noLookbehindRe.source, 'gi').exec(snippet);
+    expect(m, `expected removing the lookbehind to matches: ${snippet}`).not.toBeNull();
+  });
+
+  // Verifies the report's length-preserving claim for stripComments/collapseNewlines. If either
+  // function changes the string length, match offsets computed against the transformed string
+  // no longer line up with the original source, and file:line reporting silently drifts.
+  it('stripComments and collapseNewlines are length-preserving', () => {
+    const sample =
+      '// line comment\n' +
+      'const a = 1; /* block\n   spans lines */ const b = row.decimals ??\n  9;\n' +
+      '/* trailing */';
+    const stripped = stripComments(sample);
+    expect(stripped.length, 'stripComments must not change string length').toBe(sample.length);
+    const collapsed = collapseNewlines(stripped);
+    expect(collapsed.length, 'collapseNewlines must not change string length').toBe(stripped.length);
   });
 });
