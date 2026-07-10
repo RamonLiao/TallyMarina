@@ -33,7 +33,7 @@ Every task's requirements implicitly include this section.
 - api typecheck: `cd services/api && npm run typecheck`
 - web tests: `cd web && npm test`
 - web build: `cd web && npm run build`
-- root typecheck: `npx tsc --noEmit`
+- root typecheck: `npm run typecheck`  ← **NOT `npx tsc --noEmit`**: there is no root tsconfig.json, so bare tsc prints its help and exits 0, typechecking nothing. Verified by injecting a type error: `npm run typecheck` catches it, `npx tsc --noEmit` does not.
 
 ---
 
@@ -2023,7 +2023,7 @@ they cover both roots without weakening the guard or the thing it guards.
 
 - [ ] **Step 6: Run the full api suite + typecheck**
 
-Run: `cd services/api && npm test && npm run typecheck && cd ../.. && npx tsc --noEmit`
+Run: `cd services/api && npm test && npm run typecheck && cd ../.. && npm run typecheck`
 Expected: all pass. Report counts.
 
 - [ ] **Step 7: Commit**
@@ -3070,7 +3070,7 @@ Screenshot at 390px, 640px and 1024px. Console must be error-free.
 cd services/api && npm test && npm run typecheck
 cd ../rules-engine && npm test
 cd ../../web && npm test && npm run typecheck && npm run build
-cd .. && npx tsc --noEmit
+cd .. && npm run typecheck
 git diff main...HEAD --stat -- '*.move'
 ```
 
