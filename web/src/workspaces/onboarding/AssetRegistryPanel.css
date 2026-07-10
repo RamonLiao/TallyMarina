@@ -1,0 +1,92 @@
+/* web/src/workspaces/onboarding/AssetRegistryPanel.css
+ *
+ * No dark mode: this app ships :root only (tokens.css). Do NOT add prefers-color-scheme.
+ * Breakpoints 640 / 1024 mirror recon.css. The table card-ifies at <=640 (onboarding.css's
+ * .ob-table does not, so it is not reused here).
+ *
+ * Provenance colour is load-bearing and reserved:
+ *   --aqua  = on-chain semantics ONLY (recon.css .prov--live). source='chain' inherits it.
+ *   --brass = source='manual'. Manual is a DISCLOSURE, never a defect — it is never red.
+ */
+
+.ar-panel {
+  margin-top: var(--space-4);
+  background: var(--paper-card);
+  border: 1px solid var(--paper-line);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+}
+
+.ar-table { width: 100%; border-collapse: collapse; margin: var(--space-2) 0; }
+.ar-table th {
+  text-align: left; font-size: var(--text-xs); text-transform: uppercase;
+  color: var(--ink-soft); border-bottom: 1px solid var(--paper-line); padding: 6px 8px;
+}
+.ar-table td { padding: 8px; border-bottom: 1px solid var(--paper-line); vertical-align: top; }
+.ar-sym { font-weight: 600; }
+.ar-coin { font-size: var(--text-sm); color: var(--ink-soft); }
+
+/* Equal-weight pills: the chain/manual distinction lives in hue + glyph + label, never in size
+ * or an alarm colour. Same padding, same radius, same font-weight for both. */
+.ar-pill {
+  display: inline-block; padding: 1px 8px; border-radius: var(--radius-pill);
+  font-size: var(--text-xs); font-weight: 600; border: 1px solid; white-space: nowrap;
+}
+.ar-pill--chain  { color: var(--aqua);  border-color: var(--aqua); }
+.ar-pill--manual { color: var(--brass); border-color: var(--brass); }
+
+/* Low-key reservation marker for CLAIMED/UNCLAIMED metadata caps (spec §3.3): a holder can still
+ * mutate metadata, so chain-verified is time-sensitive. Muted ink + small — NOT a warning colour,
+ * NOT red: it qualifies the verification, it does not flag a defect. */
+.ar-reserved { color: var(--ink-soft); font-size: var(--text-xs); }
+
+.ar-form { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-top: var(--space-2); }
+.ar-label { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-soft); }
+.ar-input {
+  font-family: inherit; font-size: var(--text-sm); padding: 6px 10px;
+  border: 1px solid var(--paper-line); border-radius: var(--radius-sm); background: var(--paper);
+  color: var(--ink); min-width: 240px;
+}
+.ar-input:disabled { opacity: 0.6; }
+
+.ar-status { display: flex; align-items: center; gap: var(--space-1); color: var(--ink-soft); font-size: var(--text-sm); }
+.ar-spinner {
+  width: 12px; height: 12px; border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--aqua) 30%, transparent); border-top-color: var(--aqua);
+  animation: ar-spin 0.7s linear infinite;
+}
+@keyframes ar-spin { to { transform: rotate(360deg); } }
+
+.ar-result, .ar-manual, .ar-errbox {
+  margin-top: var(--space-2); padding: var(--space-2);
+  border: 1px solid var(--paper-line); border-radius: var(--radius-sm); background: var(--paper);
+}
+.ar-result-head { margin: 0 0 var(--space-1); }
+.ar-defrow { display: flex; align-items: center; gap: var(--space-2); padding: 4px 0; flex-wrap: wrap; }
+.ar-readonly { font-weight: 600; font-variant-numeric: tabular-nums; }
+
+.ar-field { display: flex; flex-direction: column; gap: 4px; margin-bottom: var(--space-2); }
+.ar-hint { font-size: var(--text-xs); color: var(--ink-soft); }
+
+.ar-actions { display: flex; gap: var(--space-2); margin-top: var(--space-2); }
+.ar-panel .btn-ghost {
+  font: inherit; font-size: var(--text-sm); padding: 8px 16px; cursor: pointer;
+  background: transparent; color: var(--ink-soft);
+  border: 1px solid var(--paper-line); border-radius: var(--radius-pill);
+}
+.ar-panel .btn-ghost:hover:not(:disabled) { color: var(--ink); border-color: var(--ink-soft); }
+.ar-panel .btn-ghost:disabled { opacity: 0.5; cursor: default; }
+
+/* Manual disclosure copy is brass-weighted prose, never the debit red used for real errors. */
+.ar-err { color: var(--debit); }
+
+/* PHONE: card-ify — the onboarding .ob-table does not, and reused verbatim it overflows at 390px. */
+@media (max-width: 640px) {
+  .ar-table thead { display: none; }
+  .ar-table, .ar-table tbody, .ar-table tr, .ar-table td { display: block; width: 100%; }
+  .ar-table tr { border: 1px solid var(--paper-line); border-radius: var(--radius-sm); margin-bottom: 10px; padding: 6px 10px; }
+  .ar-table td { text-align: right; border: none; padding: 4px 0; }
+  .ar-table td::before { content: attr(data-label); float: left; color: var(--ink-soft); font-size: var(--text-xs); font-weight: 600; }
+  .ar-input { min-width: 0; width: 100%; }
+  .ar-form { flex-direction: column; align-items: stretch; }
+}

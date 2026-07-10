@@ -3,6 +3,7 @@ import { useEntityCtx } from '../../app/EntityContext';
 import { useOnboardingData } from '../../data/useOnboardingData';
 import { EntitySummaryCard } from './EntitySummaryCard';
 import { SourceTable } from './SourceTable';
+import { AssetRegistryPanel } from './AssetRegistryPanel';
 import './onboarding.css';
 
 export function OnboardingWorkspace() {
@@ -17,6 +18,7 @@ export function OnboardingWorkspace() {
       <div className="ob-toolbar"><ConnectButton /></div>
       <EntitySummaryCard entity={data.entity} />
       <SourceTable data={data} onVerified={() => { void refetch(); }} />
+      <AssetRegistryPanel entityId={data.entity.id} />
     </div>
   );
 }
