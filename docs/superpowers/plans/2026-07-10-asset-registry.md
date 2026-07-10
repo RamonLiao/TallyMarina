@@ -2372,10 +2372,31 @@ describe('ReconDetail cannot dismiss an unregistered asset', () => {
 > the components. The prop names above are illustrative; do not change the components' APIs to
 > fit the test — fix the test to fit the components.
 
+- [ ] **Step 2b: See the silent corruption before you fix it**
+
+`fmtMinor(amountMinor, scale)` (`web/src/lib/exportCsv.ts:53-59`) does `padStart(scale + 1)` and
+`digits.length - scale`. With `scale = null`, JavaScript coerces to `0`. **It does not throw.**
+USDC's `5000000000` renders as `5000000000` instead of `5000.000000` — off by 10⁶, silently.
+
+Before touching the components, write this and watch it fail:
+
+```typescript
+it('fmtMinor must not silently treat a null scale as 0', () => {
+  // WHY: this is the ?? 9 bug's third form. The first wrote a default by hand. The second
+  // hid one inside the SDK (`decimals ?? 0`). This one needs no `??` at all — null + 1 is 1,
+  // and JS hands you a wrong scale for free. A regex guard cannot see it. Only the type can.
+  expect(() => fmtMinor('5000000000', null as unknown as number)).toThrow();
+});
+```
+
+Then make `fmtMinor` reject a non-integer scale, and let the call sites choose the null path
+explicitly. `web/src/api/types.ts:145` currently declares `decimals: number` while `reconDTO`
+already sends `null` over the wire — the type is a lie and TypeScript is believing it.
+
 - [ ] **Step 3: Run tests to verify they fail**
 
 Run: `cd web && npx vitest run src/workspaces/recon/ReconTable.unregistered.test.tsx src/workspaces/recon/ReconDetail.unregistered.test.tsx`
-Expected: FAIL — Dismiss is present; amounts render through `fmtMinor(x, undefined)`.
+Expected: FAIL — Dismiss is present; amounts render through `fmtMinor(x, null)` as raw minor units.
 
 - [ ] **Step 4a: `ReconTable.tsx` — null-scale cell + profile**
 
