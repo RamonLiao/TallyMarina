@@ -911,28 +911,55 @@ function walk(dir: string, out: string[] = []): string[] {
   for (const e of readdirSync(dir)) {
     const p = join(dir, e);
     if (statSync(p).isDirectory()) walk(p, out);
-    else if (p.endsWith('.ts')) out.push(p);
+    else if (/\.(m|c)?tsx?$/.test(p)) out.push(p);
   }
   return out;
 }
 
+// `decimals` as the DIRECT left operand of ?? / ||, with a substantive right operand.
+//
+//   caught:   decimals ?? 9      row.decimals ?? 0      fx?.decimals ?? DEFAULT
+//   passed:   row.decimals ?? null          (undefined -> null SQL binding, honest)
+//             decimals < 0 || decimals > 36 (range check, not a fallback)
+//             !decimals || typeof decimals !== 'number'   (boolean guard)
+//
+// `?? null` is honest: "the value is absent, record that it is absent."
+// `?? 9`    invents:   "the value is absent, so here is one." That is the bug.
+const FALLBACK_RE = /(?<![!(])\bdecimals\s*(\?\?|\|\|)\s*(?!null\b|undefined\b|typeof\b|decimals\b)\S/i;
+
+const SCAN_ROOTS = ['assets'].map((d) => join(__dirname, '..', 'src', d));
+
 describe('structural guard: no decimals fallback', () => {
   // WHY: `?? 9` was not a typo. It was someone thinking "a default seems reasonable here".
   // The next person will think it too. Make the codebase say no on their behalf.
-  it('services/api/src/assets contains no ?? or || fallback on a decimals expression', () => {
+  it('contains no ?? or || fallback on a decimals expression', () => {
     const offenders: string[] = [];
-    for (const file of walk(join(__dirname, '..', 'src', 'assets'))) {
-      const src = readFileSync(file, 'utf8');
-      src.split('\n').forEach((line, i) => {
-        if (/decimals[^\n]*(\?\?|\|\|)/i.test(line) && !line.trimStart().startsWith('*') && !line.trimStart().startsWith('//')) {
-          offenders.push(`${file}:${i + 1}: ${line.trim()}`);
-        }
-      });
+    for (const root of SCAN_ROOTS) {
+      for (const file of walk(root)) {
+        const src = readFileSync(file, 'utf8');
+        // Strip comments, then collapse newlines: Prettier splits a long `decimals ??\n  9`
+        // across two lines, and a per-line scan would never see the fallback.
+        const code = src
+          .replace(/\/\*[\s\S]*?\*\//g, '')
+          .replace(/^\s*\/\/.*$/gm, '');
+        code.split(';').forEach((stmt) => {
+          if (FALLBACK_RE.test(stmt.replace(/\s+/g, ' '))) {
+            const line = src.slice(0, src.indexOf(stmt.trim().slice(0, 40))).split('\n').length;
+            offenders.push(`${file}:${line}: ${stmt.trim().slice(0, 80)}`);
+          }
+        });
+      }
     }
     expect(offenders, `decimals must never have a fallback (spec D6/V1):\n${offenders.join('\n')}`).toEqual([]);
   });
 });
 ```
+
+> **Implementer:** the regex above is a starting point, not gospel. Verify it against BOTH
+> lists in the comment with a throwaway probe before committing, and fix the regex — never the
+> source file — if a legal line trips it. Note `SCAN_ROOTS` starts as `['assets']` here and is
+> widened to include `reconciliation` and `lots` in Task 7, when the two real `?? 9` sites die.
+> A tripwire aimed at a directory that never had the bug is aimed off-target.
 
 - [ ] **Step 2: Run tests to verify they fail**
 
@@ -1919,6 +1946,26 @@ Run: `cd services/api && npm test`
 - `recon.openingLot.invariant.test.ts` reads both fixtures — confirm it does not read `decimals`; if it does, drop that read
 
 **Do not change fixture amounts.** Report every file touched.
+
+- [ ] **Step 5b: Aim the no-fallback tripwire at the sites it was built for**
+
+`services/api/test/assets.noFallback.test.ts` (Task 4) currently scans only `src/assets/` — a
+directory that has never contained a fallback. The two `?? 9` bugs it exists to prevent lived
+in `collect.ts:58` and `lots/dto.ts:134`, one directory over. **The guard was green while both
+bugs were alive.**
+
+This task is where they die, so this task is where the tripwire follows them. Widen its roots:
+
+```typescript
+const SCAN_ROOTS = ['assets', 'reconciliation', 'lots'].map((d) => join(__dirname, '..', 'src', d));
+```
+
+Run it **before** deleting the two `?? 9` sites: it must go RED and name both
+`collect.ts:58` and `lots/dto.ts:134`. That is the only proof the widened scan actually
+covers them. Then delete them and watch it go green.
+
+> Ordering matters. Widening the root before Task 7 would have broken a green suite for two
+> known-and-scheduled bugs. Widening it after they're gone would never prove it sees them.
 
 - [ ] **Step 6: Run the full api suite + typecheck**
 
