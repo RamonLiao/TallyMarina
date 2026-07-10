@@ -105,11 +105,24 @@ function coinTypesOf(json: string): Set<string> | null {
  * fully posted. That failure direction deletes master data for a live asset; it must not exist.
  *
  * Slower than SQL, and correctly so: correction is a rare, destructive operation.
+ *
+ * The `coinType` argument is canonicalized here, on entry — the same treatment the payload
+ * side already gets in `coinTypesOf`. Do not rely on callers to pre-canonicalize: this
+ * function is the sole gate in front of a delete, and a caller that forgets (or a future
+ * second caller) would silently turn a live, posted asset into a false "unused" result.
+ * A raw substring/equality compare here is the exact bug this function exists to prevent.
+ *
+ * If `coinType` cannot be canonicalized, `canonicalCoinType` throws `CoinTypeError` and this
+ * function throws too, on purpose. This is the mirror-image tradeoff of `getAssetDecimals`
+ * (a read path, returns null on a miss): a *destructive* gate must never turn "I can't tell"
+ * into `{0,0,0}` ("safe to delete"). Failing loud on bad input is strictly safer than a
+ * false negative here, which deletes registry master data for an asset that is still in use.
  */
 export function countAssetUsage(db: Db, entityId: string, coinType: string): { events: number; jes: number; anchored: number } {
+  const target = canonicalCoinType(coinType);
   const uses = (json: string): boolean => {
     const types = coinTypesOf(json);
-    return types === null || types.has(coinType);   // unparseable => assume in use
+    return types === null || types.has(target);   // unparseable => assume in use
   };
 
   const eventRows = db.prepare(`SELECT raw_json FROM events WHERE entity_id=?`).all(entityId) as { raw_json: string }[];

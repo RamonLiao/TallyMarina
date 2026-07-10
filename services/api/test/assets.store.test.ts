@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openDb } from '../src/store/db.js';
 import { getAsset, insertAssetIfAbsent, listAssets, deleteAsset, appendAssetLog, countAssetUsage, type AssetRow } from '../src/assets/store.js';
+import { CoinTypeError } from '../src/assets/normalize.js';
 
 const tmpDirs: string[] = [];
 function freshDbPath(): string {
@@ -143,5 +144,36 @@ describe('appendAssetLog + countAssetUsage', () => {
     const db = openDb(freshDbPath()); seedEntity(db);
     db.prepare(`INSERT INTO events (id, entity_id, raw_json, status) VALUES ('ev1','e1','{not json','POSTED')`).run();
     expect(countAssetUsage(db, 'e1', SUI).events).toBe(1);
+  });
+
+  it('finds usage when the CALLER passes the short form and the payload stores the long form', () => {
+    // WHY: countAssetUsage is the sole gate in front of correctAsset's delete. Payload-side
+    // spellings were already canonicalized, but the coinType *argument* was compared raw. A
+    // caller passing '0x2::sui::SUI' against a payload storing the canonical long form used to
+    // report zero usage — correctAsset would then delete the registry row of a fully posted,
+    // in-use asset, permanently stripping decimals off every historical quantity for it.
+    const db = openDb(freshDbPath()); seedEntity(db);
+    db.prepare(`INSERT INTO events (id, entity_id, raw_json, status) VALUES ('ev1','e1',?,'POSTED')`)
+      .run(JSON.stringify({ coinType: SUI, assetDecimals: 9 }));
+    expect(countAssetUsage(db, 'e1', '0x2::sui::SUI').events).toBe(1);
+  });
+
+  it('finds usage when the CALLER passes an upper-case address and the payload stores the short form', () => {
+    // WHY: same false-negative failure mode as above, but proving BOTH sides are normalized
+    // independently — a caller-side canonicalization that only lowercases, or only expands,
+    // would still miss this pairing and silently delete a live asset's master data.
+    const db = openDb(freshDbPath()); seedEntity(db);
+    db.prepare(`INSERT INTO events (id, entity_id, raw_json, status) VALUES ('ev1','e1',?,'POSTED')`)
+      .run(JSON.stringify({ coinType: '0x2::sui::SUI', assetDecimals: 9 }));
+    expect(countAssetUsage(db, 'e1', '0X2::sui::SUI').events).toBe(1);
+  });
+
+  it('throws CoinTypeError for an unparseable coinType argument, never {0,0,0}', () => {
+    // WHY: this function gates a delete. Reporting {0,0,0} for a coinType it could not even
+    // parse would tell correctAsset "safe to delete" about an argument it never understood —
+    // the worst possible false negative. Failing loud is the deliberately opposite tradeoff
+    // from getAssetDecimals (a read path), which returns null on a miss.
+    const db = openDb(freshDbPath()); seedEntity(db);
+    expect(() => countAssetUsage(db, 'e1', 'garbage')).toThrow(CoinTypeError);
   });
 });
