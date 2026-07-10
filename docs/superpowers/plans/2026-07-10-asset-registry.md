@@ -535,10 +535,29 @@ describe('appendAssetLog + countAssetUsage', () => {
     expect(countAssetUsage(db, 'e1', SUI)).toEqual({ events: 0, jes: 0, anchored: 0 });
   });
 
-  it('counts an event that references the coinType', () => {
+  it('counts an event that spells the coinType in the SHORT form', () => {
+    // WHY: payloads store whatever spelling the sender used, and the fixture writes
+    // '0x2::sui::SUI'. A LIKE '%<long form>%' probe finds nothing here and reports the asset
+    // unused — so correctAsset would delete the master data of a fully posted asset.
+    // Comparison must be on canonical types, never raw substrings.
     const db = openDb(freshDbPath()); seedEntity(db);
     db.prepare(`INSERT INTO events (id, entity_id, raw_json, status) VALUES ('ev1','e1',?,'POSTED')`)
-      .run(JSON.stringify({ coinType: SUI, assetDecimals: 9 }));
+      .run(JSON.stringify({ coinType: '0x2::sui::SUI', assetDecimals: 9 }));
+    expect(countAssetUsage(db, 'e1', SUI).events).toBe(1);
+  });
+
+  it('counts a JE line that references the coinType under origCoinType', () => {
+    const db = openDb(freshDbPath()); seedEntity(db);
+    db.prepare(`INSERT INTO journal_entries (id, entity_id, event_id, je_json, idempotency_key, leaf_hash)
+                VALUES ('je1','e1','ev1',?,'k1','h1')`)
+      .run(JSON.stringify({ lines: [{ origCoinType: '0x2::sui::SUI' }] }));
+    expect(countAssetUsage(db, 'e1', SUI).jes).toBe(1);
+  });
+
+  it('treats an unparseable payload as in-use — never as evidence of non-use', () => {
+    // WHY: correction is destructive. Garbage in a row is not proof the asset is unused.
+    const db = openDb(freshDbPath()); seedEntity(db);
+    db.prepare(`INSERT INTO events (id, entity_id, raw_json, status) VALUES ('ev1','e1','{not json','POSTED')`).run();
     expect(countAssetUsage(db, 'e1', SUI).events).toBe(1);
   });
 });
@@ -583,60 +602,21 @@ CREATE TABLE IF NOT EXISTS asset_registry_log (
 );
 ```
 
-- [ ] **Step 3b: Ensure the tables exist on already-created databases**
+- [ ] **Step 3b: No `db.ts` change is needed — verify why, do not add one**
 
-In `services/api/src/store/db.ts`, immediately after the `MIGRATIONS` loop and **before** `ensureSnapshotSeqUnique(db)` (currently line 42), add:
+`openDb` runs `db.exec(SCHEMA)` on **every** open (`services/api/src/store/db.ts:15`), where `SCHEMA` is the whole of `schema.sql`. So `CREATE TABLE IF NOT EXISTS asset_registry` reaches fresh and existing databases alike, and its CHECK constraints take effect everywhere.
 
-```typescript
-ensureAssetRegistry(db);
-```
+The `MIGRATIONS` array exists only because SQLite has no `ALTER TABLE … ADD COLUMN IF NOT EXISTS`, so column additions need the try/catch idempotency dance. A new **table** needs none of that.
 
-Add the helper in the same file, mirroring `ensureSnapshotSeqUnique`'s shape:
+Do **not** add an `ensureAssetRegistry()` helper duplicating the DDL in `db.ts`. Two copies of a schema drift.
 
-```typescript
-// asset_registry is a brand-new table, so CREATE TABLE IF NOT EXISTS genuinely runs on
-// every DB — fresh and existing — and its CHECK constraints take effect everywhere. This
-// is unlike the snapshots(seq) case, where the table already existed and SQLite's lack of
-// ALTER TABLE ADD CONSTRAINT forced a CREATE UNIQUE INDEX workaround. CHECK has no index
-// equivalent, and none is needed here.
-function ensureAssetRegistry(db: Db): void {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS asset_registry (
-      entity_id            TEXT NOT NULL REFERENCES entities(id),
-      coin_type            TEXT NOT NULL,
-      decimals             INTEGER NOT NULL CHECK (decimals BETWEEN 0 AND 36),
-      symbol               TEXT NOT NULL,
-      display_name         TEXT NOT NULL,
-      source               TEXT NOT NULL CHECK (source IN ('chain','manual')),
-      chain_object_id      TEXT,
-      chain_object_version TEXT,
-      fetched_at           TEXT,
-      decided_by           TEXT,
-      reason               TEXT,
-      created_at           TEXT NOT NULL,
-      PRIMARY KEY (entity_id, coin_type)
-    );
-    CREATE TABLE IF NOT EXISTS asset_registry_log (
-      id               INTEGER PRIMARY KEY AUTOINCREMENT,
-      entity_id        TEXT NOT NULL,
-      coin_type        TEXT NOT NULL,
-      outcome          TEXT NOT NULL CHECK (outcome IN ('registered','conflict','rejected','corrected')),
-      decimals         INTEGER,
-      claimed_decimals INTEGER,
-      chain_decimals   INTEGER,
-      source           TEXT,
-      detail           TEXT,
-      actor            TEXT NOT NULL,
-      at               TEXT NOT NULL
-    );
-  `);
-}
-```
+> This also differs from `ensureSnapshotSeqUnique`: there the table already existed, and SQLite cannot `ALTER TABLE … ADD CONSTRAINT`, so a `CREATE UNIQUE INDEX` stood in for the constraint. CHECK has no index equivalent — and needs none here.
 
 - [ ] **Step 3c: Create `services/api/src/assets/store.ts`**
 
 ```typescript
 import type { Db } from '../store/db.js';
+import { canonicalCoinType } from './normalize.js';
 
 export type AssetSource = 'chain' | 'manual';
 export type LogOutcome = 'registered' | 'conflict' | 'rejected' | 'corrected';
@@ -707,19 +687,61 @@ export function appendAssetLog(db: Db, row: {
 }
 
 /**
+ * Canonical coinTypes named by a payload.
+ *
+ * Returns null when the payload will not parse. A caller must read null as "this row might
+ * reference anything" and fail closed — an unparseable event is not evidence of non-use.
+ */
+function coinTypesOf(json: string): Set<string> | null {
+  let parsed: unknown;
+  try { parsed = JSON.parse(json); } catch { return null; }
+  const out = new Set<string>();
+  const visit = (v: unknown): void => {
+    if (Array.isArray(v)) { v.forEach(visit); return; }
+    if (v !== null && typeof v === 'object') {
+      for (const [k, val] of Object.entries(v)) {
+        if ((k === 'coinType' || k === 'origCoinType') && typeof val === 'string') {
+          try { out.add(canonicalCoinType(val)); } catch { /* not a coin type — ignore */ }
+        } else {
+          visit(val);
+        }
+      }
+    }
+  };
+  visit(parsed);
+  return out;
+}
+
+/**
  * Gate for the correction endpoint (D7b). A coinType with zero events, zero JE lines and no
  * anchored snapshot has nothing downstream to restate, so a typo may be corrected outright.
- * The LIKE probes are deliberately coarse — a false positive only makes correction *stricter*.
+ *
+ * Comparison is on CANONICAL coinTypes, never on raw substrings. Payloads store whatever
+ * spelling the sender used — the fixture writes '0x2::sui::SUI' — so a `LIKE '%<long form>%'`
+ * probe misses the most common spelling entirely and reports zero usage for an asset that is
+ * fully posted. That failure direction deletes master data for a live asset; it must not exist.
+ *
+ * Slower than SQL, and correctly so: correction is a rare, destructive operation.
  */
 export function countAssetUsage(db: Db, entityId: string, coinType: string): { events: number; jes: number; anchored: number } {
-  const like = `%${coinType}%`;
-  const events = (db.prepare(
-    `SELECT COUNT(*) n FROM events WHERE entity_id=? AND raw_json LIKE ?`).get(entityId, like) as { n: number }).n;
-  const jes = (db.prepare(
-    `SELECT COUNT(*) n FROM journal_entries WHERE entity_id=? AND je_json LIKE ?`).get(entityId, like) as { n: number }).n;
-  const anchored = (db.prepare(
-    `SELECT COUNT(*) n FROM snapshots s JOIN journal_entries j ON j.entity_id = s.entity_id AND j.period_id = s.period_id
-     WHERE s.entity_id=? AND s.status='ANCHORED' AND j.je_json LIKE ?`).get(entityId, like) as { n: number }).n;
+  const uses = (json: string): boolean => {
+    const types = coinTypesOf(json);
+    return types === null || types.has(coinType);   // unparseable => assume in use
+  };
+
+  const eventRows = db.prepare(`SELECT raw_json FROM events WHERE entity_id=?`).all(entityId) as { raw_json: string }[];
+  const events = eventRows.filter((r) => uses(r.raw_json)).length;
+
+  const jeRows = db.prepare(`SELECT je_json, period_id FROM journal_entries WHERE entity_id=?`)
+    .all(entityId) as { je_json: string; period_id: string | null }[];
+  const jes = jeRows.filter((r) => uses(r.je_json)).length;
+
+  const anchoredPeriods = new Set(
+    (db.prepare(`SELECT DISTINCT period_id FROM snapshots WHERE entity_id=? AND status='ANCHORED'`)
+      .all(entityId) as { period_id: string }[]).map((r) => r.period_id),
+  );
+  const anchored = jeRows.filter((r) => r.period_id !== null && anchoredPeriods.has(r.period_id) && uses(r.je_json)).length;
+
   return { events, jes, anchored };
 }
 ```
@@ -2511,9 +2533,15 @@ Create `web/src/workspaces/export/buildBundle.decimals.test.ts`:
 import { describe, it, expect } from 'vitest';
 import { buildBundle, UnregisteredAssetError } from './buildBundle';
 
-// Read buildBundle's real input type before filling these in; the shape below is illustrative.
-const withScale = { /* journal rows whose origCoinType is registered at 9dp */ };
-const withoutScale = { /* the same, but one coinType has decimals === null */ };
+// Read buildBundle's real input type, then implement these two builders against it.
+// `bundleInputWith` returns a minimal valid bundle input containing exactly one journal line
+// with the given origCoinType / decimals / origQtyMinor. `journalColumn` splits journal.csv and
+// returns the named column's values (excluding the header row).
+declare function bundleInputWith(line: { origCoinType: string; decimals: number | null; origQtyMinor: string }): Parameters<typeof buildBundle>[0];
+declare function journalColumn(csv: string, name: string): string[];
+
+const withScale = bundleInputWith({ origCoinType: '0x2::sui::SUI', decimals: 9, origQtyMinor: '1200000000' });
+const withoutScale = bundleInputWith({ origCoinType: '0xusdc::usdc::USDC', decimals: null, origQtyMinor: '5000000000' });
 
 describe('journal.csv decimals columns', () => {
   it('emits origDecimals, an exact origQty string, and the asset source', () => {
@@ -2530,11 +2558,17 @@ describe('journal.csv decimals columns', () => {
     const journal = buildBundle(withScale as never).files['journal.csv'];
     expect(journal).toContain('1.200000000');
     expect(journal).not.toMatch(/1,2/);
-    expect(journal).not.toContain('1.2\n');
+    expect(journal).not.toContain('1.2\n');   // no trailing-zero trimming
   });
 
   it('emits no decimal point at all for a 0-decimal asset', () => {
-    // pin with a 0dp fixture row
+    // WHY: formatMinor(x, 0) must yield "1200", not "1200." — a trailing point breaks
+    // strict numeric parsers on the ERP side.
+    const zeroDp = bundleInputWith({ origCoinType: '0xzero::z::Z', decimals: 0, origQtyMinor: '1200' });
+    const journal = buildBundle(zeroDp).files['journal.csv'];
+    const qtyCol = journalColumn(journal, 'origQty');
+    expect(qtyCol).toEqual(['1200']);
+    expect(journal).not.toContain('1200.');
   });
 });
 
@@ -2816,7 +2850,7 @@ source='manual' and the export discloses exactly that."
 
 `asset_registry.created_at` already exists. In `ExportWorkspace.tsx`'s manual-disclosure card, additionally flag any asset whose `createdAt` falls after the period's lock timestamp, with the copy: *"Registered during the close window"*. Add one test asserting the flag appears for a `createdAt` after the lock and not before. This is the §3.1 minimum compensating control; it is **not** segregation of duties, which needs H1.
 
-**Placeholder scan.** Three tasks carry explicit "read the real signature before filling this in" notes (Task 8's `buildCockpit`, Task 9's component props, Task 11's `buildBundle` fixtures) rather than inventing APIs I have not read. Task 11's `it('emits no decimal point at all for a 0-decimal asset')` body is intentionally left to the implementer to pin against a real 0dp fixture row — flagged here so it is not mistaken for an oversight. Task 12's `loadConfig`/`cfg.dbPath` likewise. No `TBD`, no "add appropriate error handling".
+**Placeholder scan.** Three tasks carry explicit "read the real signature before filling this in" notes (Task 8's `buildCockpit`, Task 9's component props, Task 11's `buildBundle` fixtures) rather than inventing APIs I have not read. Task 12's `loadConfig`/`cfg.dbPath` likewise. No `TBD`, no "add appropriate error handling".
 
 **Type consistency.** `AssetInfo` (Task 4) is what `getAssetDecimals` returns; `AssetRow` (Task 3) is the DB row. `collect.ts` reads `asset?.decimals`, `asset?.symbol`, `asset?.source` — all present on `AssetInfo`. `BreakPrecision` is defined once in Task 2 and re-declared structurally in `web/src/api/types.ts` (Task 9) because web does not import from api. `CoinInfoFetcher.getCoinInfo` resolves `RawCoinInfo | null` and throws `ChainUnreachableError`; `makeGrpcCoinInfoFetcher` and all four test doubles honour that contract. `registerAsset` throws `RegisterError` with `{status, code}`; the route maps it to `ApiError` with the same pair; `AssetRegistryPanel`'s `ERR` map keys on exactly those codes: `INVALID_COIN_TYPE`, `NAMED_PACKAGE_UNSUPPORTED`, `MANUAL_DECIMALS_REQUIRED`, `CHAIN_DECIMALS_MISMATCH`, `ASSET_DECIMALS_CONFLICT`, `ASSET_IN_USE`, `CHAIN_UNREACHABLE`. `unregisteredAssetBlockers` returns `ReconBreak[]` in all five backend call sites.
 
