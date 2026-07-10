@@ -393,8 +393,40 @@ if (!Number.isInteger(d) || d < 0 || d > 36) throw new Error('COIN_METADATA_INVA
   `origSource` 逐列出現而不只在 manifest：ERP 逐列匯入時看不到 manifest。
 - `quantity-recon.csv` 加 `decimals`、`source`，並為 `acquiredMinor` / `disposedMinor` / `netMinor` 各加精確字串欄。
 - 沿用既有 `formatMinor(amountMinor, scale)`（`web/src/lib/exportCsv.ts:53-59`，實查確認為純 `padStart`/`slice`，**不碰 `Number`/`parseFloat`**）。數量欄的 `scale` 換成該資產的 decimals；法幣欄維持 2。
+  ⚠️ **但它有與 `fmtMinor` 相同的 null-coercion 陷阱**（Task 11 實測）：
+  ```
+  formatMinor('5000000000', null)      → "5000000000"   // 差 10^6，靜靜地
+  formatMinor('5000000000', undefined) → "0"            // 5000 USDC 印成零
+  ```
+  `undefined → "0"` 是這個 bug 家族裡最惡毒的一種：它不是印錯刻度，是**印出一個不存在的數字**。`formatMinor` 必須對非整數 scale 拋錯。
 - **任何一列 `decimals === null` → 拒絕產生整個 bundle**，UI 列出未登錄的 coinType 與登錄入口。
 - bundle manifest 加資產揭露：每個 coinType 的 `source` / `symbol` / `chain_object_id` / `chain_object_version`；`manual` 標「未經鏈上驗證」；**close window 內登錄的資產另外標紅**（§3.1）。
+
+#### 6.4.0 誰算出 `origDecimals` / `origSource`？（2026-07-10，Task 11 實作時補上）
+
+spec 原本只寫「`journal.csv` 加 `origDecimals`、`origSource`」，**沒說這兩個值從哪來**。實作時才發現 `buildBundle` 手上根本沒有 registry —— export 路徑（`useExportData → assembleExport → buildBundle`）從未接觸過它。plan 裡的 `decimalsOf(line.origCoinType)` 假設了一個不存在的資料源。
+
+而且有第二層問題：JE line 的 `origCoinType` 是 **event payload 的原始拼法**（fixture 寫短式 `0x2::sui::SUI`），registry 的 key 是 **canonical 長式**。要在 web 端查表，就得在 web 端正規化。
+
+**裁決：後端算，DTO 帶下去。**
+
+`GET /entities/:id/journal` 的每條 JE line **additive** 加：
+```ts
+origDecimals: number | null;            // getAssetDecimals(...)?.decimals ?? null
+origSource: 'chain' | 'manual' | null;  // 同上的 .source
+```
+
+三個理由，由弱到強：
+
+1. **export 是 compliance artifact。** 它蓋上去的 decimals 必須與 close gate 執行時用的那個 **byte-identical**。同一個 `getAssetDecimals` 回答兩邊，不可能分歧。
+2. **`canonicalCoinType` 的知識不屬於前端。** 它知道 MVR named package、`normalizeStructTag` 的填零規則、`vector<...>` 是 opaque string。前端只是想把一個數字印對。
+3. **client mirror 已經咬過這個 repo 一次。** `web/src/lib/reconMovements.ts` 是 backend `walletAssetMovements` 的鏡像，漏了一個 `OPENING_LOT` skip，畫面上的 break 錯了 **1000 倍**，而且是在追另一個 bug 時才被撞見（2026-07-09）。在 web 端複製一份 canonical 化規則，是同一個賭注。
+
+**硬性約束**：這是 **read DTO，不是 `je_json`**。不得改動寫入 `journal_entries.je_json` 的任何東西、不得改動 `leafCodec` / merkle / 任何 leaf hash 輸入。既有的 snapshot / merkle / tie-out 測試必須一個都不變（D5）。
+
+**fail-closed 的觸發條件**：`origCoinType` 有值但 `origDecimals === null` → `buildBundle` 在寫出任何一行之前 throw。
+
+> 教訓留痕：**規格可以省略資料流，實作不行。** §6.4 讀起來很順，因為它只描述了輸出欄位。它沒有回答「誰知道這個值」，而那才是設計。
 
 #### 6.4.1 精確字串格式契約（CPA Important）
 
