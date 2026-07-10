@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { openDb } from '../src/store/db.js';
 import { getAsset, insertAssetIfAbsent, listAssets, deleteAsset, appendAssetLog, countAssetUsage, type AssetRow } from '../src/assets/store.js';
 import { CoinTypeError } from '../src/assets/normalize.js';
+import { correctAsset } from '../src/assets/register.js';
 
 const tmpDirs: string[] = [];
 function freshDbPath(): string {
@@ -192,5 +193,35 @@ describe('appendAssetLog + countAssetUsage', () => {
     // from getAssetDecimals (a read path), which returns null on a miss.
     const db = openDb(freshDbPath()); seedEntity(db);
     expect(() => countAssetUsage(db, 'e1', 'garbage')).toThrow(CoinTypeError);
+  });
+
+  it('counts an event that references the coinType only as the swap BUY leg (considerationAsset)', () => {
+    // WHY: a swap event carries the bought coin top-level as `considerationAsset`
+    // (rules-engine/domain/schemas.ts:26), never under `coinType` or `origCoinType`. The sold
+    // leg lives under `coinType`. The probed target here (USDC) appears ONLY under
+    // considerationAsset — `coinType` carries an unrelated SUI sold leg — so a gate that walks
+    // only `coinType`/`origCoinType` would report zero usage for USDC even though this event
+    // is live and references it. correctAsset would then judge USDC "unused" and delete its
+    // registry master data.
+    const USDC = '0x0000000000000000000000000000000000000000000000000000000000000005::usdc::USDC';
+    const db = openDb(freshDbPath()); seedEntity(db);
+    db.prepare(`INSERT INTO events (id, entity_id, raw_json, status) VALUES ('ev1','e1',?,'POSTED')`)
+      .run(JSON.stringify({ coinType: SUI, considerationAsset: USDC, eventType: 'SWAP' }));
+    expect(countAssetUsage(db, 'e1', USDC).events).toBe(1);
+  });
+
+  it('end-to-end: correctAsset refuses to delete an asset that appears only as a swap considerationAsset', () => {
+    // WHY: this is the actual blast radius. A registered USDC row, referenced by a live swap
+    // event solely through its consideration (buy) leg, must survive a correction attempt.
+    // If the gate can't see considerationAsset, this asset silently gets deleted — master data
+    // for a live, event-referenced coin type is gone, and every historical amount for it loses
+    // its decimals.
+    const USDC = '0x0000000000000000000000000000000000000000000000000000000000000005::usdc::USDC';
+    const db = openDb(freshDbPath()); seedEntity(db);
+    insertAssetIfAbsent(db, row({ coinType: USDC, symbol: 'USDC', displayName: 'USD Coin', decimals: 6 }));
+    db.prepare(`INSERT INTO events (id, entity_id, raw_json, status) VALUES ('ev1','e1',?,'POSTED')`)
+      .run(JSON.stringify({ coinType: SUI, considerationAsset: USDC, eventType: 'SWAP' }));
+    expect(() => correctAsset(db, 'e1', USDC, 'a', '2026-07-10T00:00:00Z')).toThrow(/ASSET_IN_USE/);
+    expect(getAsset(db, 'e1', USDC)).not.toBeNull();
   });
 });

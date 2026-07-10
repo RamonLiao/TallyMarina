@@ -84,7 +84,7 @@ function coinTypesOf(json: string): Set<string> | null {
     if (Array.isArray(v)) { v.forEach(visit); return; }
     if (v !== null && typeof v === 'object') {
       for (const [k, val] of Object.entries(v)) {
-        if ((k === 'coinType' || k === 'origCoinType') && typeof val === 'string') {
+        if ((k === 'coinType' || k === 'origCoinType' || k === 'considerationAsset') && typeof val === 'string') {
           try { out.add(canonicalCoinType(val)); } catch { /* not a coin type — ignore */ }
         } else {
           visit(val);
