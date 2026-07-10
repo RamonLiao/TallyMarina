@@ -74,12 +74,20 @@ export async function buildBundle(input: BundleInput): Promise<BuiltBundle> {
 
   // ---- fail closed: refuse to emit a single row if any asset leg lacks a registered scale ----
   // Deduped, insertion-order-stable so the error message is deterministic. A leg with no
-  // origCoinType (fiat/gas) carries no asset scale and is exempt. origDecimals == null covers
-  // both the wire's explicit null (unregistered) and a missing field (defensive).
+  // origCoinType (fiat/gas) carries no asset scale and is exempt. badScale rejects not just
+  // null/undefined (unregistered) but any non-integer, out-of-range value — a fractional or
+  // negative origDecimals must never reach String()/formatMinor as a raw, unguarded write.
+  // Upper bound 36 mirrors services/rules-engine/src/domain/schemas.ts's assetDecimals bound
+  // (there to cap the exponent and prevent a 10^n BigInt DoS); the same bound applies here
+  // because this is the same quantity, re-validated at the export boundary rather than trusted
+  // from upstream.
+  const badScale = (d: unknown): boolean =>
+    d === null || d === undefined || typeof d !== 'number'
+    || !Number.isInteger(d) || d < 0 || d > 36;
   const unregistered: string[] = [];
   const seen = new Set<string>();
   for (const line of allLines) {
-    if (line.origCoinType != null && line.origDecimals == null && !seen.has(line.origCoinType)) {
+    if (line.origCoinType != null && badScale(line.origDecimals) && !seen.has(line.origCoinType)) {
       seen.add(line.origCoinType);
       unregistered.push(line.origCoinType);
     }
@@ -159,7 +167,9 @@ export async function buildBundle(input: BundleInput): Promise<BuiltBundle> {
   });
   const quantityReconCsv = headerBlock(csvMeta) + '\n' + csvRows(reconHeader, reconRows);
 
-  // ---- journal.json (canonical leaf preimage source) ----
+  // ---- journal.json (human-readable JE detail; the anchored leaf preimage is
+  //      JE_LEAF_BCS_V1, NOT this file — it carries origDecimals/origSource, which
+  //      the leaf codec's field whitelist excludes) ----
   const journalJson = JSON.stringify(journal.map((r) => r.je), null, 2);
 
   // ---- VERIFY.md ----

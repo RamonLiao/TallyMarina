@@ -9,7 +9,7 @@ import type { JournalDTO } from '../../api/types';
 function bundleInputWith(line: {
   origCoinType: string;
   decimals: number | null;
-  origQtyMinor: string;
+  origQtyMinor: string | null;
   source?: 'chain' | 'manual';
 }): BundleInput {
   const je: JournalDTO = {
@@ -127,5 +127,49 @@ describe('export is fail-closed on unknown scale', () => {
     let built: unknown = 'NOT_SET';
     try { built = await buildBundle(withoutScale); } catch { /* expected */ }
     expect(built).toBe('NOT_SET');
+  });
+});
+
+describe('export is fail-closed on a malformed (not just missing) scale', () => {
+  // WHY: origDecimals == null is not the only way a scale can be wrong. A fractional or
+  // out-of-range decimals is just as unsafe to write into an ERP as a missing one — the
+  // guard must reject the whole class, not just the null case. These inputs are not reachable
+  // in production today (getAssetDecimals validates integer 0-36 at registration time, and the
+  // DB has a CHECK constraint), but export is a compliance artifact and must not assume the
+  // upstream is correct.
+
+  it('rejects a fractional origDecimals even when origQtyMinor is null (fiat-shaped leg with an asset coinType)', async () => {
+    // WHY: a fractional scale on a leg with no quantity to format never reaches formatMinor,
+    // so formatMinor's own guard can't catch it. Without a scan-level check, String(9.5) would
+    // be written straight into journal.csv's origDecimals column, uncaught, no throw.
+    const bad = bundleInputWith({ origCoinType: '0xfrac::f::F', decimals: 9.5, origQtyMinor: null });
+    await expect(buildBundle(bad)).rejects.toBeInstanceOf(UnregisteredAssetError);
+    await expect(buildBundle(bad)).rejects.toMatchObject({ coinTypes: ['0xfrac::f::F'] });
+  });
+
+  it('rejects a negative origDecimals with a typed error carrying the coinType, not a generic Error', async () => {
+    // WHY: formatMinor also rejects negative scale, but throws a generic Error — which means
+    // the coinType is lost and the UI falls back to a generic error card instead of the
+    // "unregistered asset" card. The scan-level guard must catch this first so the error is
+    // typed and named.
+    const bad = bundleInputWith({ origCoinType: '0xneg::n::N', decimals: -3, origQtyMinor: '100' });
+    await expect(buildBundle(bad)).rejects.toBeInstanceOf(UnregisteredAssetError);
+    await expect(buildBundle(bad)).rejects.toMatchObject({ coinTypes: ['0xneg::n::N'] });
+  });
+
+  it('rejects an origDecimals above 36 (mirrors the rules-engine assetDecimals bound, guards against 10^n BigInt DoS)', async () => {
+    const bad = bundleInputWith({ origCoinType: '0xbig::b::B', decimals: 37, origQtyMinor: '100' });
+    await expect(buildBundle(bad)).rejects.toBeInstanceOf(UnregisteredAssetError);
+    await expect(buildBundle(bad)).rejects.toMatchObject({ coinTypes: ['0xbig::b::B'] });
+  });
+
+  it('does not flag the fiat/gas leg (origCoinType null, origDecimals null) as an unregistered asset', async () => {
+    // WHY: regression guard — the scan condition must be "origCoinType present AND scale
+    // invalid". bundleInputWith's balancing CREDIT leg is exactly this shape (origCoinType:
+    // null, origDecimals: null); if the scan were mutated to check origDecimals alone (dropping
+    // the origCoinType != null guard), this leg would be wrongly swept up and every build in
+    // this file would start throwing. A build with only a well-scaled asset leg must succeed.
+    const ok = bundleInputWith({ origCoinType: '0x2::sui::SUI', decimals: 9, origQtyMinor: '1000000000' });
+    await expect(buildBundle(ok)).resolves.toBeTruthy();
   });
 });
