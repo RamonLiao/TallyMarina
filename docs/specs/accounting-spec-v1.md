@@ -330,23 +330,230 @@ IFRS revaluation model（IAS 38 重估模式）為 P1 政策選項（`revaluatio
 
 ## §6 Pricing / PricePoint 規格（MVP）
 
-（本節由 Task 5 填寫）
+價格是 MVP 硬依賴（D13）：§4 之 `FV` 金額來源、§5 期末重估/減損之 recoverable amount 與 FV，均由本節之 PricePoint 供給。本節定義來源優先序、缺價處理、cut-off 時點與 PricePoint 欄位，為 §5 期末重估的計價基礎（衡量邏輯見 §5，本節不重寫，只供給價格）。
 
-## §7 Cost basis
+### §6.1 PricePoint 欄位
 
-（本節由 Task 5 填寫）
+某資產在特定時點之市場價格紀錄（詞條見商業冊附錄 B「PricePoint」）。欄位：
+
+| 欄位 | 說明 |
+|---|---|
+| `price_point_id` | 唯一識別 |
+| `asset_id` | 計價資產 |
+| `quote_currency` | 報價幣別（MVP 恆為 functional currency = USD，見 §1.3） |
+| `price` | 單價（quote_currency / 單位資產） |
+| `as_of` | 價格所屬時點（UTC 時間戳，見 §6.4 cut-off 換算） |
+| `source` | 來源枚舉：`ORACLE_PYTH` / `ORACLE_NAUTILUS` / `MANUAL`（fallback） |
+| `fv_hierarchy_level` | IFRS 13 / ASC 820 公允價值層級：`LEVEL_1`（活絡市場報價）/ `LEVEL_2`（可觀察輸入推導）（二之15；MVP 不支援 LEVEL_3 估值模型） |
+| `principal_market` | 主要市場識別（見 §6.5） |
+| `ingested_at` | 取得/寫入時間 |
+| `staleness_seconds` | `as_of` 與使用時點之時間差（供 §6.3 stale 判定） |
+
+一筆重估或計價所引用之 `price_point_id` 須隨 JE 留存（供審計回溯至價格證據）。
+
+### §6.2 價格來源優先序（oracle → 手動 fallback）
+
+規則引擎計價時按下列優先序取價，命中即止：
+
+1. **Oracle（首選）**：候選 Pyth、Nautilus。MVP 不綁定單一來源，以下列**評估準則**擇一或多源，由 entity 與其會計師確認選用：
+   - 覆蓋資產範圍（是否涵蓋 entity 持有之 token）；
+   - 更新頻率與延遲（能否滿足 §6.3 staleness 門檻）；
+   - 是否附信賴區間/信心度（Pyth 提供 confidence interval，可支撐 §6.3 品質判定）；
+   - 可驗證性（Nautilus 之鏈下驗證計算可附 attestation，供審計）；
+   - 對應之 `fv_hierarchy_level` 判定（活絡市場直接報價傾向 LEVEL_1，跨市場推導傾向 LEVEL_2）。
+2. **手動輸入（fallback）**：oracle 無覆蓋或全部 stale 時，允許經授權人員手動輸入 PricePoint（`source = MANUAL`），須附來源註記（報價所（exchange/OTC）、擷取時點）；手動價一律標 `LEVEL_2` 或更低可觀察性，並記入 §9.3 change log（who/when/what）。
+
+> 建議預設優先採 oracle、手動輸入僅作 fallback；實際選用之 oracle 與是否允許手動 fallback，由 entity 與其會計師確認。
+
+### §6.3 stale / 缺價處理（fail-closed，不得默認 0）
+
+- **staleness 門檻**：PolicySet 承載 `price_staleness_seconds`（建議預設 **86400 秒（24 小時）**，由 entity 與其會計師確認）。`staleness_seconds > price_staleness_seconds` 之 oracle 價視為 stale，降級至下一優先序（手動 fallback）。
+- **缺價（無任何可用來源）**：需計價之事件/重估**擋在規則引擎**、不產生 JE，標記 `PRICE_MISSING` exception 進入 review queue（比照 §2.1、§4.7 之 fail-closed）。**嚴禁以 0 或前期價默認出帳**——0 會靜默扭曲損益與資產餘額。
+- **期末重估缺價**：§5 之月結重估若任一持有資產缺價，該資產重估行 fail-closed、阻擋月結「重估過帳」步驟（見 §14，Task 6），不得跳過。
+
+### §6.4 期末 cut-off 時點（明定一種）
+
+會計日之價格切點採 **entity 時區之日曆日切**（非 block timestamp）：
+
+- 期末重估以 **entity 時區當日 23:59:59 對應之 UTC 時點**為 `as_of` 目標，取該時點前最近且未 stale 之 PricePoint。
+- **鏈上事件之計價**：交易之 block timestamp（Sui 為 UTC 毫秒）先換算為 entity 時區以歸屬會計日（period），計價取「該事件 block timestamp 當下」最近之未 stale PricePoint（即成交時點公允價值，非日終價）。
+- 換算規則明定：`accounting_date = to_date(block_timestamp_utc, entity_timezone)`；`entity_timezone` 為 entity 層設定（MVP 預設 `UTC`，可由 entity 設定為 `Asia/Taipei` 等目標市場時區）。跨日切之交易一律以換算後 entity 時區日期歸屬，避免 UTC 與在地日曆錯期。
+
+### §6.5 principal market（主要市場）
+
+IFRS 13 / ASC 820 之公允價值以**主要市場（principal market，交易量與活動最大之市場）**價格衡量；無主要市場時採**最有利市場（most advantageous market）**。實作意涵：
+
+- 同一資產跨多所報價時，PricePoint 之 `principal_market` 應標記所採市場，且同一資產跨期一致採用（不得逐期擇高）。
+- 主要市場之判定（何所為該 entity 之主要市場）屬專業判斷，由 entity 與其會計師確認；系統以 `principal_market` 欄位承載該決策、供審計檢視一致性。
+
+## §7 Cost basis 與 PositionLot
+
+處分（disposal、swap、付款、gas）時之 carrying amount（§4 之 `COST` 金額來源）由本節之 lot 追蹤供給。
+
+### §7.1 成本基礎方法
+
+- **FIFO（MVP 預設）**：先進先出，處分時依 `acquisition_date` 由早至晚取 lot。系統既有實作即 FIFO。
+- **WAC（加權平均，P1）**：加權平均單位成本。列 P1（見商業冊 §7）；註記 **L2 基金/資產管理型客戶偏好 WAC**（與其報表口徑一致），P1 開放 `cost_basis_method = WAC` 時展開。
+- 方法由 PolicySet 之 `cost_basis_method` 承載（§9），同一 entity/asset 跨期一致；變更須經 PolicySet 版本更迭並記 change log（§9.3）。LIFO / HIFO / Specific Identification 非本期範圍。
+
+### §7.2 PositionLot 欄位（F4 §4）
+
+每筆 lot 至少記錄：
+
+| 欄位 | 說明 |
+|---|---|
+| `asset_id` | 資產 |
+| `acquisition_date` | 取得日（FIFO 排序鍵；期初導入 lot 為原始取得日，非導入日） |
+| `acquisition_tx_ref` | 取得交易參照（鏈上 tx / 期初導入來源註記） |
+| `acquired_qty` | 取得數量（native decimals，見 §4.0 精度） |
+| `remaining_qty` | 剩餘未處分數量（**恆 ≥ 0**，見 §7.3 例外流程） |
+| `unit_cost` | 單位成本（functional currency = USD） |
+| `accounting_class` | 會計分類（§2，決定後續衡量軌） |
+| `cost_method` | 建立時之成本方法（FIFO/WAC，供追溯） |
+
+處分時：(1) 依 `cost_method` 取對應 lot；(2) 計算 disposed carrying amount（∑ 處分 qty × lot unit_cost）；(3) 與對價 FV 比較得 gain/loss（§4.2/§4.5 之 RESIDUAL）；(4) 扣減 `remaining_qty`。內部移轉（§4.3）不改 cost basis、隨資產搬移 lot。
+
+### §7.3 期初餘額導入（opening balance / cut-over，MVP）
+
+上線前既有持倉須以期初 lot 導入，建立 cost basis 起點。對應現有規則引擎 `OPENING_LOT` 事件（legs：`ACQUISITION` → `DigitalAssets`、`OPENING_EQUITY` → `OpeningBalanceEquity`，見 §10 / policyConstants）。
+
+**opening lot import 格式（每列一筆 lot）**：
+
+| 欄位 | 必填 | 說明 |
+|---|---|---|
+| `asset` | 是 | 資產識別（symbol / coin type） |
+| `qty` | 是 | 期初數量（> 0） |
+| `unit_cost` | 是 | 單位成本（USD；歷史取得成本，非導入日市價） |
+| `acquisition_date` | 是 | 原始取得日（供 FIFO 排序；非導入日） |
+| `source_note` | 是 | 來源註記（前系統/CEX 對帳單/錢包快照出處） |
+
+導入分錄（每筆 lot）：Dr `DigitalAssets`（qty × unit_cost）/ Cr `OpeningBalanceEquity`（同額）。導入建立之 lot `remaining_qty = qty`、`acquisition_tx_ref` 記 `source_note`。
+
+**例外流程——處分量超過已知 lot（fail-closed，禁止負 lot）**：
+
+處分事件之數量若超過該資產所有 lot 之 `remaining_qty` 合計（即帳上無足額成本基礎，多因期初導入遺漏或缺一段歷史）：
+
+- **擋下該事件、不出帳**，標記 `LOT_SHORTFALL` exception 進入 review queue；
+- **嚴禁建立負數 lot 或 `remaining_qty < 0`**——負 lot 會產生虛構成本、扭曲後續所有處分損益；
+- 解法為人工補建期初/遺漏 lot（回 §7.3 導入）後重跑該事件，非讓系統自行 plug。此與 §6.3 缺價、§4.7 未分類同屬 fail-closed 邊界（AI 建議、不自動 posting）。
 
 ## §8 Manual JE / Adjustment / Reversal（MVP）
 
-（本節由 Task 5 填寫）
+自動化引擎無法覆蓋所有情境（分類更正、期末應計、審計調整），故須提供手工分錄。手工分錄之借貸表示沿用 §4 模板格式（Dr/Cr | 科目 | 金額 | 金額來源 | 軌別）。
+
+### §8.1 手工分錄輸入約束（強制）
+
+manual JE 進帳前，系統強制檢核：
+
+- **借貸必平**：∑Dr = ∑Cr（依 §4.0 精度與 minor unit 捨入；不平則擋下，不套 `RoundingDifference` 自動 plug——manual JE 由編製者自負平衡）；
+- **必掛 period**：須指定會計期間，且該 period 須為 open（已 lock/已關帳期間見 §8.3、§14）；
+- **必留 preparer 與 reason**：記錄編製人（preparer）與事由（reason，自由文字，供審計）；建議另留覆核人（reviewer）欄位（P1 RBAC 時強制雙人）；
+- manual JE 之 header `source_event_id` 為空（非源自攝取事件），`status` 標記手工來源，於 UI 以 brass 語意色標示 manual/off-chain（見 §15，Task 7）。
+
+### §8.2 三情境
+
+| 情境 | 用途 | 典型分錄 |
+|---|---|---|
+| **更正（correction）** | 修正錯誤分類或錯帳（如科目誤植） | 沖原錯誤方向 + 補正確科目；或對未匯出 JE 直接 void 重出（§8.3） |
+| **應計（accrual）** | 期末認列已發生未入帳之收入/費用 | Dr Expense / Cr AccruedLiability（或 Dr AccruedReceivable / Cr Revenue）；次期迴轉 |
+| **審計調整（audit adjustment）** | 審計師要求之調整分錄 | 依調整內容；reason 註明審計來源與依據 |
+
+> 應計之次期自動迴轉（reversing entry）為便利選項，是否啟用由 entity 政策決定。
+
+### §8.3 Reversal 規則（連動 §12）
+
+manual JE 與自動 JE 之更改一律走「反向」而非「就地改」，以保帳簿不可竄改：
+
+- **未匯出 JE（未進 §12 ERP export）**：可 **void**（作廢）——標記 `VOIDED`、原 JE 不計入 TB，可重新產出正確 JE。void 動作記 change log。
+- **已匯出 JE（已匯入 Xero/QBO，見 §12）**：**只能反向沖銷（reversing entry），不得 void、不得就地改**——因外部 ERP 已收該 JE，就地改會使兩邊帳不一致。沖銷方式：新增一筆金額相同、借貸方向相反之 JE（`memo` 引用原 `je_id`），再視需要補正確 JE。此約定與 §12「已匯出不可改」一致（沖銷約定權威文字連動 §12，Task 6）。
+- 判定「是否已匯出」以 JE 之 export 狀態為準（§12 定義 export 標記）；跨此界線後一律沖銷。
+
+### §8.4 進 snapshot / anchor 範圍聲明
+
+manual JE 與自動 JE **同等納入**月結 snapshot 與 audit anchor（見 §14/§17，Task 6/7）——手工分錄同屬正式帳簿之一部分，不得排除於完整性證明之外，否則 anchor 無法涵蓋全部帳務。void 之 JE 以其最終狀態（`VOIDED`）納入 snapshot（保留作廢軌跡，非刪除）。
 
 ## §9 PolicySet schema
 
-（本節由 Task 5 填寫）
+PolicySet 為 entity 之會計政策集合，是規則引擎判定科目路徑與衡量方式之單一政策來源；落庫、版本化，**取代現行 `DEMO_POLICY_SET` 常數**（`services/api/src/http/policyConstants.ts`）。
+
+### §9.1 欄位（F4 §5 全列）
+
+每個 entity 有一個 active PolicySet：
+
+| 欄位 | 值域 | 說明 |
+|---|---|---|
+| `accounting_standard` | `IFRS` / `US_GAAP` | 準則軌（§1.1，兩軌互不混用） |
+| `functional_currency` | ISO 幣別 | 功能貨幣（MVP 恆 `USD`，見 §1.3；禁 USD 硬編碼散落） |
+| `reporting_currency` | ISO 幣別 | 報導貨幣（MVP = functional = `USD`；多幣別換算 P1） |
+| `cost_basis_method` | `FIFO` / `WAC` | 成本基礎（§7；MVP=FIFO，WAC 為 P1） |
+| `stablecoin_treatment` | `FINANCIAL_ASSET_IFRS9` / `INTANGIBLE_ASSET` / `CASH_EQUIVALENT` | 穩定幣處理（§2.2，僅承載政策不自動判斷） |
+| `crypto_classification_default` | accounting_class 枚舉 | 非穩定幣 token 之預設分類（IFRS 傾向 IAS 38、GAAP 傾向 ASU 2023-08 或 ASC 350-30，§2.1） |
+| `staking_income_policy` | `OPERATING_REVENUE` / `OTHER_INCOME` | 質押收入歸類（§4.1.1，決定 `StakingIncome` 歸屬） |
+| `fee_expense_policy` | `EXPENSE_IMMEDIATE` / `CAPITALIZE_TO_ASSET` | gas/fee 處理（§4.4） |
+| `revaluation_policy` | `cost` / `revaluation` | IFRS 衡量模式（§5.2/§5.3；MVP=cost，revaluation 為 P1，另含 IAS 2 broker-trader 選項） |
+| `asu_2023_08_applies` | per-asset 布林標記 | US GAAP 下該資產是否落入 ASU 2023-08 FV through P&L 範圍（§1.2 六項判準結果） |
+
+> `functional_currency` / `reporting_currency` 於 MVP 恆 USD 亦不省略、不硬編碼（§1.3）。`asu_2023_08_applies` 為 per-asset 標記（非 entity 單值），承載每種 token 之範圍判定。
+
+### §9.2 落庫與版本化
+
+- PolicySet 落資料庫，**每次變更產生新 version**（policy_set_version）；舊版本保留。
+- 每筆 JournalEntry header 記錄產生所依據之 `policy_set_version`（與 `rule_version`，見 §4.0、商業冊附錄 B）。
+- 允許「以不同 policy_version 重跑某期間」做 scenario / **restatement**（重編）——期間之事件不變、換政策重算 JE，供比較。重跑不覆寫原 JE（另存版本）。
+- PolicySet 涵蓋多個子版本維度（現行常數已含 `assetPolicyVersion` / `eventPolicyVersion` / `ruleVersion` / `parserVersion` / `normalizationVersion`），落庫 schema 沿用該粒度。
+
+### §9.3 最小 change log（D19）
+
+PolicySet 與 MappingRule（§10）之變更、及 review 人工決策，須記入最小 change log（完整 RBAC + audit log 列 P1）：
+
+- **who**：變更/決策人；
+- **when**：時間戳；
+- **what**：變更對象（PolicySet 欄位 / MappingRule / asset 分類 / manual price / JE void 等）、變更前後值（before/after）、事由（reason）。
+
+change log 為只增（append-only）、不可就地改；供審計回溯政策演進與人工介入軌跡。§2.1 之分類變更、§6.2 之手動價、§8 之 void/沖銷決策均落此 log。
 
 ## §10 CoA 與 MappingRule
 
-（本節由 Task 5 填寫）
+科目表（CoA）與映射規則落庫、JSON 化、版本化，**取代現行 `DEMO_COA_RULES` 常數**（`services/api/src/http/policyConstants.ts`）。
+
+### §10.1 F6 三層規則架構
+
+規則引擎將 NormalizedEvent 轉為 JournalEntry 分三層（ideas-summary §2.4 / F6），逐層產物可版本化、JSON 儲存、不硬編碼於準則：
+
+1. **第一層 分類規則（classification）**：由 event_type + asset 之 technical_type + economic_purpose 判定 accounting treatment candidate（候選會計處理）。
+2. **第二層 政策規則（policy）**：套 PolicySet（`accounting_standard`、`stablecoin_treatment`、`accounting_class` 等，§9）決定科目路徑（IFRS/GAAP/公司政策）與衡量金額來源（cost / FV / impairment）。此層即 F4 §6 之 MappingRule（事件→科目）與 MeasurementRule（金額來源）。
+3. **第三層 分錄生成規則（posting）**：產出實際 debit/credit lines（§4 模板）、平衡（§4.0 rounding）。
+
+規則以 JSON 結構儲存並帶 `rule_version`（範例 rule_id：`swap_disposal_ifrs_v1`）；每筆 JE 記錄所依據之 rule_version（§4.0、§9.2）。
+
+### §10.2 MappingRule 結構
+
+現行 per-leg 映射（`{ eventType, leg, account }`，含動態 `WALLET:<addr>` catch-all）為第三層之最小落地形式，落庫後 JSON 化並版本化。條件維度可擴充 asset_class / economic_purpose / accounting_standard / stablecoin_treatment（F4 §6.2）；結果為 debit/credit account template + amount_source（§4.0 枚舉）。
+
+**找不到 mapping → fail-closed（F5 §6.3 原則）**：未命中之 leg 解析為 `null`，標記 `MAPPING_MISSING`「需政策配置」、**不自動出帳、不落任何 fallback/Suspense 科目**（現行 `resolveCoa` 已回傳 `null`、無 default account，符合此原則）。此與 §2.1、§4.7、§6.3、§7.3 同屬 fail-closed 邊界。
+
+### §10.3 CoA seed 清單
+
+落庫初始 seed。**現行 `DEMO_COA_RULES` 已含**（沿用）：`DigitalAssets`、`AccountsReceivable`、`AccountsPayable`、`DisposalGain`、`DisposalLoss`、`GasFeeExpense`、`OpeningBalanceEquity`。
+
+**本規格新增（§1–§9 標註「須加入 CoA seed」之科目，全數收錄）**：
+
+| 科目 | 類別 | 來源節次 | 用途 |
+|---|---|---|---|
+| `StakingIncome` | 損益（收入） | §4.1.1 | 質押獎勵收入（`staking_income_policy` 決定歸 OPERATING_REVENUE / OTHER_INCOME） |
+| `RoundingDifference` | 損益（其他損益） | §4.0 | 逐行捨入尾差之平衡科目（amount_source=ROUNDING） |
+| `UnrealizedGainCryptoPnL` | 損益 | §5.1 | GAAP ASU 2023-08 FV 重估——升值（未實現利益） |
+| `UnrealizedLossCryptoPnL` | 損益 | §5.1 | GAAP ASU 2023-08 FV 重估——貶值（未實現損失） |
+| `ImpairmentLoss` | 損益 | §5.1 附註 / §5.2 | IFRS IAS 36 / GAAP ASC 350-30 減損損失 |
+| `ImpairmentReversalGain` | 損益 | §5.2 | IFRS 減損迴轉利益（原成本上限；GAAP 不適用） |
+
+**權益/OCI 科目預留（P1 revaluation model，§5.3）**：
+
+| 科目 | 類別 | 來源節次 | 用途 |
+|---|---|---|---|
+| `RevaluationSurplus` | 權益 / OCI | §5.3 | IFRS IAS 38 重估模式重估增值累積（P1 啟用 `revaluation_policy=revaluation` 時使用；MVP 預留不出帳） |
+
+> `RevaluationSurplus` 於 MVP 僅預留於 seed、不產生分錄（revaluation model 列 P1）。其餘六科目 MVP 即用。實際 `account_code` 編碼（科目代號）由 entity 既有 CoA 對接時確定，本清單提供概念名與必要科目集合。
 
 ## §11 Trial balance 與揭露
 
