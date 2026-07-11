@@ -40,7 +40,7 @@ import { prepareAnchor, confirmAnchor, type AnchorServiceDeps } from './anchorSe
 import { SnapshotError } from '@subledger/snapshot-svc';
 import {
   getActivePolicy, getActiveCoaMapping, toResolvedPolicySet, buildCoaMappingFromRules, PolicyPersistenceError,
-  insertPolicyVersion, bumpVersion, type PolicyDoc,
+  insertPolicyVersion, insertCoaMappingVersion, bumpVersion, type PolicyDoc,
 } from '../store/policyStore.js';
 import { appendChange } from '../store/changeLogStore.js';
 import { deriveSources } from '../onboarding/sources.js';
@@ -321,6 +321,66 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
       });
       txn();
       return { policyVersion: newVersion, policyDoc: merged };
+    });
+  });
+
+  // PUT /policy/coa-mapping — whole-file replace of the event/leg -> account mapping (spec
+  // §4 V1). This is the invariant that closes the idempotency-collision hole: a mapping
+  // change alone (without a §9.1 policy-field change) still bumps ruleVersion, and ruleVersion
+  // is a lineage ingredient of the JE idempotency key (rules-engine idempotency.ts), so a
+  // re-evaluated event under the new mapping gets a DIFFERENT key instead of colliding with
+  // (and corruption-guard-tripping against) the JE it posted under the old mapping.
+  const PutCoaBody = z.object({
+    entity: z.string().min(1), actor: z.string().min(1), reason: z.string().trim().min(1),
+    rules: z.array(z.object({ eventType: z.string().min(1), leg: z.string().min(1), account: z.string().min(1) }).strict()).min(1),
+  }).strict();
+
+  app.put('/policy/coa-mapping', async (req) => {
+    const p = PutCoaBody.safeParse(req.body);
+    if (!p.success) throw new ApiError(400, 'VALIDATION', p.error.message);
+    const { entity, actor, reason, rules } = p.data;
+    requireEntity(db, entity);
+    const seen = new Set<string>();
+    for (const r of rules) {
+      const k = `${r.eventType}::${r.leg}`;
+      if (seen.has(k)) throw new ApiError(400, 'DUPLICATE_RULE', `duplicate (eventType, leg): ${r.eventType}/${r.leg}`);
+      seen.add(k);
+    }
+    // reserved_p1 accounts (e.g. RevaluationSurplus) are seeded but not yet executable —
+    // only 'active' accounts may be mapping targets (spec §10.3).
+    const active = new Set((db.prepare("SELECT name FROM accounts WHERE entity_id = ? AND status = 'active'").all(entity) as Array<{ name: string }>).map((a) => a.name));
+    for (const r of rules) {
+      if (!active.has(r.account)) throw new ApiError(400, 'UNKNOWN_ACCOUNT', `account not in active CoA seed: ${r.account}`);
+    }
+    return deps.mutex.run('policy-write', async () => {
+      const curCoa = getActiveCoaMapping(db, entity);
+      // Rules is an ARRAY where order is meaningful (a reordered mapping is a different
+      // mapping) — deliberately NOT the canonical() helper above, which sorts object keys
+      // but must never reorder arrays; this comparison intentionally diverges from it.
+      if (JSON.stringify(rules) === JSON.stringify(curCoa.rules)) {
+        throw new ApiError(409, 'NO_CHANGE', 'submitted rules equal the active mapping');
+      }
+      const { doc: beforeDoc } = getActivePolicy(db, entity);
+      const newRuleVersion = bumpVersion(beforeDoc.ruleVersion);          // V1 invariant
+      const newDoc: PolicyDoc = { ...beforeDoc, ruleVersion: newRuleVersion };
+      let coaVersion = 0, policyVersion = 0;
+      const txn = db.transaction(() => {
+        coaVersion = insertCoaMappingVersion(db, entity, rules, newRuleVersion, actor);
+        policyVersion = insertPolicyVersion(db, entity, newDoc, actor);
+        appendChange(db, {
+          entityId: entity, actor, objectType: 'mapping_rule',
+          objectRef: `coa_mapping_sets:${entity}:v${coaVersion}`,
+          before: JSON.stringify(curCoa.rules), after: JSON.stringify(rules), reason,
+        });
+        appendChange(db, {
+          entityId: entity, actor, objectType: 'policy_set',
+          objectRef: `policy_sets:${entity}:v${policyVersion}`,
+          before: JSON.stringify(beforeDoc), after: JSON.stringify(newDoc),
+          reason: `ruleVersion bump (V1 invariant) — ${reason}`,
+        });
+      });
+      txn();
+      return { coaVersion, ruleVersion: newRuleVersion, policyVersion, rules };
     });
   });
 

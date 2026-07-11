@@ -126,6 +126,17 @@ export function insertPolicyVersion(db: Db, entityId: string, doc: PolicyDoc, cr
   return next;
 }
 
+// Task 5 V1 writer: appends a new coa_mapping_sets row for entityId (MAX(version)+1). Callers
+// wrap this + insertPolicyVersion + appendChange in one db.transaction (the V1 invariant: a
+// rule-mapping change and its ruleVersion bump land atomically or not at all).
+export function insertCoaMappingVersion(db: Db, entityId: string, rules: CoaRule[], ruleVersion: string, createdBy: string): number {
+  const cur = db.prepare('SELECT MAX(version) AS v FROM coa_mapping_sets WHERE entity_id = ?').get(entityId) as { v: number | null };
+  const next = (cur.v ?? 0) + 1;
+  db.prepare('INSERT INTO coa_mapping_sets (entity_id, version, rules, rule_version, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(entityId, next, JSON.stringify(CoaRulesSchema.parse(rules)), ruleVersion, new Date().toISOString(), createdBy);
+  return next;
+}
+
 export function getActivePolicy(db: Db, entityId: string): { version: number; doc: PolicyDoc } {
   const row = db.prepare(
     'SELECT version, doc FROM policy_sets WHERE entity_id = ? ORDER BY version DESC LIMIT 1',
