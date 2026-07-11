@@ -35,6 +35,7 @@ const app = Fastify({ logger: true });
 app.addHook('onRequest', async (_req, reply) => {
   reply.header('access-control-allow-origin', '*');
   reply.header('access-control-allow-headers', 'content-type');
+  reply.header('access-control-allow-methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
 });
 app.options('/*', async (_req, reply) => reply.code(204).send());
 registerRoutes(app, { db, cfg, classifyClient: ai, copilotClient: ai, anchorAdapter: adapter, grpc, mutex, triageRunner, memory });
