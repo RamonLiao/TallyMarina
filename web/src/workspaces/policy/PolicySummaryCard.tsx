@@ -20,6 +20,7 @@ export function PolicySummaryCard({ policy }: { policy: PolicyActiveDTO }) {
         <div className="policy-cluster-head">Governance</div>
         <div className="policy-chips">
           <span className="status-chip policy-chip-version">{p.policySetVersion}</span>
+          <span className="status-chip policy-chip-version">policy v{policy.policyVersion}</span>
           <span className={`status-chip ${p.periodOpen ? 'policy-chip-open' : 'policy-chip-locked'}`}>
             {p.periodOpen ? 'PERIOD OPEN' : 'PERIOD LOCKED'}
           </span>
