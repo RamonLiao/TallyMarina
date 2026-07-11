@@ -2,7 +2,8 @@
 // This module is the ONLY writer of policy_sets / coa_mapping_sets / accounts seed rows.
 import { z } from 'zod';
 import type { Db } from './db.js';
-import { DEMO_POLICY_SET, DEMO_COA_RULES, type CoaRule } from '../http/policyConstants.js';
+import { DEMO_POLICY_SET, DEMO_COA_RULES, resolveCoa, type CoaRule } from '../http/policyConstants.js';
+import type { ResolvedPolicySet, CoaMapping } from '../deps/rulesEngine.js';
 
 // §9.1 ten policy fields + the 6 version dims + engine's roundingThresholdMinor.
 // Superset of the engine's ResolvedPolicySet: the engine consumes a subset (Task 2 loader);
@@ -99,4 +100,63 @@ export function ensurePolicySeed(db: Db): void {
     }
   });
   seedAll();
+}
+
+export class PolicyPersistenceError extends Error {
+  constructor(public readonly code: 'POLICY_MISSING' | 'POLICY_CORRUPT', message: string) {
+    super(message);
+    this.name = 'PolicyPersistenceError';
+  }
+}
+
+export const CoaRulesSchema = z.array(z.object({
+  eventType: z.string().min(1), leg: z.string().min(1), account: z.string().min(1),
+}).strict()).nonempty();
+
+export function getActivePolicy(db: Db, entityId: string): { version: number; doc: PolicyDoc } {
+  const row = db.prepare(
+    'SELECT version, doc FROM policy_sets WHERE entity_id = ? ORDER BY version DESC LIMIT 1',
+  ).get(entityId) as { version: number; doc: string } | undefined;
+  if (!row) throw new PolicyPersistenceError('POLICY_MISSING', `no policy_sets row for entity ${entityId}; seed missing`);
+  let parsed: unknown;
+  try { parsed = JSON.parse(row.doc); } catch {
+    throw new PolicyPersistenceError('POLICY_CORRUPT', `policy_sets v${row.version} for ${entityId}: doc is not JSON`);
+  }
+  const v = PolicyDocSchema.safeParse(parsed);
+  if (!v.success) throw new PolicyPersistenceError('POLICY_CORRUPT', `policy_sets v${row.version} for ${entityId}: ${v.error.message}`);
+  return { version: row.version, doc: v.data };
+}
+
+export function getActiveCoaMapping(db: Db, entityId: string): { version: number; ruleVersion: string; rules: CoaRule[] } {
+  const row = db.prepare(
+    'SELECT version, rules, rule_version FROM coa_mapping_sets WHERE entity_id = ? ORDER BY version DESC LIMIT 1',
+  ).get(entityId) as { version: number; rules: string; rule_version: string } | undefined;
+  if (!row) throw new PolicyPersistenceError('POLICY_MISSING', `no coa_mapping_sets row for entity ${entityId}; seed missing`);
+  let parsed: unknown;
+  try { parsed = JSON.parse(row.rules); } catch {
+    throw new PolicyPersistenceError('POLICY_CORRUPT', `coa_mapping_sets v${row.version} for ${entityId}: rules is not JSON`);
+  }
+  const v = CoaRulesSchema.safeParse(parsed);
+  if (!v.success) throw new PolicyPersistenceError('POLICY_CORRUPT', `coa_mapping_sets v${row.version} for ${entityId}: ${v.error.message}`);
+  return { version: row.version, ruleVersion: row.rule_version, rules: v.data };
+}
+
+// Engine consumes a SUBSET of the doc (ResolvedPolicySet). §9.1-only fields ride along in
+// the doc for later sub-projects; costBasisMethod narrows to 'FIFO' because the engine
+// type pins it — 'WAC' docs are storable (P1) but not yet executable.
+export function toResolvedPolicySet(doc: PolicyDoc, periodOpen: boolean): ResolvedPolicySet {
+  if (doc.costBasisMethod !== 'FIFO') {
+    throw new PolicyPersistenceError('POLICY_CORRUPT', `costBasisMethod ${doc.costBasisMethod} not executable in MVP (engine pins FIFO)`);
+  }
+  return {
+    policySetVersion: doc.policySetVersion, assetPolicyVersion: doc.assetPolicyVersion,
+    eventPolicyVersion: doc.eventPolicyVersion, ruleVersion: doc.ruleVersion,
+    parserVersion: doc.parserVersion, normalizationVersion: doc.normalizationVersion,
+    costBasisMethod: doc.costBasisMethod, functionalCurrency: doc.functionalCurrency,
+    roundingThresholdMinor: doc.roundingThresholdMinor, periodOpen,
+  };
+}
+
+export function buildCoaMappingFromRules(rules: CoaRule[]): CoaMapping {
+  return { resolve: ({ eventType, leg }) => resolveCoa({ eventType: eventType as unknown as string, leg }, rules) };
 }
