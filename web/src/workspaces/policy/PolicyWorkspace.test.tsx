@@ -1,10 +1,21 @@
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
-import { vi } from 'vitest';
+import { vi, afterEach } from 'vitest';
 import { PolicyWorkspace } from './PolicyWorkspace';
+import type { JournalDTO, EventDTO } from '../../api/types';
 
 const applyCoaMapping = vi.fn().mockResolvedValue(undefined);
 const applyPolicyChanges = vi.fn().mockResolvedValue(undefined);
 const refetch = vi.fn();
+
+// Mutable per-test overrides for journal/events, read by baseData() below. Reset in afterEach
+// so tests that don't set them keep seeing the original empty-journal baseline.
+let journalOverride: JournalDTO[] = [];
+let eventsOverride: EventDTO[] = [];
+
+afterEach(() => {
+  journalOverride = [];
+  eventsOverride = [];
+});
 
 const policyDoc = {
   accountingStandard: 'US_GAAP' as const,
@@ -31,7 +42,7 @@ function baseData() {
       policyVersion: 5,
       coaVersion: 3,
     },
-    journal: [], events: [],
+    journal: journalOverride, events: eventsOverride,
   };
 }
 
@@ -130,4 +141,107 @@ it('renders PolicyEditForm with disabled currency inputs', async () => {
 it('renders policy history changes from getPolicyHistory', async () => {
   render(<PolicyWorkspace />);
   await waitFor(() => expect(screen.getByText(/initial setup/)).toBeInTheDocument());
+});
+
+// ---- Apply-safety guard coverage (house rule: every guard must have gone red once) ----
+
+const line = (account: string, side: 'DEBIT' | 'CREDIT', amountMinor: string, leg: string) => ({
+  account, side, amountMinor, origCoinType: null, origQtyMinor: null, priceRef: null, fxRef: null, leg,
+});
+
+const eventDigitalAssetReceipt: EventDTO = {
+  id: 'ev1', entityId: 'acme:pilot-001', status: 'POSTED', normalized: {},
+  ai: null, final: { eventType: 'DIGITAL_ASSET_RECEIPT', purpose: 'x' }, routing: null,
+};
+
+// One unmatched DEBIT leg only: journal itself is unbalanced (100 debit / 0 credit), so
+// conservation.balanced is false before any remap even happens.
+const journalImbalanced: JournalDTO[] = [{
+  id: 'je1', eventId: 'ev1', idempotencyKey: 'idem1', leafHash: 'h1',
+  je: { idempotencyKey: 'idem1', lineageHash: 'lh1', reversalOf: null, lines: [line('DigitalAssets', 'DEBIT', '100', 'L1')] },
+}];
+
+// Balanced DEBIT/CREDIT pair: L1 hits the existing rule (DigitalAssets), L2 falls through to
+// the default account (Suspense). Both accounts are already in knownAccounts, so a plain
+// recompute produces zero warnings and balanced=true.
+const journalBalanced: JournalDTO[] = [{
+  id: 'je1', eventId: 'ev1', idempotencyKey: 'idem1', leafHash: 'h1',
+  je: {
+    idempotencyKey: 'idem1', lineageHash: 'lh1', reversalOf: null,
+    lines: [line('DigitalAssets', 'DEBIT', '100', 'L1'), line('Suspense', 'CREDIT', '100', 'L2')],
+  },
+}];
+
+it('conservation.balanced === false disables Apply; ORPHANED_BALANCE alone does not', async () => {
+  journalOverride = journalImbalanced;
+  eventsOverride = [eventDigitalAssetReceipt];
+  render(<PolicyWorkspace />);
+  await waitFor(() => expect(screen.getAllByText('demo-ps-1').length).toBeGreaterThan(0));
+
+  fireEvent.click(screen.getByText('Recompute preview'));
+  const applyBtn = await screen.findByText('Apply to live mapping');
+  fireEvent.change(screen.getByLabelText('remap reason'), { target: { value: 'fix mapping' } });
+
+  expect(screen.getByText('CONSERVATION BROKEN')).toBeInTheDocument();
+  expect(applyBtn).toBeDisabled();
+  expect(applyBtn.title).toMatch(/Conservation broken/);
+});
+
+it('ORPHANED_BALANCE warning alone (non-blocking) does not disable Apply', async () => {
+  journalOverride = journalBalanced;
+  eventsOverride = [eventDigitalAssetReceipt];
+  render(<PolicyWorkspace />);
+  await waitFor(() => expect(screen.getAllByText('demo-ps-1').length).toBeGreaterThan(0));
+
+  // Remap L1's account onto the default Suspense account too: DigitalAssets then has no
+  // after-activity (orphaned), while both legs still net to a balanced Suspense debit/credit.
+  fireEvent.change(screen.getByLabelText('account for DIGITAL_ASSET_RECEIPT L1'), { target: { value: 'Suspense' } });
+  fireEvent.click(screen.getByText('Recompute preview'));
+  const applyBtn = await screen.findByText('Apply to live mapping');
+  fireEvent.change(screen.getByLabelText('remap reason'), { target: { value: 'fix mapping' } });
+
+  expect(screen.getByText(/ORPHANED_BALANCE/)).toBeInTheDocument();
+  expect(screen.getByText('Grand totals conserved ✓')).toBeInTheDocument();
+  expect(applyBtn).not.toBeDisabled();
+});
+
+it('UNKNOWN_ACCOUNT warning disables Apply', async () => {
+  journalOverride = journalBalanced;
+  eventsOverride = [eventDigitalAssetReceipt];
+  render(<PolicyWorkspace />);
+  await waitFor(() => expect(screen.getAllByText('demo-ps-1').length).toBeGreaterThan(0));
+
+  // Remap L1's account to one not present in knownAccounts (not a rule account, not the
+  // default, not a journal-line account) to trigger UNKNOWN_ACCOUNT specifically.
+  fireEvent.change(screen.getByLabelText('account for DIGITAL_ASSET_RECEIPT L1'), { target: { value: 'GhostAccount' } });
+  fireEvent.click(screen.getByText('Recompute preview'));
+  const applyBtn = await screen.findByText('Apply to live mapping');
+  fireEvent.change(screen.getByLabelText('remap reason'), { target: { value: 'fix mapping' } });
+
+  expect(screen.getByText(/UNKNOWN_ACCOUNT/)).toBeInTheDocument();
+  expect(applyBtn).toBeDisabled();
+  expect(applyBtn.title).toMatch(/UNKNOWN_ACCOUNT\/EMPTY_ACCOUNT/);
+});
+
+it('PolicyEditForm Apply calls applyPolicyChanges(changes, reason, actor) on the happy path', async () => {
+  render(<PolicyWorkspace />);
+  await waitFor(() => expect(screen.getAllByText('demo-ps-1').length).toBeGreaterThan(0));
+
+  fireEvent.change(screen.getByLabelText('accounting standard'), { target: { value: 'IFRS' } });
+  fireEvent.change(screen.getByLabelText('policy change reason'), { target: { value: 'switch to IFRS' } });
+  fireEvent.change(screen.getByLabelText('policy change actor'), { target: { value: 'ops' } });
+  fireEvent.click(screen.getByText('Apply policy changes'));
+
+  await waitFor(() => expect(applyPolicyChanges).toHaveBeenCalledWith(
+    {
+      accountingStandard: 'IFRS',
+      costBasisMethod: 'FIFO',
+      stablecoinTreatment: 'CASH_EQUIVALENT',
+      stakingIncomePolicy: 'OPERATING_REVENUE',
+      feeExpensePolicy: 'EXPENSE_IMMEDIATE',
+      revaluationPolicy: 'cost',
+    },
+    'switch to IFRS',
+    'ops',
+  ));
 });
