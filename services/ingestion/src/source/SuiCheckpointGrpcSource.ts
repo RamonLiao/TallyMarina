@@ -18,27 +18,55 @@ interface CheckpointGrpcClientLike {
     getCurrentSystemState(): Promise<{ systemState: { epoch: string } }>;
   };
   ledgerService: {
-    getServiceInfo(input: unknown): PromiseLike<{ response: { checkpointHeight?: bigint } }>;
+    getServiceInfo(input: unknown): PromiseLike<{
+      response: { checkpointHeight?: bigint; lowestAvailableCheckpoint?: bigint };
+    }>;
     getCheckpoint(input: unknown): PromiseLike<{ response: { checkpoint?: GrpcCheckpoint } }>;
   };
 }
 
+// Structural subsets of the @mysten/sui gRPC proto messages we consume. Field
+// names mirror the generated d.mts (camelCase) so the mapping below is 1:1 with
+// sui.rpc.v2.* — see node_modules/@mysten/sui/dist/grpc/proto/sui/rpc/v2/*.d.mts.
 interface GrpcOwner { address?: string }
-interface GrpcChangedObject { objectId?: string; inputOwner?: GrpcOwner; outputOwner?: GrpcOwner }
+// sui.rpc.v2.ChangedObject: object_type (field 11) is populated by an indexing
+// layer and may be absent over raw gRPC; when absent, deconstruct cannot detect
+// StakedSui and classifies the move as object_transfer (never fabricated).
+interface GrpcChangedObject {
+  objectId?: string;
+  inputOwner?: GrpcOwner;
+  outputOwner?: GrpcOwner;
+  objectType?: string;
+}
 interface GrpcBalanceChange { address?: string; coinType?: string; amount?: string }
+interface GrpcGasUsed {
+  computationCost?: bigint | string;
+  storageCost?: bigint | string;
+  storageRebate?: bigint | string;
+  nonRefundableStorageFee?: bigint | string;
+}
+interface GrpcEvent { packageId?: string; module?: string; sender?: string; eventType?: string }
+interface GrpcTransactionEvents { events?: GrpcEvent[] }
 interface GrpcTimestamp { seconds?: bigint | string; nanos?: number }
 interface GrpcExecutedTx {
   digest?: string;
   transaction?: { sender?: string };
   balanceChanges?: GrpcBalanceChange[];
-  effects?: { status?: { success?: boolean }; changedObjects?: GrpcChangedObject[] };
+  effects?: {
+    status?: { success?: boolean };
+    changedObjects?: GrpcChangedObject[];
+    gasUsed?: GrpcGasUsed;
+  };
+  events?: GrpcTransactionEvents;
   timestamp?: GrpcTimestamp;
 }
 interface GrpcCheckpoint { sequenceNumber?: bigint; transactions?: GrpcExecutedTx[] }
 
 // read_mask: parent path `transactions` pulls the whole executed-transaction
-// submessage (sender, balance_changes, effects.changed_objects, timestamp) so
-// the three-facet filter and rawJson have every field they need.
+// submessage — sender, balance_changes, effects (status + gas_used +
+// changed_objects), events and per-tx timestamp — so the three-facet filter and
+// the JSON-RPC-compatible rawJson mapping have every field they need. A parent
+// message path in a FieldMask includes all descendant fields.
 const CHECKPOINT_READ_MASK = { paths: ['sequence_number', 'transactions'] };
 
 function parseSeq(value: string, label: string): bigint {
@@ -53,10 +81,58 @@ function timestampToMs(ts: GrpcTimestamp | undefined): string {
   return (seconds * 1000n + millisFromNanos).toString();
 }
 
-// proto messages carry bigint fields; JSON-stringify them (contentHash and
-// JSONB storage both require a bigint-free value). This is the "proto JSON化".
-function toJsonSafe(tx: GrpcExecutedTx): unknown {
-  return JSON.parse(JSON.stringify(tx, (_k, v) => (typeof v === 'bigint' ? v.toString() : v)));
+// Strip bigints (contentHash and JSONB storage both require a bigint-free value).
+function toJsonSafe<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value, (_k, v) => (typeof v === 'bigint' ? v.toString() : v)));
+}
+
+function ownerJson(owner: GrpcOwner | undefined): { AddressOwner: string } | undefined {
+  return owner?.address !== undefined ? { AddressOwner: owner.address } : undefined;
+}
+
+// Map a gRPC proto tx into the JSON-RPC-compatible rawJson shape that
+// core/deconstruct.ts parses. deconstruct only recognizes these top-level keys
+// (balanceChanges, objectChanges, effects, events); emitting ONLY these keys is
+// what keeps the effect stream free of spurious `unknown` effects. Proto
+// envelope fields (digest, transaction, signatures, checkpoint, timestamp, bcs)
+// are deliberately excluded — digest/checkpoint/timestamp live on the envelope,
+// and bytes fields (bcs/signatures) are dropped so serialization stays clean.
+function toRawJson(tx: GrpcExecutedTx): Record<string, unknown> {
+  const rawJson: Record<string, unknown> = {};
+
+  if (Array.isArray(tx.balanceChanges)) {
+    rawJson.balanceChanges = tx.balanceChanges.map((b) => ({
+      owner: ownerJson({ address: b.address }),
+      coinType: b.coinType,
+      amount: b.amount,
+    }));
+  }
+
+  // objectChanges are derived from effects.changed_objects. deconstruct reads
+  // objectId + objectType; owner/recipient are carried for lineage fidelity.
+  const changed = tx.effects?.changedObjects;
+  if (Array.isArray(changed)) {
+    rawJson.objectChanges = changed.map((o) => ({
+      objectId: o.objectId,
+      objectType: o.objectType,
+      owner: ownerJson(o.inputOwner),
+      recipient: o.outputOwner?.address,
+    }));
+  }
+
+  // effects: status carried as JSON-RPC { status: 'success'|'failure' }; gasUsed
+  // (when present) is what makes deconstruct emit the single gas effect. Always
+  // present so status is preserved even for gas-free system txs.
+  const effects: Record<string, unknown> = {
+    status: { status: tx.effects?.status?.success === true ? 'success' : 'failure' },
+  };
+  if (tx.effects?.gasUsed) effects.gasUsed = tx.effects.gasUsed;
+  rawJson.effects = effects;
+
+  // events: proto TransactionEvents.events -> flat array deconstruct iterates.
+  if (Array.isArray(tx.events?.events)) rawJson.events = tx.events!.events;
+
+  return toJsonSafe(rawJson);
 }
 
 export class SuiCheckpointGrpcSource implements IngestionSource {
@@ -98,12 +174,18 @@ export class SuiCheckpointGrpcSource implements IngestionSource {
   }
 
   private toEnvelope(tx: GrpcExecutedTx, checkpointSeq: bigint): RawTxEnvelope {
+    // Validate digest at the source: an empty digest would otherwise surface as a
+    // vague zod failure downstream in ingestEntity. Fail loud with the checkpoint
+    // sequence so the offending tx is locatable.
+    if (!tx.digest) {
+      throw new Error(`gRPC tx in checkpoint ${checkpointSeq} has no digest (unexpected empty ExecutedTransaction.digest)`);
+    }
     return {
-      digest: String(tx.digest ?? ''),
+      digest: tx.digest,
       checkpoint: checkpointSeq.toString(),
       timestampMs: timestampToMs(tx.timestamp),
       status: tx.effects?.status?.success === true ? 'success' : 'failure',
-      rawJson: toJsonSafe(tx),
+      rawJson: toRawJson(tx),
     };
   }
 
@@ -118,6 +200,21 @@ export class SuiCheckpointGrpcSource implements IngestionSource {
     const latest = info.response.checkpointHeight;
     if (latest === undefined) throw new Error('getServiceInfo returned no checkpointHeight');
 
+    // Retention guard (spec §13): the node prunes checkpoints below
+    // lowestAvailableCheckpoint. Requesting a start (from --from-checkpoint or a
+    // resume cursor) below it can never succeed, so fail loud up front with an
+    // actionable message rather than 6 pages into a scan. Backfilling below
+    // retention requires an archival source. (AnomalyKind 'retention_gap' is
+    // reserved for that future archival path; not raised on this scan path.)
+    const lowest = info.response.lowestAvailableCheckpoint;
+    if (lowest !== undefined && start < lowest) {
+      throw new Error(
+        `start checkpoint ${start} is below the node's lowest available checkpoint ${lowest}; ` +
+          `it has been pruned. Raise --from-checkpoint (or the resume cursor) to >= ${lowest}, ` +
+          `or backfill below retention from an archival source (see spec §13).`,
+      );
+    }
+
     const txs: RawTxEnvelope[] = [];
     let seq = start;
     let scanned = 0n;
@@ -127,7 +224,14 @@ export class SuiCheckpointGrpcSource implements IngestionSource {
         readMask: CHECKPOINT_READ_MASK,
       });
       const checkpoint = res.response.checkpoint;
-      if (!checkpoint) throw new Error(`checkpoint ${seq} unavailable (pruned or below retention)`);
+      // fail-loud, not silent-skip: a missing checkpoint mid-scan means the
+      // accounting stream would have a hole (recon break). Surface it.
+      if (!checkpoint) {
+        throw new Error(
+          `checkpoint ${seq} unavailable mid-scan (pruned or below retention); ` +
+            `cannot skip without breaking reconciliation. Backfill below retention needs an archival source (spec §13).`,
+        );
+      }
       for (const tx of checkpoint.transactions ?? []) {
         if (this.isRelevant(tx, req.address)) txs.push(this.toEnvelope(tx, seq));
       }
