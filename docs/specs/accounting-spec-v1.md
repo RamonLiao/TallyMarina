@@ -176,14 +176,14 @@ MVP 限單一 functional currency = USD（D15，見商業冊 §6 非目標第 5 
 
 | Dr/Cr | 科目 | 金額來源 | 軌別 |
 |---|---|---|---|
-| Dr | DigitalAssets | COST / FV | 通用 |
+| Dr | DigitalAssets | COST（IFRS）/ FV（GAAP ASU2023-08） | 通用 |
 | Cr | AccountsReceivable | 同 Dr | 通用 |
 
 **情境 C：資本投入 / 股東增資（economic_purpose = `CAPITAL_CONTRIBUTION`）**
 
 | Dr/Cr | 科目 | 金額來源 | 軌別 |
 |---|---|---|---|
-| Dr | DigitalAssets | COST / FV | 通用 |
+| Dr | DigitalAssets | COST（IFRS）/ FV（GAAP ASU2023-08） | 通用 |
 | Cr | Equity（ShareCapital / AdditionalPaidInCapital） | 同 Dr | 通用 |
 
 > 兩軌差異僅在初始衡量金額來源（IFRS 成本 vs GAAP ASU2023-08 公允價值）；分錄結構相同。收入認列時點與科目由 entity 收入政策決定。
@@ -280,7 +280,7 @@ MVP 限單一 functional currency = USD（D15，見商業冊 §6 非目標第 5 
 
 ## §5 期末重估/減損（MVP）
 
-期末重估為系統產生之會計分錄（非攝取事件），於月結「重估過帳」步驟執行（見 §14，Task 6）。**兩軌預設不同**：
+期末重估為系統產生之會計分錄（非攝取事件），於月結「重估過帳」步驟執行（見 §14，Task 6）；重估所用價格之 cut-off 時點定義見 §6.4（本節不重定義）。**兩軌預設不同**：
 
 ### §5.1 GAAP 軌 — ASU 2023-08 FV through P&L（MVP 預設）
 
