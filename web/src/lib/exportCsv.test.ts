@@ -36,6 +36,21 @@ describe('exportCsv', () => {
   it('formatMinor at scale=0 returns integer string unchanged (WHY: scale=0 means no fractional part)', () => {
     expect(formatMinor('123', 0)).toBe('123');
   });
+  it('formatMinor throws on a non-integer / negative / non-finite scale instead of silently mis-scaling', () => {
+    // WHY: this is the `?? 9`/`?? null` family of bug in its fourth form. A null/undefined
+    // scale reaching formatMinor is NOT a formatting edge — it is an unregistered asset whose
+    // decimals we do not know. The pre-guard function returned:
+    //   formatMinor('5000000000', null)      -> '5000000000'  (silent wrong scale)
+    //   formatMinor('5000000000', undefined) -> '0'           (a number that does not exist)
+    // Either one, imported into an ERP, is a silent scale error — exactly what this spec kills.
+    // Refusing is the only honest answer.
+    expect(() => formatMinor('5000000000', null as never)).toThrow(/scale/);
+    expect(() => formatMinor('5000000000', undefined as never)).toThrow(/scale/);
+    expect(() => formatMinor('5000000000', 1.5)).toThrow(/scale/);
+    expect(() => formatMinor('5000000000', -1)).toThrow(/scale/);
+    expect(() => formatMinor('5000000000', Number.POSITIVE_INFINITY)).toThrow(/scale/);
+    expect(() => formatMinor('5000000000', Number.NaN)).toThrow(/scale/);
+  });
   it('joins header + rows with \\n', () => {
     expect(csvRows(['a', 'b'], [['1', '2']])).toBe('a,b\n1,2');
   });

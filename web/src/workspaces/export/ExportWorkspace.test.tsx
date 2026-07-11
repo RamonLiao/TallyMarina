@@ -3,6 +3,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { ExportWorkspace } from './ExportWorkspace';
+import { WorkspaceProvider } from '../../app/WorkspaceContext';
 
 // ── Mocks ──────────────────────────────────────────────────────────────────
 
@@ -235,6 +236,78 @@ describe('stale restatement disclosure', () => {
     render(<ExportWorkspace entityId="ent-1" />);
     fireEvent.click(screen.getByRole('button', { name: /preview/i }));
     await waitFor(() => expect(screen.getByTestId('download-btn')).toBeDisabled());
+  });
+});
+
+// ── Unregistered-assets block (fail-closed) ─────────────────────────────────
+
+describe('unregistered assets block', () => {
+  beforeEach(() => {
+    setupData();
+    mockAssembleExport.mockResolvedValue({
+      ok: false,
+      kind: 'unregistered',
+      coinTypes: ['0xusdc::usdc::USDC', '0xweth::weth::WETH'],
+    });
+  });
+
+  it('renders a red block card listing every offending coinType', async () => {
+    render(<WorkspaceProvider><ExportWorkspace entityId="ent-1" /></WorkspaceProvider>);
+    fireEvent.click(screen.getByRole('button', { name: /preview/i }));
+    // WHY: an asset with no registered scale must block export (a quantity at an unknown scale
+    // entering an ERP is read at *some* scale) — and the operator must see WHICH assets to fix.
+    await waitFor(() => expect(screen.getByTestId('unregistered-assets-card')).toBeInTheDocument());
+    const card = screen.getByTestId('unregistered-assets-card');
+    expect(card.className).toContain('light--red');
+    expect(card.textContent).toContain('0xusdc::usdc::USDC');
+    expect(card.textContent).toContain('0xweth::weth::WETH');
+  });
+
+  it('offers a route to the asset registry', async () => {
+    render(<WorkspaceProvider><ExportWorkspace entityId="ent-1" /></WorkspaceProvider>);
+    fireEvent.click(screen.getByRole('button', { name: /preview/i }));
+    await waitFor(() => expect(screen.getByTestId('register-assets-link')).toBeInTheDocument());
+  });
+
+  it('keeps the download button disabled', async () => {
+    render(<WorkspaceProvider><ExportWorkspace entityId="ent-1" /></WorkspaceProvider>);
+    fireEvent.click(screen.getByRole('button', { name: /preview/i }));
+    await waitFor(() => expect(screen.getByTestId('download-btn')).toBeDisabled());
+  });
+});
+
+// ── Manual-source disclosure (NOT red) ──────────────────────────────────────
+
+describe('manual-source disclosure', () => {
+  beforeEach(() => {
+    setupData();
+    mockAssembleExport.mockResolvedValue({
+      ok: true,
+      verified: false,
+      filename: 'export-ent-1-2026-Q2-UNVERIFIED-DRAFT.zip',
+      zip: new Uint8Array([1]),
+      summary: draftSummary,
+      manualAssets: ['0xmanual::tok::TOK'],
+    });
+  });
+
+  it('renders a disclosure card that is NOT red and names the manual assets', async () => {
+    render(<ExportWorkspace entityId="ent-1" />);
+    fireEvent.click(screen.getByRole('button', { name: /preview/i }));
+    await waitFor(() => expect(screen.getByTestId('manual-disclosure-card')).toBeInTheDocument());
+    const card = screen.getByTestId('manual-disclosure-card');
+    // WHY: manual = a person declared these decimals; it is a disclosure, not a defect. Red here
+    // would push operators to fabricate a chain value under close pressure (the V7 attack vector).
+    // Colour is an incentive structure — the manual card must never carry the red treatment.
+    expect(card.className).not.toContain('light--red');
+    expect(card.className).toContain('export-manual-disclosure');
+    expect(card.textContent).toContain('0xmanual::tok::TOK');
+  });
+
+  it('still allows download — manual source does not block export', async () => {
+    render(<ExportWorkspace entityId="ent-1" />);
+    fireEvent.click(screen.getByRole('button', { name: /preview/i }));
+    await waitFor(() => expect(screen.getByTestId('download-btn')).not.toBeDisabled());
   });
 });
 

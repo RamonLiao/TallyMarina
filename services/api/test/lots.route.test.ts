@@ -10,6 +10,7 @@ import { buildTestApp } from './helpers/app.js';
 import type { Db } from '../src/store/db.js';
 import { insertEntity } from '../src/store/entityStore.js';
 import { insertEvent, setAiSuggestion } from '../src/store/eventStore.js';
+import { registerTestAsset } from './helpers/registerTestAsset.js';
 
 const E = 'e1';
 const P = '2026-Q2';
@@ -67,15 +68,18 @@ describe('GET /entities/:id/lots (C4 Task 5)', () => {
   it('clean state: one grouped lot with provenance, movements, and all drift null', async () => {
     const app = await freshApp();
     await seedAndPost(app);
+    // Decimals now come from the asset registry (Task 7), not a fixture fallback. Register SUI
+    // so the DTO can report its scale; without a registry row decimals is null (unknown scale).
+    registerTestAsset(app._db, E, '0x2::sui::SUI', 9);
 
     const r = await app.inject({ method: 'GET', url: `/entities/${E}/lots` });
     expect(r.statusCode).toBe(200);
-    const body = r.json() as { groups: Array<{ wallet: string; coinType: string; decimals: number; lots: Array<Record<string, unknown>> }> };
+    const body = r.json() as { groups: Array<{ wallet: string; coinType: string; decimals: number | null; lots: Array<Record<string, unknown>> }> };
     expect(body.groups).toHaveLength(1);
     const g = body.groups[0]!;
     expect(g.wallet).toBe('0xacme');
     expect(g.coinType).toBe('0x2::sui::SUI');
-    expect(g.decimals).toBe(9); // no recon fixture row → ?? 9 default (collect.ts:60 convention)
+    expect(g.decimals).toBe(9); // registry row (source 'chain'), not a fabricated default
     expect(g.lots).toHaveLength(1);
     const lot = g.lots[0]! as {
       lotId: string; origin: string; remainingQtyMinor: string; costMinor: string;

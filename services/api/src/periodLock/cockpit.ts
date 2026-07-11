@@ -8,7 +8,7 @@ import { collectExceptions } from '../exceptions/collect.js';
 import { getDisposition } from '../store/dispositionStore.js';
 import { blocksClose } from '../exceptions/disposition.js';
 import { BLOCKING_CATEGORIES } from '../exceptions/types.js';
-import { openMaterialReconBlockers } from '../reconciliation/collect.js';
+import { openMaterialReconBlockers, unregisteredAssetBlockers } from '../reconciliation/collect.js';
 import { listByStatus, listEvents } from '../store/eventStore.js';
 
 export type LightStatus = 'green' | 'red' | 'mock';
@@ -61,6 +61,20 @@ function reconLight(db: Db, entityId: string, periodId: string): Light {
   }
 }
 
+// Registry light (call site 5): red while we hold any asset whose scale we do not know.
+// key MUST be 'registry' — the frontend's dispatchTarget() routes on it. Orthogonal to the recon
+// light: a period with zero material breaks can still be red here, because "no material break" is
+// itself a claim computed against a scale an unregistered asset does not have.
+function registryLight(db: Db, entityId: string, periodId: string): Light {
+  try {
+    const blocking = unregisteredAssetBlockers(db, entityId, periodId).length;
+    return { key: 'registry', status: blocking === 0 ? 'green' : 'red', label: 'Asset registry', real: true };
+  } catch {
+    // Same collectBreaks path reconLight guards: a wallet-less event throws. Fail-closed → red.
+    return { key: 'registry', status: 'red', label: 'Asset registry', real: true };
+  }
+}
+
 function completenessLight(db: Db, entityId: string): Light {
   const events = listEvents(db, entityId);
   // Events start at INGESTED; processed events move to AUTO or NEEDS_REVIEW.
@@ -77,6 +91,7 @@ export function buildCockpit(db: Db, entityId: string, periodId: string, lowConf
     classificationLight(db, entityId, periodId, lowConf),
     jeLight(db, entityId),
     reconLight(db, entityId, periodId),
+    registryLight(db, entityId, periodId),
     completenessLight(db, entityId),
     MOCK('pricing', 'Pricing coverage'),
     MOCK('export', 'ERP export'),

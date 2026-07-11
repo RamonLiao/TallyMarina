@@ -36,7 +36,7 @@ describe('collectBreaks', () => {
 
   it('statement-only asset surfaces via key union with computed=0', () => {
     const rows = collectBreaks(db, 'acme:pilot-001', '2026-Q2');
-    const usdt = rows.find((r) => r.coinType === '0xusdt::usdt::USDT')!;
+    const usdt = rows.find((r) => r.coinType === '0xdead::usdt::USDT')!;
     expect(usdt.computedMinor).toBe('0');
     expect(usdt.breakMinor).toBe('-750000000');        // 0 − 750.0
     expect(usdt.material).toBe(true);
@@ -59,7 +59,7 @@ describe('collectBreaks', () => {
   it('materiality boundary: |break| == threshold is material', () => {
     // USDC fixture: no JE → computed = opening 5000.0; statement 5000.5 → break -0.5 (>= threshold 0.1)
     const rows = collectBreaks(db, 'acme:pilot-001', '2026-Q2');
-    const usdc = rows.find((r) => r.coinType === '0xusdc::usdc::USDC')!;
+    const usdc = rows.find((r) => r.coinType === '0xbeef::usdc::USDC')!;
     expect(usdc.breakMinor).toBe('-500000');
     expect(usdc.material).toBe(true);
   });
@@ -72,7 +72,7 @@ describe('collectBreaks — OPENING_LOT legs excluded from book movement (dual-r
   // sides of computed = opening + movement, manufacturing a material break every close.
   const OPEN_ENTITY = 'opening-lot-recon-test:entity';
   const WALLET = '0xopenwallet';
-  const COIN = '0xopen::tok::TOK';
+  const COIN = '0xface::tok::TOK';
   let db: Db;
   beforeEach(() => {
     db = openDb(':memory:');

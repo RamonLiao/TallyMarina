@@ -4,6 +4,7 @@ import { buildTestApp, TEST_ENTITY_ID } from './helpers.js';
 import type { GeminiClient } from '../src/ai/geminiClient.js';
 import { insertProposal, getProposal, listProposals, decideProposal } from '../src/store/proposalStore.js';
 import { upsertReconDisposition } from '../src/store/reconBreakStore.js';
+import { registerAcmeFixtureAssets } from './helpers/registerTestAsset.js';
 import type { Db } from '../src/store/db.js';
 
 const P = '2026-Q2';
@@ -12,8 +13,8 @@ const P = '2026-Q2';
 // TEST_ENTITY_ID regardless of what's seeded in the test DB — dismiss its 4 rows so the
 // reconciliation light can go green for any test that needs a real period/lock to succeed.
 const RECON_BREAK_KEYS = [
-  '0xacmeTreasury|0x2::sui::SUI', '0xacmeTreasury|0xusdc::usdc::USDC',
-  '0xacmeTreasury|0xweth::weth::WETH', '0xacmeTreasury|0xusdt::usdt::USDT',
+  '0xacmeTreasury|0x2::sui::SUI', '0xacmeTreasury|0xbeef::usdc::USDC',
+  '0xacmeTreasury|0xcafe::weth::WETH', '0xacmeTreasury|0xdead::usdt::USDT',
 ];
 function dismissReconBreaks(db: Db, periodId: string) {
   for (const key of RECON_BREAK_KEYS) {
@@ -166,6 +167,7 @@ describe('monkey: triage', () => {
       reasonCode: 'PENDING_DOC', decidedBy: 'demo-controller', now: 1,
     });
     dismissReconBreaks(app._db, P);
+    registerAcmeFixtureAssets(app._db); // registry close-gate precondition (assets have known scale)
     const lockRes = await app.inject({ method: 'POST', url: `/entities/${encodeURIComponent(TEST_ENTITY_ID)}/period/lock`, payload: { periodId: P } });
     expect(lockRes.statusCode).toBe(200);
     const acc = await app.inject({ method: 'POST', url: `/triage/proposals/${p.id}/accept` });

@@ -10,6 +10,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { openDb, type Db } from '../../src/store/db.js';
+import { registerAcmeFixtureAssets } from '../helpers/registerTestAsset.js';
 import { seed } from '../../src/store/seed.js';
 import { registerRoutes } from '../../src/http/routes.js';
 import { OffMemory } from '../../src/triage/memory/offMemory.js';
@@ -23,9 +24,9 @@ import { upsertReconDisposition } from '../../src/store/reconBreakStore.js';
 
 const RECON_BREAKS = [
   '0xacmeTreasury|0x2::sui::SUI',
-  '0xacmeTreasury|0xusdc::usdc::USDC',
-  '0xacmeTreasury|0xweth::weth::WETH',
-  '0xacmeTreasury|0xusdt::usdt::USDT',
+  '0xacmeTreasury|0xbeef::usdc::USDC',
+  '0xacmeTreasury|0xcafe::weth::WETH',
+  '0xacmeTreasury|0xdead::usdt::USDT',
 ];
 function dismissReconBreaks(database: Db, entityId: string, periodId: string) {
   for (const key of RECON_BREAKS) {
@@ -76,6 +77,7 @@ beforeEach(async () => {
     entityCapId: cfg.entityCapId,
     originalPackageId: cfg.anchorOriginalPackageId,
   }, fixture as FixtureBundle);
+  registerAcmeFixtureAssets(db, cfg.entityId); // registry close-gate precondition (assets have known scale)
   app = Fastify();
   registerRoutes(app, {
     db, cfg, classifyClient, copilotClient: classifyClient,
@@ -88,18 +90,20 @@ beforeEach(async () => {
 
 describe('Period Close Cockpit — integration', () => {
   // Test 1
-  it('GET /close-cockpit returns 6 lights and status OPEN for a fresh entity', async () => {
+  it('GET /close-cockpit returns 7 lights and status OPEN for a fresh entity', async () => {
     // WHY: the cockpit is the single source of truth for close-readiness. A fresh entity
-    // must show OPEN with all 6 light keys present so the UI can render complete status.
+    // must show OPEN with all 7 light keys present so the UI can render complete status.
+    // 'registry' joined the set when unregistered assets became a close-blocking control gap.
     const r = await app.inject({ method: 'GET', url: '/entities/acme:pilot-001/close-cockpit?periodId=2026-Q2' });
     expect(r.statusCode).toBe(200);
     const body = r.json() as { lights: Array<{ key: string; status: string }>; status: string };
     expect(body.status).toBe('OPEN');
-    expect(body.lights).toHaveLength(6);
+    expect(body.lights).toHaveLength(7);
     const keys = body.lights.map((l) => l.key);
     expect(keys).toContain('classification');
     expect(keys).toContain('je');
     expect(keys).toContain('recon');
+    expect(keys).toContain('registry');
     expect(keys).toContain('completeness');
     expect(keys).toContain('pricing');
     expect(keys).toContain('export');

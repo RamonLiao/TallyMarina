@@ -8,6 +8,8 @@ vi.mock('../../data/useChainBalance', () => ({ useChainBalance: () => ({ state: 
 
 const row: ReconRowDTO = {
   wallet: '0xacmeTreasury', coinType: '0x2::sui::SUI', decimals: 9,
+  symbol: 'SUI', assetSource: 'chain', unregisteredAsset: false,
+  precision: { exactlyZero: false, flatToDecimal: null, firstSignificantDecimal: null, lastSignificantDecimal: 3 },
   openingMinor: '1200000000', movementMinor: '3800000000', computedMinor: '5000000000',
   statementMinor: '3798000000', breakMinor: '1202000000', thresholdMinor: '1000000000', material: true,
   control: { debitMinor: '5000000000', creditMinor: '1200000000', legs: 2 },

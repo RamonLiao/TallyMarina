@@ -1,11 +1,11 @@
 {
   "acme:pilot-001": [
-    { "wallet": "0xacmeTreasury", "coinType": "0x2::sui::SUI", "decimals": 9, "openingMinor": "1200000000", "statementMinor": "3798000000", "thresholdMinor": "1000000000" },
-    { "wallet": "0xacmeTreasury", "coinType": "0xusdc::usdc::USDC", "decimals": 6, "openingMinor": "5000000000", "statementMinor": "5000500000", "thresholdMinor": "100000" },
-    { "wallet": "0xacmeTreasury", "coinType": "0xweth::weth::WETH", "decimals": 8, "openingMinor": "200000000", "statementMinor": "150000000", "thresholdMinor": "1000000" },
-    { "wallet": "0xacmeTreasury", "coinType": "0xusdt::usdt::USDT", "decimals": 6, "openingMinor": "0", "statementMinor": "750000000", "thresholdMinor": "100000" }
+    { "wallet": "0xacmeTreasury", "coinType": "0x2::sui::SUI", "openingMinor": "1200000000", "statementMinor": "3798000000", "thresholdMinor": "1000000000" },
+    { "wallet": "0xacmeTreasury", "coinType": "0xbeef::usdc::USDC", "openingMinor": "5000000000", "statementMinor": "5000500000", "thresholdMinor": "100000" },
+    { "wallet": "0xacmeTreasury", "coinType": "0xcafe::weth::WETH", "openingMinor": "200000000", "statementMinor": "150000000", "thresholdMinor": "1000000" },
+    { "wallet": "0xacmeTreasury", "coinType": "0xdead::usdt::USDT", "openingMinor": "0", "statementMinor": "750000000", "thresholdMinor": "100000" }
   ],
   "opening-lot-recon-test:entity": [
-    { "wallet": "0xopenwallet", "coinType": "0xopen::tok::TOK", "decimals": 8, "openingMinor": "300000000", "statementMinor": "300000000", "thresholdMinor": "0" }
+    { "wallet": "0xopenwallet", "coinType": "0xface::tok::TOK", "openingMinor": "300000000", "statementMinor": "300000000", "thresholdMinor": "0" }
   ]
 }

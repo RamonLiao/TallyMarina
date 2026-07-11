@@ -6,6 +6,7 @@
     "dev": "tsx watch src/server.ts",
     "start": "tsx src/server.ts",
     "demo:e2e": "tsx scripts/demo-e2e.ts",
+    "seed:assets": "tsx scripts/seed-assets.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",

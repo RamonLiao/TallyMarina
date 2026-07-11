@@ -46,6 +46,13 @@ export interface JournalLine {
   priceRef: string | null;
   fxRef: string | null;
   leg: unknown;
+  // Read-DTO join off the asset registry (GET /entities/:id/journal, additive — never part of
+  // the leaf preimage). null = this asset's scale is unknown (unregistered) or the leg carries
+  // no asset (fiat/gas). Never a default (spec D6): the wire sends null, and the export refuses
+  // to build a bundle when a leg has an origCoinType but a null origDecimals. Optional on the
+  // type because the many existing test fixtures predate the columns; production always sends them.
+  origDecimals?: number | null;
+  origSource?: 'chain' | 'manual' | null;
 }
 
 export interface JournalEntryBody {
@@ -141,8 +148,28 @@ export interface ExceptionsResponse {
 
 // ---- Reconciliation types ----
 
+// Mirror of services/api/src/assets/precision.ts BreakPrecision — where a break stops being zero.
+// Truncation semantics, never rounding (all arithmetic on digit strings).
+export interface BreakPrecision {
+  /** The break is zero. */
+  exactlyZero: boolean;
+  /** Truncating to this many decimals yields zero. null = the break reaches the integer place. */
+  flatToDecimal: number | null;
+  /** First nonzero decimal place, 1-based. null iff flatToDecimal is null or exactlyZero. */
+  firstSignificantDecimal: number | null;
+  /** Least significant decimal place, 1-based. 0 when the break is a whole-unit multiple. */
+  lastSignificantDecimal: number;
+}
+
 export interface ReconRowDTO {
-  wallet: string; coinType: string; decimals: number;
+  wallet: string; coinType: string;
+  // null = asset not registered; its scale is unknown. Never a default (spec D6) — the wire
+  // sends null and fmtMinor must refuse it rather than silently treat it as 0.
+  decimals: number | null;
+  symbol: string | null;
+  assetSource: 'chain' | 'manual' | null;
+  unregisteredAsset: boolean;
+  precision: BreakPrecision | null; // null iff decimals is null
   openingMinor: string; movementMinor: string; computedMinor: string;
   statementMinor: string; breakMinor: string; thresholdMinor: string;
   material: boolean;
@@ -153,7 +180,7 @@ export interface ReconRowDTO {
 export interface ReconciliationResponse {
   rows: ReconRowDTO[];
   realWallet: string | null;
-  summary: { material: number; blockingMaterial: number; balanced: number };
+  summary: { material: number; blockingMaterial: number; balanced: number; unregistered: number };
 }
 export interface ReconBreakDispositionDTO { state: string; reasonCode: string; reasonNote: string | null; }
 export interface CloseReadiness {

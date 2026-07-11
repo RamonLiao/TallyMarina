@@ -6,6 +6,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { openDb, type Db } from '../../src/store/db.js';
+import { registerAcmeFixtureAssets } from '../helpers/registerTestAsset.js';
 import { seed } from '../../src/store/seed.js';
 import { registerRoutes } from '../../src/http/routes.js';
 import { OffMemory } from '../../src/triage/memory/offMemory.js';
@@ -20,9 +21,9 @@ import { getPeriodLock } from '../../src/periodLock/store.js';
 
 const RECON_BREAKS = [
   '0xacmeTreasury|0x2::sui::SUI',
-  '0xacmeTreasury|0xusdc::usdc::USDC',
-  '0xacmeTreasury|0xweth::weth::WETH',
-  '0xacmeTreasury|0xusdt::usdt::USDT',
+  '0xacmeTreasury|0xbeef::usdc::USDC',
+  '0xacmeTreasury|0xcafe::weth::WETH',
+  '0xacmeTreasury|0xdead::usdt::USDT',
 ];
 function dismissReconBreaks(database: Db, entityId: string, periodId: string) {
   for (const key of RECON_BREAKS) {
@@ -73,6 +74,7 @@ beforeEach(async () => {
     entityCapId: cfg.entityCapId,
     originalPackageId: cfg.anchorOriginalPackageId,
   }, fixture as FixtureBundle);
+  registerAcmeFixtureAssets(db, cfg.entityId); // registry close-gate precondition (assets have known scale)
   app = Fastify();
   registerRoutes(app, {
     db, cfg, classifyClient, copilotClient: classifyClient,

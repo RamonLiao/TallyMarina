@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import type { Db } from '../src/store/db.js';
 import { buildTestApp, TEST_ENTITY_ID } from './helpers/app.js';
 import { lockPeriod } from '../src/periodLock/store.js';
+import { insertAssetIfAbsent } from '../src/assets/store.js';
 
 const EID = TEST_ENTITY_ID;
 
@@ -66,5 +67,44 @@ describe('POST /entities/:id/events — HTTP response envelopes', () => {
     expect(r.statusCode).toBe(400);
     const body = r.json() as { error: { code: string; message: string } };
     expect(body.error.code).toBe('INVALID_EVENT_TIME');
+  });
+
+  // WHY: defect A gate rejections (unregistered asset / decimal mismatch) are client
+  // errors, not server faults. Before this fix AssetGateError fell through to Fastify's
+  // default handler as an opaque 500 — which would make an upstream caller retry a
+  // request that can never succeed. This pins the HTTP contract at 422.
+  it('422 ASSET_NOT_REGISTERED (not 500) when the event references an unregistered coinType', async () => {
+    // 0x9::foo::FOO is deliberately NOT in DEMO_ASSETS (Task 12: buildTestApp's seed() now
+    // registers SUI/USDC/WETH/USDT, so those are no longer "unregistered"). Pick a coinType the
+    // seeder never registers, otherwise this asserts nothing.
+    const r = await app.inject({
+      method: 'POST',
+      url: `/entities/${EID}/events`,
+      payload: { event: { eventTime: '2026-05-01T00:00:00Z', coinType: '0x9::foo::FOO', assetDecimals: 9 } },
+    });
+    expect(r.statusCode).not.toBe(500);
+    expect(r.statusCode).toBe(422);
+    const body = r.json() as { error: { code: string; message: string } };
+    expect(body.error.code).toBe('ASSET_NOT_REGISTERED');
+    expect(typeof body.error.message).toBe('string');
+  });
+
+  it('422 ASSET_DECIMALS_MISMATCH (not 500) when assetDecimals disagrees with the registry', async () => {
+    const SUI_LONG = '0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI';
+    insertAssetIfAbsent(app._db, {
+      entityId: EID, coinType: SUI_LONG, decimals: 9, symbol: 'SUI', displayName: 'Sui',
+      source: 'chain', chainObjectId: '0xm', metadataCapState: 'DELETED', decidedBy: null, reason: null,
+      fetchedAt: 't', createdAt: 't',
+    });
+    const r = await app.inject({
+      method: 'POST',
+      url: `/entities/${EID}/events`,
+      payload: { event: { eventTime: '2026-05-01T00:00:00Z', coinType: '0x2::sui::SUI', assetDecimals: 6 } },
+    });
+    expect(r.statusCode).not.toBe(500);
+    expect(r.statusCode).toBe(422);
+    const body = r.json() as { error: { code: string; message: string } };
+    expect(body.error.code).toBe('ASSET_DECIMALS_MISMATCH');
+    expect(typeof body.error.message).toBe('string');
   });
 });

@@ -29,6 +29,7 @@ export function sortLights(lights: CockpitLight[]): CockpitLight[] {
 export function dispatchTarget(key: string): WorkspaceId | StepId | null {
   switch (key) {
     case 'recon':          return 'reconciliation';
+    case 'registry':       return 'onboarding';
     case 'classification': return 'review';
     case 'je':             return 'journal';
     case 'completeness':   return 'ingest';

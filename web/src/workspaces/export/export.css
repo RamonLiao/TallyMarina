@@ -251,6 +251,55 @@
   margin: var(--space-2) 0 0;
 }
 
+/* ── Unregistered-assets block card (red: a genuine blocker) ── */
+.export-asset-list {
+  margin: var(--space-2) 0;
+  padding-left: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--text-sm);
+  word-break: break-all;
+}
+
+.export-register-link {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  /* Navigation CTA, not on-chain semantics — --aqua is reserved for on-chain meaning
+     (recon.css:29). "Register assets →" routes the operator to the registry, so it takes
+     the brass link colour like other off-chain/navigation affordances. */
+  color: var(--brass);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+}
+
+/* ── Manual-source disclosure card ──
+ * DELIBERATELY NOT red. Manual = a person declared these decimals (未經鏈上驗證); it is a
+ * disclosure, not a defect. Brass (the manual/off-chain semantic colour) as a left inset cue,
+ * legible without relying on colour alone via the badge glyph + text. Red here would push an
+ * operator to fake a chain value under close pressure (the V7 attack vector) — the colour is
+ * an incentive structure, not decoration. */
+.export-manual-disclosure {
+  box-shadow:
+    inset 3px 0 0 var(--brass),
+    var(--shadow-md, 0 4px 16px 0 rgba(30, 42, 74, 0.12));
+}
+
+.export-manual-badge {
+  background: transparent;
+  color: var(--brass);
+  border: 1.5px solid var(--brass);
+}
+
+.export-disclosure-note {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--ink-soft);
+}
+
 /* ── Card zone ── */
 .export-card-zone {
   display: flex;

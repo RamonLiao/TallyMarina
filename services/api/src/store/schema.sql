@@ -213,3 +213,32 @@ CREATE TABLE IF NOT EXISTS migration_override_log (
   accepted_at TEXT NOT NULL,
   justification TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS asset_registry (
+  entity_id            TEXT NOT NULL REFERENCES entities(id),
+  coin_type            TEXT NOT NULL,
+  decimals             INTEGER NOT NULL CHECK (decimals BETWEEN 0 AND 36),
+  symbol               TEXT NOT NULL,
+  display_name         TEXT NOT NULL,
+  source               TEXT NOT NULL CHECK (source IN ('chain','manual')),
+  chain_object_id      TEXT,
+  metadata_cap_state   TEXT CHECK (metadata_cap_state IS NULL OR metadata_cap_state IN ('UNKNOWN','CLAIMED','UNCLAIMED','DELETED')),
+  fetched_at           TEXT,
+  decided_by           TEXT,
+  reason               TEXT,
+  created_at           TEXT NOT NULL,
+  PRIMARY KEY (entity_id, coin_type)
+);
+
+CREATE TABLE IF NOT EXISTS asset_registry_log (
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  entity_id        TEXT NOT NULL,
+  coin_type        TEXT NOT NULL,
+  outcome          TEXT NOT NULL CHECK (outcome IN ('registered','conflict','rejected','corrected')),
+  decimals         INTEGER,
+  claimed_decimals INTEGER,
+  chain_decimals   INTEGER,
+  source           TEXT,
+  detail           TEXT,
+  actor            TEXT NOT NULL,
+  at               TEXT NOT NULL
+);

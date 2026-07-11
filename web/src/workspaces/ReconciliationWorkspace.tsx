@@ -32,7 +32,11 @@ export function ReconciliationWorkspace({ entityId }: { entityId: string }) {
   if (error) return <div className="recon-err" role="alert">Failed to load reconciliation: {error}</div>;
   if (!data) return null;
 
-  const allBalanced = data.rows.length === 0 || data.rows.every((r) => BigInt(r.breakMinor) === 0n);
+  // breakMinor is raw minor units (scale-independent); a zero break does NOT mean the scale is
+  // known. An unregistered asset blocks close on the backend regardless of its numeric break, so
+  // it must never be swallowed by the balanced empty state (spec §6.3.1 + §6.5.4).
+  const allBalanced = data.rows.length === 0
+    || (data.summary.unregistered === 0 && data.rows.every((r) => BigInt(r.breakMinor) === 0n));
   if (allBalanced) {
     return (
       <EmptyState
@@ -49,7 +53,9 @@ export function ReconciliationWorkspace({ entityId }: { entityId: string }) {
   return (
     <div className={`recon-workspace${selected ? ' has-selection' : ''}`}>
       <header className="recon-summary">
-        {data.summary.blockingMaterial > 0
+        {data.summary.unregistered > 0
+          ? <span className="recon-summary__badge recon-summary__badge--material">⛔ {data.summary.unregistered} unregistered asset{data.summary.unregistered === 1 ? '' : 's'} — blocks close</span>
+          : data.summary.blockingMaterial > 0
           ? <span className="recon-summary__badge recon-summary__badge--material">⛔ {data.summary.blockingMaterial} material break{data.summary.blockingMaterial === 1 ? '' : 's'} block close</span>
           : <span className="recon-summary__badge recon-summary__badge--ok">✓ All accounts reconciled</span>}
       </header>

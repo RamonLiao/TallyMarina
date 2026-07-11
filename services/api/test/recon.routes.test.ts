@@ -42,7 +42,7 @@ describe('reconciliation routes', () => {
     expect(body.realWallet).toBe('0xreal');
     const sui = body.rows.find((r: { coinType: string }) => r.coinType === '0x2::sui::SUI');
     expect(sui.provenance).toEqual({ computed: 'book', statement: 'mock', chain: 'live' });
-    const usdc = body.rows.find((r: { coinType: string }) => r.coinType === '0xusdc::usdc::USDC');
+    const usdc = body.rows.find((r: { coinType: string }) => r.coinType === '0xbeef::usdc::USDC');
     expect(usdc.provenance.chain).toBe('n/a');
     expect(typeof body.summary.material).toBe('number');
   });

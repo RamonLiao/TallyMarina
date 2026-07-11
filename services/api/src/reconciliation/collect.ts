@@ -6,10 +6,20 @@ import { loadReconFixture } from './fixture.js';
 import { walletAssetMovements } from './movement.js';
 import { getReconDisposition } from '../store/reconBreakStore.js';
 import { blocksClose } from '../exceptions/disposition.js';
+import { getAssetDecimals } from '../assets/registry.js';
+import { breakPrecision, type BreakPrecision } from '../assets/precision.js';
+import type { AssetSource } from '../assets/store.js';
 
 
 export interface ReconBreak {
-  wallet: string; coinType: string; decimals: number;
+  wallet: string; coinType: string;
+  /** null = this asset is not registered; its scale is unknown. Never a default (spec D6). */
+  decimals: number | null;
+  symbol: string | null;
+  assetSource: AssetSource | null;
+  unregisteredAsset: boolean;
+  /** null when decimals is null — a scale profile without a scale is a lie. */
+  precision: BreakPrecision | null;
   openingMinor: string; movementMinor: string; computedMinor: string;
   statementMinor: string; breakMinor: string; thresholdMinor: string;
   material: boolean;
@@ -33,6 +43,12 @@ export function collectBreaks(db: Db, entityId: string, _periodId: string): Reco
   const { byKey, control } = walletAssetMovements(db, entityId);
 
   // Row keys = union of fixture keys and book-movement keys (two-directional).
+  // KNOWN COSMETIC: keys are raw `wallet|coinType` from the fixture and lot_movement as-written.
+  // If the two sources spell the same asset differently (e.g. un-canonicalized coinType), one
+  // asset yields two rows. This is deliberate — spec §2 lists "normalize pre-existing tables" as a
+  // non-goal, so we do NOT canonicalize here. The authoritative close gate is unaffected:
+  // getAssetDecimals canonicalizes downstream, so the worst case is a cosmetic double row for an
+  // unregistered asset, never a wrong close decision.
   const keys = new Set<string>(fixture.map((f) => `${f.wallet}|${f.coinType}`));
   for (const k of Object.keys(byKey)) keys.add(k);
 
@@ -54,10 +70,17 @@ export function collectBreaks(db: Db, entityId: string, _periodId: string): Reco
     // material = a nonzero break at or above threshold. A zero break is always balanced,
     // even when threshold === 0 (zero-tolerance still requires an actual difference).
     const material = abs > 0n && abs >= threshold;
+    const asset = getAssetDecimals(db, entityId, coinType);
+    const breakMinor = brk.toString();
     out.push({
-      wallet, coinType, decimals: fx?.decimals ?? 9,
+      wallet, coinType,
+      decimals: asset?.decimals ?? null,
+      symbol: asset?.symbol ?? null,
+      assetSource: asset?.source ?? null,
+      unregisteredAsset: asset === null,
+      precision: asset === null ? null : breakPrecision(breakMinor, asset.decimals),
       openingMinor: opening.toString(), movementMinor: movement.toString(), computedMinor: computed.toString(),
-      statementMinor: statement.toString(), breakMinor: brk.toString(), thresholdMinor: threshold.toString(),
+      statementMinor: statement.toString(), breakMinor, thresholdMinor: threshold.toString(),
       material,
       control: { debitMinor: ctl.debit.toString(), creditMinor: ctl.credit.toString(), legs: ctl.legs },
     });
@@ -72,4 +95,24 @@ export function collectBreaks(db: Db, entityId: string, _periodId: string): Reco
 export function openMaterialReconBlockers(db: Db, entityId: string, periodId: string): ReconBreak[] {
   return collectBreaks(db, entityId, periodId)
     .filter((b) => b.material && blocksClose(getReconDisposition(db, entityId, periodId, b.wallet, b.coinType)));
+}
+
+/**
+ * The registry half of the close gate. Deliberately NOT folded into blocksClose(): that
+ * predicate answers "has a human decided this break?", which is a different question from
+ * "do we know this asset's scale?". An unregistered asset blocks close no matter what anybody
+ * dismissed, because a dismissal of an amount at an unknown scale decides nothing. It is also
+ * orthogonal to `material`: an unregistered asset blocks even when its break is below threshold,
+ * because "below threshold" is itself computed against a scale we do not have.
+ *
+ * Call sites (all six, enumerated so nobody has to grep):
+ *   1. this function                       — the predicate
+ *   2. routes.ts GET /close-readiness      — readiness must match the gate
+ *   3. routes.ts POST /snapshot            — the freeze gate
+ *   4. routes.ts reconDTO                  — summary.unregistered, the UI badge tally
+ *   5. periodLock/cockpit.ts               — the 'registry' light
+ *   6. web ReconDetail.tsx                 — suppresses disposition controls (Task 9)
+ */
+export function unregisteredAssetBlockers(db: Db, entityId: string, periodId: string): ReconBreak[] {
+  return collectBreaks(db, entityId, periodId).filter((b) => b.unregisteredAsset);
 }

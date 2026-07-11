@@ -51,6 +51,14 @@ export function headerBlock(meta: Record<string, string>): string {
 }
 
 export function formatMinor(amountMinor: string, scale: number): string {
+  // A quantity's scale is not optional. A null/undefined/fractional scale reaching this
+  // function means an unregistered asset (unknown decimals), not a formatting edge —
+  // refusing is the only honest answer (mirrors fmtMinor, Task 9). Pre-guard, `null` slipped
+  // through as `padStart(1)`/`slice>0 ? … : ''` and returned the raw minor string at scale 0;
+  // `undefined` returned '0'. Both are silent scale errors — the exact class this spec kills.
+  if (!Number.isInteger(scale) || scale < 0) {
+    throw new Error(`formatMinor: scale must be a non-negative integer, got ${String(scale)}`);
+  }
   const neg = amountMinor.startsWith('-');
   const digits = (neg ? amountMinor.slice(1) : amountMinor).padStart(scale + 1, '0');
   const whole = digits.slice(0, digits.length - scale) || '0';

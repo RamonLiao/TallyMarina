@@ -19,7 +19,7 @@ import { applyDisposition, blocksClose } from '../exceptions/disposition.js';
 import { getDisposition } from '../store/dispositionStore.js';
 import { BLOCKING_CATEGORIES, REASON_CODES, type DispositionState } from '../exceptions/types.js';
 import { listAnchors } from '../store/anchorStore.js';
-import { collectBreaks, openMaterialReconBlockers } from '../reconciliation/collect.js';
+import { collectBreaks, openMaterialReconBlockers, unregisteredAssetBlockers } from '../reconciliation/collect.js';
 import { applyReconDisposition } from '../reconciliation/disposition.js';
 import { getReconDisposition } from '../store/reconBreakStore.js';
 import { RECON_REASON_CODES, type ReconReasonCode } from '../reconciliation/types.js';
@@ -48,7 +48,14 @@ import { getProposal, listProposals, decideProposal, revertAcceptedToStale, mark
 import { makeTriageRunner, type TriageRunner } from '../triage/scheduler.js';
 import type { MemoryClient, MemoryRecord } from '../triage/memory/types.js';
 import { amountBand } from '../triage/memory/format.js';
-import { ingestEvent, PeriodLockedError } from './ingestEvent.js';
+import { ingestEvent, PeriodLockedError, AssetGateError } from './ingestEvent.js';
+import type { SuiGrpcClient } from '@mysten/sui/grpc';
+import { registerAsset, correctAsset, RegisterError, makeGrpcCoinInfoFetcher } from '../assets/register.js';
+import { listAssets } from '../assets/store.js';
+import { getAssetDecimals } from '../assets/registry.js';
+
+const ASSET_ACTOR = 'demo-controller';      // server-side constant, never a client value (D13)
+const COIN_INFO_TIMEOUT_MS = 5000;
 
 export interface RouteDeps {
   db: Db;
@@ -56,6 +63,10 @@ export interface RouteDeps {
   classifyClient: GeminiClient;
   copilotClient: GeminiClient;
   anchorAdapter: SuiGrpcChainAdapter;
+  // Optional to mirror anchorAdapter: existing route tests construct RouteDeps without a live
+  // gRPC client and never exercise the asset-registration path, which is the only consumer.
+  // The POST /assets handler guards on its presence (see routes.ts anchorAdapter precedent).
+  grpc?: SuiGrpcClient;
   mutex: { run<T>(key: string, fn: () => Promise<T>): Promise<T> };
   triageRunner?: TriageRunner;
   memory: MemoryClient;
@@ -112,11 +123,30 @@ function isOpen(d: { state: DispositionState } | null): boolean {
   return d === null || d.state === 'open';
 }
 
+// Read-DTO only. Enriches each JE line with the asset registry's decimals/source so the export
+// can stamp an exact, scaled quantity (and refuse to build when a held asset has no registered
+// scale). CRITICAL: this NEVER touches the stored je_json, the leafHash, or any merkle/leaf-codec
+// input — the leaf codec whitelists its fields (JE_LEAF_BCS_V1), so these additive fields cannot
+// enter the preimage. getAssetDecimals canonicalizes the coinType internally, so origCoinType may
+// be short form here and still match the canonical registry key. `?? null` (never `?? <number>`):
+// an unregistered or asset-less leg is a real "unknown scale" state, never a default (spec D6).
+function enrichLine(db: Db, entityId: string, line: Record<string, unknown>): Record<string, unknown> {
+  const coinType = typeof line.origCoinType === 'string' ? line.origCoinType : null;
+  const asset = coinType !== null ? getAssetDecimals(db, entityId, coinType) : null;
+  return { ...line, origDecimals: asset?.decimals ?? null, origSource: asset?.source ?? null };
+}
+
 function journalDTO(db: Db, entityId: string) {
-  return listJournal(db, entityId).map((r) => ({
-    id: r.id, eventId: r.eventId, idempotencyKey: r.idempotencyKey, leafHash: r.leafHash,
-    je: JSON.parse(r.jeJson) as unknown,
-  }));
+  return listJournal(db, entityId).map((r) => {
+    const je = JSON.parse(r.jeJson) as { lines?: unknown; [k: string]: unknown };
+    const enriched = Array.isArray(je.lines)
+      ? { ...je, lines: (je.lines as Record<string, unknown>[]).map((l) => enrichLine(db, entityId, l)) }
+      : je;
+    return {
+      id: r.id, eventId: r.eventId, idempotencyKey: r.idempotencyKey, leafHash: r.leafHash,
+      je: enriched as unknown,
+    };
+  });
 }
 
 function requireEntity(db: Db, id: string) {
@@ -166,7 +196,11 @@ function reconDTO(db: Db, entityId: string, periodId: string, liveWallet: string
   // route still 409'd.
   const blockingMaterial = rows.filter((r) => r.material && blocksClose(r.disposition)).length;
   const balanced = rows.filter((r) => BigInt(r.breakMinor) === 0n).length;
-  return { rows, realWallet: liveWallet ?? null, summary: { material, blockingMaterial, balanced } };
+  // Registry tally (call site 4): assets whose scale we do not know. Counted separately from
+  // `material` because it is orthogonal to both materiality and disposition — see
+  // unregisteredAssetBlockers. The UI renders this as its own badge / suppresses controls.
+  const unregistered = rows.filter((r) => r.unregisteredAsset).length;
+  return { rows, realWallet: liveWallet ?? null, summary: { material, blockingMaterial, balanced, unregistered } };
 }
 
 export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
@@ -260,6 +294,45 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
       return { verdict: 'VERIFIED', attestation: { wallet: att.wallet, verifiedAt: att.verifiedAt, verifier: att.verifier, templateVersion: att.templateVersion } };
     },
   );
+
+  // Asset registry (Task 5). Chain reads go through stateService.getCoinInfo, never
+  // getCoinMetadata — see makeGrpcCoinInfoFetcher for why.
+  app.get<{ Params: { id: string } }>('/entities/:id/assets', async (req) => {
+    requireEntity(db, req.params.id);
+    return { assets: listAssets(db, req.params.id) };
+  });
+
+  app.post<{ Params: { id: string }; Body: { coinType?: string; decimals?: number; symbol?: string; reason?: string } }>(
+    '/entities/:id/assets', async (req, reply) => {
+      requireEntity(db, req.params.id);
+      const b = req.body ?? {};
+      if (!b.coinType) throw new ApiError(400, 'VALIDATION', 'coinType is required');
+      if (!deps.grpc) throw new ApiError(503, 'CHAIN_CLIENT_UNAVAILABLE', 'no gRPC client configured for chain reads');
+      const coinInfoFetcher = makeGrpcCoinInfoFetcher(deps.grpc, COIN_INFO_TIMEOUT_MS);
+      try {
+        const { status, row } = await registerAsset(db, coinInfoFetcher, {
+          entityId: req.params.id, coinType: b.coinType,
+          decimals: b.decimals, symbol: b.symbol, reason: b.reason,
+          actor: ASSET_ACTOR, now: new Date().toISOString(),
+        });
+        reply.code(status);
+        return row;
+      } catch (e) {
+        if (e instanceof RegisterError) throw new ApiError(e.status, e.code, e.message);
+        throw e;
+      }
+    });
+
+  app.delete<{ Params: { id: string; coinType: string } }>('/entities/:id/assets/:coinType', async (req) => {
+    requireEntity(db, req.params.id);
+    try {
+      correctAsset(db, req.params.id, decodeURIComponent(req.params.coinType), ASSET_ACTOR, new Date().toISOString());
+      return { corrected: true };
+    } catch (e) {
+      if (e instanceof RegisterError) throw new ApiError(e.status, e.code, e.message);
+      throw e;
+    }
+  });
 
   // 1. GET /entities
   app.get('/entities', async () => ({
@@ -362,6 +435,12 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
             details: { periodId: err.periodId, eventTime: err.eventTime },
           },
         });
+      }
+      if (err instanceof AssetGateError) {
+        // Defect A gate rejection: client sent an event referencing an unregistered asset
+        // or a decimal scale that disagrees with the registry. This is a client error, not
+        // a server fault — a 500 here would cause upstream retries that can never succeed.
+        return reply.code(422).send({ error: { code: err.reason, message: err.message } });
       }
       if (err instanceof Error && err.message.startsWith('INVALID_EVENT_TIME')) {
         return reply.code(400).send({ error: { code: 'INVALID_EVENT_TIME', message: err.message } });
@@ -539,10 +618,12 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     const exBlockers = exceptionDTO(db, req.params.id, periodId, cfg.exceptionLowConfidence)
       .filter((e) => BLOCKING_CATEGORIES.includes(e.category) && blocksClose(e.disposition));
     const reconBlockers = openMaterialReconBlockers(db, req.params.id, periodId);
+    const registryBlockers = unregisteredAssetBlockers(db, req.params.id, periodId);
     return {
       exceptions: { blocking: exBlockers.length, blockers: exBlockers },
       recon: { blocking: reconBlockers.length, blockers: reconBlockers.map((b) => encodeReconBreakId(b.wallet, b.coinType)) },
-      closeable: exBlockers.length === 0 && reconBlockers.length === 0,
+      registry: { blocking: registryBlockers.length, blockers: registryBlockers.map((b) => b.coinType) },
+      closeable: exBlockers.length === 0 && reconBlockers.length === 0 && registryBlockers.length === 0,
     };
   });
 
@@ -788,6 +869,15 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
       if (reconBlockers.length > 0) {
         throw new ApiError(409, 'RECON_BREAKS_BLOCKING',
           `${reconBlockers.length} undecided material break(s) block close: ${reconBlockers.map((b) => encodeReconBreakId(b.wallet, b.coinType)).join(', ')}`);
+      }
+      // Registry gate (call site 3): orthogonal to the recon gate above. A break can be dismissed
+      // (clearing the recon gate) yet still carry an unknown scale — freezing over it would anchor
+      // an amount we cannot interpret. Placed AFTER the recon check so a decided break still trips
+      // here on its registry status alone.
+      const registryBlockers = unregisteredAssetBlockers(db, req.params.id, periodId);
+      if (registryBlockers.length > 0) {
+        throw new ApiError(409, 'UNREGISTERED_ASSETS_BLOCKING',
+          `${registryBlockers.length} asset(s) have no registered decimals: ${registryBlockers.map((b) => b.coinType).join(', ')}`);
       }
       const jes: JournalEntry[] = listJournal(db, req.params.id, periodId).map((r) => JSON.parse(r.jeJson) as JournalEntry);
       const outputs = jes.map((je) => ({

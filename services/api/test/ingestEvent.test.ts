@@ -43,4 +43,24 @@ describe('ingestEvent gate', () => {
     const inserted = db.prepare(`SELECT COUNT(*) AS n FROM events`).get() as { n: number };
     expect(inserted.n).toBe(0);
   });
+
+  // WHY: the optional `id` param (Task 12) exists ONLY for the seeder. Every other caller must
+  // let the gate mint a random uuid id. If someone deletes the `id ?? …` fallback (e.g. `id!`),
+  // a no-id caller would insert `undefined`/NULL as the primary key — this pins that the default
+  // is a real `evt-<uuid>`.
+  it('mints an evt-<uuid> id when no id is supplied', () => {
+    const r = ingestEvent(db, 'acme', JSON.stringify({ eventTime: '2026-05-01T00:00:00Z' }));
+    expect(r.eventId).toMatch(/^evt-[0-9a-f-]{36}$/);
+  });
+
+  // WHY: a caller-supplied id that collides must throw on the PRIMARY KEY, never silently
+  // overwrite an existing event or auto-rename to route around immutability. The seeder relies
+  // on this being loud — a duplicated fixture id is a fixture bug, not something to smooth over.
+  it('a duplicate caller-supplied id throws (PK collision), never overwrites', () => {
+    const raw = JSON.stringify({ eventTime: '2026-05-01T00:00:00Z' });
+    ingestEvent(db, 'acme', raw, 'evt-fixed');
+    expect(() => ingestEvent(db, 'acme', raw, 'evt-fixed')).toThrow(/UNIQUE constraint failed|PRIMARY KEY/);
+    const n = (db.prepare(`SELECT COUNT(*) AS n FROM events`).get() as { n: number }).n;
+    expect(n).toBe(1); // second call did not insert a second row
+  });
 });

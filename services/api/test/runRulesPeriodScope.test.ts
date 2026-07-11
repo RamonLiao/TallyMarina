@@ -17,6 +17,7 @@ import { describe, it, expect } from 'vitest';
 import { buildTestApp, stubClassifyClient, TEST_ENTITY_ID } from './helpers/app.js';
 import { lockPeriod } from '../src/periodLock/store.js';
 import { listJournal } from '../src/store/journalStore.js';
+import { registerTestAsset } from './helpers/registerTestAsset.js';
 
 const ENTITY = encodeURIComponent(TEST_ENTITY_ID);
 
@@ -48,6 +49,11 @@ const q1RawEvent = {
 describe('run-rules multi-period lock integrity (C2 final review)', () => {
   it('run-rules for 2026-Q2 does not sweep a LOCKED 2026-Q1 event into a posted JE', async () => {
     const app = await buildTestApp(true, stubClassifyClient);
+
+    // Precondition the pre-registry system never had: the SUI asset the q1 event carries
+    // must have a registered scale for the ingest gate to admit it. Registering it does not
+    // weaken the gate — the event's assetDecimals (9) still has to match this registry row.
+    registerTestAsset(app._db, TEST_ENTITY_ID, '0x2::sui::SUI', 9);
 
     // Seed a Q1 event and drive it to AUTO (high-confidence stub client + allow-listed
     // raw type DIGITAL_ASSET_RECEIPT with LLM agreement satisfies the deterministic

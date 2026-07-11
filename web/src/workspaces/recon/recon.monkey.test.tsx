@@ -23,7 +23,10 @@ describe('recon monkey', () => {
 
   it('renders a statement-only row (computed 0) without crashing', () => {
     const row: ReconRowDTO = {
-      wallet: '0xw', coinType: '0xusdt::usdt::USDT', decimals: 6,
+      wallet: '0xw', coinType: '0xdead::usdt::USDT', decimals: 6,
+      symbol: 'USDT', assetSource: 'chain', unregisteredAsset: false,
+      // -750000000 @ 6dp has an integer part → whole-unit break (flat/first significant null).
+      precision: { exactlyZero: false, flatToDecimal: null, firstSignificantDecimal: null, lastSignificantDecimal: 0 },
       openingMinor: '0', movementMinor: '0', computedMinor: '0', statementMinor: '750000000',
       breakMinor: '-750000000', thresholdMinor: '100000', material: true,
       control: { debitMinor: '0', creditMinor: '0', legs: 0 },

@@ -85,3 +85,26 @@
 }
 .recon-disp-actions button:disabled { cursor: not-allowed; opacity: 0.45; }
 .recon-err { color: var(--debit, #b5532e); }
+
+/* Unregistered asset (unknown scale). The raw-minor chip and pill are warnings/blockers and MAY
+   carry semantic colour. The break precision profile below MUST NOT — it is information, and
+   thresholdMinor is the verdict (spec §7.2 / D9). */
+.amt--unscaled { color: var(--warn, #c28a1e); }
+.amt--unscaled sup { color: var(--warn, #c28a1e); }
+.recon-pill--unregistered {
+  background: var(--debit, #b5532e); color: #fff; font-weight: 700;
+  padding: 1px 6px; border-radius: var(--radius-pill, 999px);
+}
+.recon-unregistered { padding: 10px; display: flex; flex-direction: column; gap: 6px; }
+
+/* Precision profile: dim the flat (leading-zero) run, keep the significant run full-ink + bold.
+   Weight and ink ONLY — never --warn/--debit/--aqua, so it never double-signals the verdict pill. */
+.brk-profile__flat { color: var(--ink-soft, #3e4a6b); }
+.brk-profile__sig { color: var(--ink); font-weight: 700; }
+
+/* Visually hidden, still read by screen readers — carries the profile description via
+   aria-describedby without replacing the number's own readout or nesting an aria-label. */
+.recon-sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}

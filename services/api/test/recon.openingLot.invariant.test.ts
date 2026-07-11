@@ -85,9 +85,9 @@ describe('recon fixture openingMinor ties to the ledger OPENING_LOT seed', () =>
     expect(Object.keys(lots).length).toBeGreaterThan(0);
     expect(unionKeys(reconRows, lots)).toEqual([
       '0xacmeTreasury|0x2::sui::SUI',
-      '0xacmeTreasury|0xusdc::usdc::USDC',
-      '0xacmeTreasury|0xusdt::usdt::USDT',
-      '0xacmeTreasury|0xweth::weth::WETH',
+      '0xacmeTreasury|0xbeef::usdc::USDC',
+      '0xacmeTreasury|0xcafe::weth::WETH',
+      '0xacmeTreasury|0xdead::usdt::USDT',
     ]);
   });
 

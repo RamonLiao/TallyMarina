@@ -7,6 +7,9 @@ const suiType = '0x2::sui::SUI';
 
 const row = (over: Partial<ReconRowDTO>): ReconRowDTO => ({
   wallet: '0xacmeTreasury', coinType: suiType, decimals: 9,
+  symbol: 'SUI', assetSource: 'chain', unregisteredAsset: false,
+  // 1202000000 @ 9dp is a whole-unit break → flat/first significant decimal are null.
+  precision: { exactlyZero: false, flatToDecimal: null, firstSignificantDecimal: null, lastSignificantDecimal: 3 },
   openingMinor: '1200000000', movementMinor: '3800000000', computedMinor: '5000000000',
   statementMinor: '3798000000', breakMinor: '1202000000', thresholdMinor: '1000000000', material: true,
   control: { debitMinor: '5000000000', creditMinor: '1200000000', legs: 2 },
@@ -32,7 +35,7 @@ describe('ReconTable', () => {
   });
 
   it('non-SUI chain provenance renders em-dash (n/a), not live', () => {
-    render(<ReconTable rows={[row({ coinType: '0xusdc::usdc::USDC', provenance: { computed: 'book', statement: 'mock', chain: 'n/a' } })]} selectedKey={null} onSelect={() => {}} />);
+    render(<ReconTable rows={[row({ coinType: '0xbeef::usdc::USDC', provenance: { computed: 'book', statement: 'mock', chain: 'n/a' } })]} selectedKey={null} onSelect={() => {}} />);
     // WHY: non-SUI assets have no on-chain balance; must never show "live"
     expect(screen.queryByText(/live/i)).not.toBeInTheDocument();
     expect(screen.getByText('—')).toBeInTheDocument();
@@ -103,5 +106,121 @@ describe('ReconTable', () => {
     const r = row({ movementMinor: '0', computedMinor: '1200000000', breakMinor: '-2598000000' });
     render(<ReconTable rows={[r]} selectedKey={null} onSelect={() => {}} clientMovements={{}} />);
     expect(screen.queryByLabelText(/evidence drift/i)).not.toBeInTheDocument();
+  });
+
+  it('hides the break precision profile (and its sr-only label) when evidence drift is present', () => {
+    // WHY: r.precision describes the SERVER's break (breakMinor), but on drift the visible
+    // break text is the CLIENT's recompute (clientBreak) — a different number. Dimming by a
+    // precision profile that belongs to a different number silently misinforms screen-reader
+    // users (they have no second channel to catch it). On drift we must render plain text and
+    // an empty sr-only description rather than guess a profile for a number we don't have one for.
+    const r = row({ movementMinor: '3800000000' });
+    const driftedClientMovement = 3700000000n; // disagrees with DTO by 100000000 → hasDrift === true
+    render(<ReconTable rows={[r]} selectedKey={null} onSelect={() => {}} clientMovements={{ [key(r)]: driftedClientMovement }} />);
+    const materialEl = screen.getByLabelText(/material break/i);
+    const breakRow = materialEl.closest('tr')!;
+    // No split spans — the profile-driven dim/bold rendering must not appear on drift.
+    expect(breakRow.querySelector('.brk-profile__flat')).not.toBeInTheDocument();
+    expect(breakRow.querySelector('.brk-profile__sig')).not.toBeInTheDocument();
+    // sr-only description must be empty, not a profileLabel for the wrong number.
+    const srOnly = breakRow.querySelector('.recon-sr-only');
+    expect(srOnly).not.toBeNull();
+    expect(srOnly!.textContent).toBe('');
+  });
+
+  it('renders the flat/significant precision split when there is NO drift and flatToDecimal is mid-string', () => {
+    // WHY: the existing "+1.202000000" fixture has flatToDecimal:null (whole-unit break), so it
+    // takes the `cut = text.length` branch and never exercises the actual split arithmetic
+    // (dot + 1 + flatToDecimal). This test uses a fractional flatToDecimal so the cut lands
+    // strictly inside the string, proving BreakProfileNumber slices at the right decimal place.
+    const r = row({
+      decimals: 6,
+      precision: { exactlyZero: false, flatToDecimal: 2, firstSignificantDecimal: 3, lastSignificantDecimal: 5 },
+      openingMinor: '1000000', movementMinor: '234500', computedMinor: '1234500',
+      statementMinor: '0', breakMinor: '1234500', thresholdMinor: '1000000',
+    });
+    render(<ReconTable rows={[r]} selectedKey={null} onSelect={() => {}} clientMovements={{ [key(r)]: 234500n }} />);
+    const materialEl = screen.getByLabelText(/material break/i);
+    const breakRow = materialEl.closest('tr')!;
+    // fmtBreak(1234500, 6) = "+1.234500"; dot at index 2; cut = 2+1+2 = 5 → "+1.23" | "4500"
+    const flat = breakRow.querySelector('.brk-profile__flat');
+    const sig = breakRow.querySelector('.brk-profile__sig');
+    expect(flat).toBeInTheDocument();
+    expect(sig).toBeInTheDocument();
+    expect(flat!.textContent).toBe('+1.23');
+    expect(sig!.textContent).toBe('4500');
+    // sr-only description carries the real profile label — WHY: SR users get the same info
+    // sighted users get from the dim/bold split.
+    const srOnly = breakRow.querySelector('.recon-sr-only');
+    expect(srOnly!.textContent).toMatch(/flat to decimal 2; unflat from decimal 3/);
+  });
+
+  // Finding 2: assert the ACTUAL textContent of each span, not merely that both spans exist.
+  // WHY: `.brk-profile__flat` (dimmed) = "these leading positions were all zero"; `.brk-profile__sig`
+  // (full ink + bold) = the first digit that broke and everything after. A jsdom "both spans exist"
+  // check can't tell WHICH span holds the number, so it silently passed the whole-unit bug where the
+  // entire — most material — break rendered dimmed. These pin the split character-for-character.
+  const flatSig = (container: HTMLElement) => ({
+    flat: container.querySelector('.brk-profile__flat')!.textContent,
+    sig: container.querySelector('.brk-profile__sig')!.textContent,
+  });
+
+  it('whole-unit break (flatToDecimal:null) → flat is EMPTY, whole number is significant', () => {
+    // WHY: flatToDecimal===null means the break reaches whole units with NOT ONE flat position — the
+    // most material class of break. It must render entirely bold/full-ink (sig), nothing dimmed.
+    // Mutation guard: revert `cut = 0` back to `text.length` and this flips to flat=whole, sig=EMPTY.
+    const r = row({}); // default fixture: +1.202000000 @ 9dp, flatToDecimal:null
+    const { container } = render(<ReconTable rows={[r]} selectedKey={null} onSelect={() => {}} clientMovements={{ [key(r)]: 3800000000n }} />);
+    const { flat, sig } = flatSig(container);
+    expect(flat).toBe('');
+    expect(sig).toBe('+1.202000000');
+  });
+
+  it('dust break → the eight zero decimals are flat, the trailing 1 is significant', () => {
+    // WHY: 8 leading fractional zeros WERE flat; only decimal 9 broke. flat carries the zeros, sig
+    // the single meaningful digit — the reader sees at a glance it is sub-threshold dust.
+    const r = row({
+      decimals: 9,
+      precision: { exactlyZero: false, flatToDecimal: 8, firstSignificantDecimal: 9, lastSignificantDecimal: 9 },
+      openingMinor: '0', movementMinor: '0', computedMinor: '1',
+      statementMinor: '-1', breakMinor: '1', thresholdMinor: '1000000000', material: false,
+    });
+    const { container } = render(<ReconTable rows={[r]} selectedKey={null} onSelect={() => {}} clientMovements={{ [key(r)]: 0n }} />);
+    const { flat, sig } = flatSig(container);
+    // fmtBreak(1,9) = "+0.000000001"; dot at 2; cut = 2+1+8 = 11
+    expect(flat).toBe('+0.00000000');
+    expect(sig).toBe('1');
+  });
+
+  it('USDC sub-cent break → nothing is flat past the dot, whole fraction is significant', () => {
+    // WHY: flatToDecimal:0 means the very first decimal already broke; only the sign+dot prefix is
+    // "flat". sig must hold the entire fraction so the magnitude reads at full ink.
+    const r = row({
+      decimals: 6,
+      precision: { exactlyZero: false, flatToDecimal: 0, firstSignificantDecimal: 1, lastSignificantDecimal: 1 },
+      openingMinor: '0', movementMinor: '0', computedMinor: '0',
+      statementMinor: '500000', breakMinor: '-500000', thresholdMinor: '1000000', material: false,
+    });
+    const { container } = render(<ReconTable rows={[r]} selectedKey={null} onSelect={() => {}} clientMovements={{ [key(r)]: 0n }} />);
+    const { flat, sig } = flatSig(container);
+    // fmtBreak(-500000,6) = "−0.500000"; dot at 2; cut = 2+1+0 = 3
+    expect(flat).toBe('−0.');
+    expect(sig).toBe('500000');
+  });
+
+  it('exactly-zero break → the whole number is flat, sig is EMPTY (no digit ever broke)', () => {
+    // WHY: exactlyZero means no position broke at all, so there IS no significant run — the mirror
+    // image of the whole-unit case. Everything dims, sig stays empty.
+    const r = row({
+      decimals: 6,
+      precision: { exactlyZero: true, flatToDecimal: 6, firstSignificantDecimal: null, lastSignificantDecimal: 0 },
+      openingMinor: '0', movementMinor: '0', computedMinor: '0',
+      statementMinor: '0', breakMinor: '0', thresholdMinor: '1000000', material: false,
+    });
+    const { container } = render(<ReconTable rows={[r]} selectedKey={null} onSelect={() => {}} clientMovements={{ [key(r)]: 0n }} />);
+    const { flat, sig } = flatSig(container);
+    // fmtBreak(0,6) = "0.000000"; cut = 1+1+6 = 8 = text.length
+    expect(flat).toBe('0.000000');
+    expect(sig).toBe('');
   });
 });

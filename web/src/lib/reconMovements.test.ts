@@ -21,7 +21,7 @@ const makeJe = (id: string, eventId: string, lines: JournalDTO['je']['lines']): 
 });
 
 const suiType = '0x2::sui::SUI';
-const usdcType = '0xusdc::usdc::USDC';
+const usdcType = '0xbeef::usdc::USDC';
 
 describe('recomputeMovements', () => {
   it('returns empty map for empty journal', () => {

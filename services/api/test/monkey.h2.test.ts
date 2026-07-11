@@ -19,6 +19,7 @@ import { listMigrationOverrides } from '../src/store/migrationOverrideLog.js';
 import { insertJournalRow } from './helpers/journal.js';
 import { seedAnchoredSnapshot } from './helpers/p1.js';
 import { buildTestApp, TEST_ENTITY_ID } from './helpers/app.js';
+import { registerAcmeFixtureAssets } from './helpers/registerTestAsset.js';
 import { upsertReconDisposition } from '../src/store/reconBreakStore.js';
 
 // ---------------------------------------------------------------------------
@@ -27,9 +28,9 @@ import { upsertReconDisposition } from '../src/store/reconBreakStore.js';
 const PERIOD_ID = '2026-Q2';
 const RECON_BREAKS = [
   '0xacmeTreasury|0x2::sui::SUI',
-  '0xacmeTreasury|0xusdc::usdc::USDC',
-  '0xacmeTreasury|0xweth::weth::WETH',
-  '0xacmeTreasury|0xusdt::usdt::USDT',
+  '0xacmeTreasury|0xbeef::usdc::USDC',
+  '0xacmeTreasury|0xcafe::weth::WETH',
+  '0xacmeTreasury|0xdead::usdt::USDT',
 ];
 
 function dismissReconBreaks(db: Db, entityId: string, periodId: string) {
@@ -49,6 +50,7 @@ async function seedLockedPeriodWithJE(ctx: Ctx) {
   await app.inject({ method: 'POST', url: `/entities/${entityId}/ingest`, payload: {} });
   await app.inject({ method: 'POST', url: `/entities/${entityId}/run-rules`, payload: { periodId } });
   dismissReconBreaks(db, entityId, periodId);
+  registerAcmeFixtureAssets(db, entityId); // registry close-gate precondition (assets have known scale)
   const lockR = await app.inject({ method: 'POST', url: `/entities/${entityId}/period/lock`, payload: { periodId } });
   if (lockR.statusCode !== 200) throw new Error(`seedLockedPeriodWithJE: lock failed ${lockR.statusCode} ${lockR.body}`);
 }

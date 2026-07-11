@@ -3,6 +3,6 @@ export type ReconReasonCode = 'timing' | 'error' | 'fee' | 'fx' | 'in-transit' |
 export const RECON_REASON_CODES: ReconReasonCode[] = ['timing', 'error', 'fee', 'fx', 'in-transit', 'unidentified', 'OTHER'];
 
 export interface ReconFixtureRow {
-  wallet: string; coinType: string; decimals: number;
+  wallet: string; coinType: string;
   openingMinor: string; statementMinor: string; thresholdMinor: string;
 }
