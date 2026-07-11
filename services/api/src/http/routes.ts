@@ -94,6 +94,18 @@ function eventDTO(e: EventRow) {
 
 export const DEFAULT_PERIOD = '2026-Q2';
 
+// Key-canonicalized deep-equal stringify for the policy-set NO_CHANGE guard: a client resending
+// the same asu202308Applies map with reordered keys must compare equal (spec: no-effective-change
+// -> 409, never an empty version). Only sorts object keys, never touches array order — Task 5's
+// rules comparison is an array where order is meaningful and must NOT reuse this helper.
+function canonical(v: unknown): string {
+  return JSON.stringify(v, (_k, val) => (
+    val && typeof val === 'object' && !Array.isArray(val)
+      ? Object.fromEntries(Object.entries(val as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)))
+      : val
+  ));
+}
+
 // Events have no eventTime column — it lives in rawJson (same source deriveEventPeriod
 // parses). insertEvent already gated it as a valid time, so absence here is corruption.
 function eventTimeOf(ev: EventRow): string {
@@ -294,7 +306,7 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     return deps.mutex.run('policy-write', async () => {
       const { doc: before } = getActivePolicy(db, entity);
       const merged: PolicyDoc = { ...before, ...changes };
-      if (JSON.stringify(merged) === JSON.stringify(before)) {
+      if (canonical(merged) === canonical(before)) {
         throw new ApiError(409, 'NO_CHANGE', 'no effective change to the active policy set');
       }
       merged.policySetVersion = bumpVersion(before.policySetVersion);   // V2 invariant

@@ -65,6 +65,35 @@ describe('PATCH /policy/policy-set (Task 4)', () => {
     expect((db.prepare('SELECT COUNT(*) AS n FROM policy_sets').get() as { n: number }).n).toBe(1); // no version bloat
   });
 
+  it('409 NO_CHANGE when asu202308Applies is re-sent with reordered keys (canonical deep-equal)', async () => {
+    const first = await app.inject({
+      method: 'PATCH', url,
+      payload: { ...base, changes: { asu202308Applies: { '0xb': true, '0xa': false } } },
+    });
+    expect(first.statusCode).toBe(200);
+    const countAfterFirst = (db.prepare('SELECT COUNT(*) AS n FROM policy_sets').get() as { n: number }).n;
+
+    const second = await app.inject({
+      method: 'PATCH', url,
+      payload: { ...base, changes: { asu202308Applies: { '0xa': false, '0xb': true } } },
+    });
+    expect(second.statusCode).toBe(409);
+    expect(second.json().error.code).toBe('NO_CHANGE');
+    expect((db.prepare('SELECT COUNT(*) AS n FROM policy_sets').get() as { n: number }).n).toBe(countAfterFirst);
+  });
+
+  it('400 CURRENCY_LOCKED on functionalCurrency change', async () => {
+    const res = await app.inject({ method: 'PATCH', url, payload: { ...base, changes: { functionalCurrency: 'TWD' } } });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe('CURRENCY_LOCKED');
+  });
+
+  it('400 VALIDATION on unknown field (.strict() rejection)', async () => {
+    const res = await app.inject({ method: 'PATCH', url, payload: { ...base, changes: { policySetVersion: 'hax-1' } } });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe('VALIDATION');
+  });
+
   it('400s: empty reason / unknown field / currency change / bad enum / missing entity', async () => {
     for (const payload of [
       { ...base, reason: '  ', changes: { accountingStandard: 'US_GAAP' } },
