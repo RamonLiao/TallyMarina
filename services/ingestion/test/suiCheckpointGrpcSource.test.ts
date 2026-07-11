@@ -6,11 +6,17 @@ const CHAIN = '4btiuiKKaR9P';
 
 // Offline fake of the gRPC client structural subset. `checkpoints` maps a
 // sequence number -> the transactions array that GetCheckpoint returns.
+// `lowest` sets lowestAvailableCheckpoint (retention floor). `nullCheckpoints`
+// lists seqs for which GetCheckpoint returns `{ checkpoint: undefined }` (the
+// server's pruned response), exercising the source's own mid-scan guard rather
+// than the fake throwing first.
 function makeClient(opts: {
   chainId?: string;
   epoch?: string;
   height: bigint;
+  lowest?: bigint;
   checkpoints: Record<string, any[]>;
+  nullCheckpoints?: string[];
 }) {
   return {
     core: {
@@ -18,9 +24,12 @@ function makeClient(opts: {
       async getCurrentSystemState() { return { systemState: { epoch: opts.epoch ?? '42' } }; },
     },
     ledgerService: {
-      getServiceInfo() { return { response: { checkpointHeight: opts.height } }; },
+      getServiceInfo() {
+        return { response: { checkpointHeight: opts.height, lowestAvailableCheckpoint: opts.lowest } };
+      },
       getCheckpoint(input: any) {
         const seq = String(input.checkpointId.sequenceNumber);
+        if (opts.nullCheckpoints?.includes(seq)) return { response: { checkpoint: undefined } };
         const transactions = opts.checkpoints[seq];
         if (transactions === undefined) throw new Error(`checkpoint ${seq} not available`);
         return { response: { checkpoint: { sequenceNumber: BigInt(seq), transactions } } };
@@ -127,5 +136,79 @@ describe('SuiCheckpointGrpcSource', () => {
   it('rejects a corrupted (non-numeric) resume cursor', async () => {
     const src = new SuiCheckpointGrpcSource(makeClient({ height: 5n, checkpoints: {} }) as never, CHAIN, '5');
     await expect(src.fetchTransactions({ entityRef: 'e', address: ADDR, cursor: 'not-a-number', limit: 3 })).rejects.toThrow();
+  });
+
+  // ---- SHOULD-FIX 1: retention / pruned checkpoints ----
+
+  it('throws with an actionable message when start is below lowestAvailableCheckpoint', async () => {
+    // MUTATION: start=5 but node pruned everything below 100.
+    const src = new SuiCheckpointGrpcSource(makeClient({ height: 200n, lowest: 100n, checkpoints: {} }) as never, CHAIN, '5');
+    await expect(src.fetchTransactions({ entityRef: 'e', address: ADDR, cursor: null, limit: 3 }))
+      .rejects.toThrow(/below the node's lowest available checkpoint 100/);
+  });
+
+  it('allows start exactly at lowestAvailableCheckpoint (boundary is inclusive)', async () => {
+    const src = new SuiCheckpointGrpcSource(makeClient({ height: 200n, lowest: 100n, checkpoints: { '100': [] } }) as never, CHAIN, '100');
+    const r = await src.fetchTransactions({ entityRef: 'e', address: ADDR, cursor: null, limit: 1 });
+    expect(r.nextCursor).toBe('101');
+  });
+
+  it('fail-loud (not silent skip) when a checkpoint is pruned mid-scan', async () => {
+    // seq 6 returns { checkpoint: undefined } from the server -> source must throw,
+    // hitting its own guard (not the fake throwing). A silent skip = recon break.
+    const src = new SuiCheckpointGrpcSource(
+      makeClient({ height: 10n, lowest: 5n, checkpoints: { '5': [], '7': [] }, nullCheckpoints: ['6'] }) as never,
+      CHAIN,
+      '5',
+    );
+    await expect(src.fetchTransactions({ entityRef: 'e', address: ADDR, cursor: null, limit: 5 }))
+      .rejects.toThrow(/checkpoint 6 unavailable mid-scan/);
+  });
+
+  // ---- SHOULD-FIX 2: empty digest ----
+
+  it('throws with the checkpoint seq when a tx has no digest', async () => {
+    const noDigest = { transaction: { sender: ADDR }, effects: { status: { success: true } }, timestamp: { seconds: 10n, nanos: 0 } };
+    const src = new SuiCheckpointGrpcSource(makeClient({ height: 5n, checkpoints: { '5': [noDigest] } }) as never, CHAIN, '5');
+    await expect(src.fetchTransactions({ entityRef: 'e', address: ADDR, cursor: null, limit: 1 }))
+      .rejects.toThrow(/checkpoint 5 has no digest/);
+  });
+
+  // ---- SHOULD-FIX 3: timestamp + status derivation ----
+
+  it('converts per-tx timestamp seconds+nanos to ms (nanos rounds down to ms)', async () => {
+    // 12s + 999_999 nanos = 12s + 0.999ms -> floor -> 12000ms (nanos < 1ms dropped).
+    const tx = { digest: 'T', transaction: { sender: ADDR }, effects: { status: { success: true } }, timestamp: { seconds: 12n, nanos: 999_999 } };
+    const src = new SuiCheckpointGrpcSource(makeClient({ height: 5n, checkpoints: { '5': [tx] } }) as never, CHAIN, '5');
+    const r = await src.fetchTransactions({ entityRef: 'e', address: ADDR, cursor: null, limit: 1 });
+    expect(r.txs[0]!.timestampMs).toBe('12000');
+  });
+
+  it('rounds partial-ms nanos down (1s + 500ms)', async () => {
+    const tx = { digest: 'T2', transaction: { sender: ADDR }, effects: { status: { success: true } }, timestamp: { seconds: 1n, nanos: 500_000_000 } };
+    const src = new SuiCheckpointGrpcSource(makeClient({ height: 5n, checkpoints: { '5': [tx] } }) as never, CHAIN, '5');
+    const r = await src.fetchTransactions({ entityRef: 'e', address: ADDR, cursor: null, limit: 1 });
+    expect(r.txs[0]!.timestampMs).toBe('1500');
+  });
+
+  it('defaults timestampMs to 0 when the per-tx timestamp is absent', async () => {
+    const tx = { digest: 'T3', transaction: { sender: ADDR }, effects: { status: { success: true } } };
+    const src = new SuiCheckpointGrpcSource(makeClient({ height: 5n, checkpoints: { '5': [tx] } }) as never, CHAIN, '5');
+    const r = await src.fetchTransactions({ entityRef: 'e', address: ADDR, cursor: null, limit: 1 });
+    expect(r.txs[0]!.timestampMs).toBe('0');
+  });
+
+  it('derives status=failure from success:false', async () => {
+    const tx = { digest: 'F', transaction: { sender: ADDR }, effects: { status: { success: false } }, timestamp: { seconds: 1n, nanos: 0 } };
+    const src = new SuiCheckpointGrpcSource(makeClient({ height: 5n, checkpoints: { '5': [tx] } }) as never, CHAIN, '5');
+    const r = await src.fetchTransactions({ entityRef: 'e', address: ADDR, cursor: null, limit: 1 });
+    expect(r.txs[0]!.status).toBe('failure');
+  });
+
+  it('derives status=failure when success is undefined (never assumes success)', async () => {
+    const tx = { digest: 'F2', transaction: { sender: ADDR }, effects: { status: {} }, timestamp: { seconds: 1n, nanos: 0 } };
+    const src = new SuiCheckpointGrpcSource(makeClient({ height: 5n, checkpoints: { '5': [tx] } }) as never, CHAIN, '5');
+    const r = await src.fetchTransactions({ entityRef: 'e', address: ADDR, cursor: null, limit: 1 });
+    expect(r.txs[0]!.status).toBe('failure');
   });
 });
