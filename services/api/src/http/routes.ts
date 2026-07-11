@@ -42,7 +42,7 @@ import {
   getActivePolicy, getActiveCoaMapping, toResolvedPolicySet, buildCoaMappingFromRules, PolicyPersistenceError,
   insertPolicyVersion, insertCoaMappingVersion, bumpVersion, type PolicyDoc,
 } from '../store/policyStore.js';
-import { appendChange } from '../store/changeLogStore.js';
+import { appendChange, listChanges } from '../store/changeLogStore.js';
 import { deriveSources } from '../onboarding/sources.js';
 import { issueChallenge } from '../onboarding/challenge.js';
 import { verifyOwnership } from '../onboarding/verify.js';
@@ -382,6 +382,20 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
       txn();
       return { coaVersion, ruleVersion: newRuleVersion, policyVersion, rules };
     });
+  });
+
+  // GET /policy/history — append-only change_log (Task 4) + policy/coa version lists.
+  // entity is REQUIRED (hard 400), unlike GET /policy/active's cfg.entityId fallback —
+  // this mirrors the WRITE endpoints' entity requirement, not the read fallback.
+  app.get<{ Querystring: { entity?: string } }>('/policy/history', async (req) => {
+    if (!req.query.entity) throw new ApiError(400, 'VALIDATION', 'entity query param is required');
+    requireEntity(db, req.query.entity);
+    const e = req.query.entity;
+    return {
+      changes: listChanges(db, e),
+      policyVersions: db.prepare('SELECT version, created_at AS createdAt, created_by AS createdBy FROM policy_sets WHERE entity_id = ? ORDER BY version DESC').all(e),
+      coaVersions: db.prepare('SELECT version, rule_version AS ruleVersion, created_at AS createdAt, created_by AS createdBy FROM coa_mapping_sets WHERE entity_id = ? ORDER BY version DESC').all(e),
+    };
   });
 
   // GET /onboarding/:id — entity meta + derived sources + ownership attestation state
