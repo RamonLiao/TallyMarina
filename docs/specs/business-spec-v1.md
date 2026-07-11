@@ -82,19 +82,132 @@
 
 ## §5 功能模組總覽
 
-（本節由 Task 2/3 填寫）
+沿 F5 §6 的 7 大核心模組（Data Ingestion → Normalization & Classification → Accounting Policy & Rules Engine → Review & Approval Workflow → Reconciliation → ERP/GL Integration → Audit Trail & Walrus Snapshot）加上 2 個輔助模組（AI Assistant 限制版、Security & Permissions），共 9 模組。各模組標記依據設計文件 rev3 分期表（見 §7，權威版）；MVP 範圍內既有能力（AI 分類、review queue、rules engine、reconciliation、close、anchor）維持照舊運作，不因本規格重寫。
+
+### 1. Data Ingestion
+- **目的**：從 Sui 鏈上與其他來源攝取原始交易，作為 subledger 資料流第一步。
+- **輸入**：Sui address/object（gRPC）、通用 CSV 匯入設定；P1 起加 CEX API 憑證。
+- **輸出**：RawTransaction（immutable，可重跑）。
+- **標記**：**MVP** — Sui gRPC checkpoint streaming（增量攝取）+ custom indexer（歷史 backfill / 逐期餘額重建，GraphQL 僅輔助）+ 通用 CSV import（D6、D7）。**P1** — CEX API connector（取代目前僅 CSV 匯入的存提資料）。
+
+### 2. Normalization & Classification
+- **目的**：RawTransaction 轉為標準化 NormalizedEvent，AI 建議 event_type / economic_purpose / counterparty_type 與 confidence_score。
+- **輸入**：RawTransaction。**輸出**：NormalizedEvent（版本化）。
+- **標記**：**MVP** — Sui tx normalization 層（PTB 多指令原子分解、gas 淨額、sponsored tx payer 欄位、有價 object 物件級移動、coin split/merge 過濾、accumulator/native-balance 形態）；現有 5 類事件 + CEX 存提（transfer 子型，D16）+ staking reward 過渡映射（以 receipt + economic_purpose 映射 Staking Income，D18）。**P1** — staking 三態完整版（STAKING_DEPOSIT/STAKING_WITHDRAWAL 正式化）。
+
+### 3. Accounting Policy & Rules Engine（接口版）
+- **目的**：依 PolicySet + PricePoint + PositionLot，把 APPROVED 事件轉換為 JournalEntry；找不到 mapping 則標記「需政策配置」不自動出帳。
+- **輸入**：NormalizedEvent + PricePoint + PolicySet + PositionLots。**輸出**：JournalEntryHeader + Lines。
+- **標記**：**MVP** — PolicySet + CoA 落庫可配置（含最小 change log，D19）、期末重估雙軌（GAAP ASU 2023-08 FV / IFRS cost+impairment）、Pricing 規格（oracle 評估 + 手動輸入 fallback + cut-off，D13）、Manual JE/Reversal、期初餘額（cut-over）導入、trial balance + roll-forward。**P1** — WAC 成本基礎、revaluation model 機制、揭露加厚（significant holdings 等）。**P2** — 報表引擎（三大表 supporting schedules，見 §6 非目標第 2 條）。
+
+### 4. Review & Approval Workflow
+- **目的**：人工核准節點——AI 建議須經 accept/edit/reject 才能進入規則引擎產出正式分錄（§1 五原則之四）。
+- **輸入**：NormalizedEvent + AI 建議（含 Sui Explorer link）。**輸出**：review_status（APPROVED 等）+ 月結 checklist 狀態。
+- **標記**：**MVP** — 既有 Transaction Review Queue / Journal Review（可調 account_code/memo/dimension）照舊運作 + 月結 checklist 流程（事件全分類→recon 乾淨→重估過帳→TB→roll-forward→lock→snapshot/anchor→export）+ UI 執行落差修復批次（journal 金額 formatter、字體載入、表格/badge 收斂，D17，見 §7）。**P1** — RBAC + 完整 audit log（MVP 僅最小 change log，見模組 9）。
+
+### 5. Reconciliation
+- **目的**：按 entity + wallet + asset + period 比對來源餘額與 subledger 餘額，標記差異。
+- **輸入**：source_balance（chain/CEX）+ subledger_balance。**輸出**：ReconciliationRecord（含 variance_qty/value、exception reason）。
+- **標記**：**MVP** — wallet ↔ subledger 對帳（既有能力照舊）。**P1** — subledger ↔ ERP 對帳（recon ERP 層）。
+
+### 6. ERP / GL Integration
+- **目的**：已核准 JE 匯出為 ERP 可匯入格式，標記 exported。
+- **輸入**：APPROVED JournalEntry。**輸出**：ERP journal 匯出檔（CSV）。
+- **標記**：**MVP** — Xero manual journal CSV + QuickBooks Online journal CSV（D8）。**P1** — NetSuite（Import Assistant CSV）。**P2** — 原生 ERP API connector（SAP 不做，見 §6 非目標第 4 條）。
+
+### 7. Audit Trail & Walrus Snapshot
+- **目的**：期間結束時將 positions/JE/reconciliation 打包並上鏈記錄完整性證明。
+- **輸入**：Period Close 觸發之 Snapshot。**輸出**：Merkle Root anchor（鏈上）+（P1 起）可取回的 Walrus 審計包。
+- **標記**：**MVP** — audit_anchor 合約完整性層（既有能力照舊：hash-only 上鏈、cap-based 授權、Merkle inclusion proof）；Walrus 前 manifest 僅存自有 DB（D5）。**P1** — Walrus 審計包 + Seal 加密存取控制（審計包含 JE 財務明細，公開 blob 即洩漏，故與 Seal 綁定同列 P1，D14）；anchoring gas 之 sponsored tx（Enoki）評估見附錄 C。
+
+### 8. AI Assistant（限制版）
+- **目的**：建議 event_type/economic_purpose，異常提示（內部轉帳/DeFi/spam），協助生成 memo；僅 suggestion，不可未經核准直接進規則引擎（§1 五原則之四）。
+- **輸入**：NormalizedEvent（候選）。**輸出**：建議標籤 + confidence_score，供模組 4 人工核准。
+- **標記**：**MVP** — 既有分類建議、review queue、triage agent 能力照舊運作，隨模組 2 的事件覆蓋範圍同步擴充（CEX 存提、staking reward 過渡映射）。
+
+### 9. Security & Permissions
+- **目的**：權限控管與憑證保護，支撐可審計性。
+- **輸入**：使用者角色設定、PolicySet/MappingRule 變更、review 決策。**輸出**：change log / audit log 紀錄；CEX API Key 等憑證加密儲存。
+- **標記**：**MVP** — 最小 change log（PolicySet/MappingRule 變更 + review 決策紀錄，D19）。**P1** — RBAC（Admin/Accountant/Viewer）+ 完整 audit log。**P2** — zkLogin/企業 SSO。
 
 ## §6 非目標
 
-（本節由 Task 2/3 填寫）
+明文界定本產品範圍邊界，避免與 ERP、報表引擎、稅務系統的職責混淆：
+
+1. **不取代 ERP**：本產品是站在 ERP 前面的會計轉譯層（subledger），JournalEntry 匯出至既有 ERP（NetSuite/SAP/Xero/QuickBooks）作為總帳記錄。ERP 仍是 GL of record（見 §1 五原則之五）。
+2. **MVP 不做三大報表引擎**：完整資產負債表、損益表、現金流量表（含 supporting schedules）不在 MVP 範圍，列為 P2；本產品僅提供期末餘額、cost basis/FV、trial balance、roll-forward 等 subledger 層資料供下游報表模組使用。
+3. **不做稅務申報與 tax basis/遞延稅**：本產品聚焦財務會計（financial accounting）分錄產出，不處理稅務申報、tax basis 計算或遞延稅（deferred tax）事項；此類需求由企業自有稅務系統或稅務顧問處理。
+4. **不支援 SAP**：ERP export 依 D8（`tasks/research-erp-targets.md` 研究數據）僅涵蓋 Xero manual journal CSV + QuickBooks Online journal CSV（MVP）與 NetSuite Import Assistant CSV（P1）；SAP 不在任何分期範圍內。
+5. **MVP 限單一 functional currency = USD**（D15）：MVP 階段僅支援 Entity 記帳貨幣為美元，暫不支援多幣別換算（IAS 21/ASC 830）。但架構須模組化保留擴充接口，具體三項技術細則：
+   - 幣別換算邏輯集中於 rules engine 的 Price/FX lookup 階段，設計為可插拔（pluggable），不得分散於程式各處硬編碼。
+   - `functional_currency` 只存在於 PolicySet 欄位，禁止 USD 硬編碼散落於程式碼中。
+   - JournalEntry Lines 保留 `currency` / `fx_rate` 欄位，即使 MVP 階段恆為 USD/1.0，欄位結構亦不省略，以承接 P1 擴充。
+   - P1 目標市場：台灣、日本、香港、韓國（依會計師 review 確認之優先順序）。
+6. **MVP 不做多實體 consolidation**：多實體（multi-entity）合併報表、跨實體 transfer pricing 不在 MVP 範圍，列為 P2；MVP 階段每個 Entity 的 subledger 各自獨立記帳。
 
 ## §7 分期 Roadmap
 
-（本節由 Task 2/3 填寫）
+**本節為全案（商業冊 + 會計技術規格書）分期標記的唯一權威版本**；會計冊各章一律引用「見商業冊 §7」，不重複列表。依設計文件 rev3 分期表（`docs/superpowers/specs/2026-07-11-gtm-spec-v1-design.md`）逐項展開：
+
+### MVP（重對準 re-aim）
+
+| 項目 | 內容 |
+|---|---|
+| PolicySet + CoA | 落庫、可配置，含最小 change log（D19） |
+| 期末重估 | GAAP/IFRS 雙軌（ASU 2023-08 FV / cost+impairment） |
+| Pricing 規格 | oracle 評估 + 手動輸入 fallback + cut-off 時點定義（D13） |
+| Manual JE / Reversal | 手工分錄、更正、應計、已匯出 JE 反向沖銷 |
+| 期初餘額導入 | opening lot cut-over（cost basis + 取得日） |
+| 事件覆蓋擴充 | CEX 存提（transfer 子型，D16）+ staking reward 過渡映射（D18） |
+| 揭露視圖 | trial balance + roll-forward |
+| 月結流程 | close checklist（事件全分類→recon 乾淨→重估過帳→TB→roll-forward→lock→snapshot/anchor→export） |
+| ERP export | Xero manual journal CSV + QuickBooks Online journal CSV（D8） |
+| Ingestion | Sui gRPC checkpoint streaming ingestion + normalization 層 + 通用 CSV import（D6、D7） |
+| UI 執行落差修復批次 | 字體單一來源且實際載入、表格/badge 收斂為 shared primitive、journal 金額 formatter（D17） |
+| 既有能力照舊 | AI 分類/review、rules engine、reconciliation（wallet↔subledger）、close、audit_anchor 完整性層 |
+
+### P1
+
+| 項目 | 內容 |
+|---|---|
+| staking 三態完整版 | STAKING_DEPOSIT/STAKING_WITHDRAWAL 正式化（脫離 MVP 過渡映射） |
+| CEX API connector | 取代 MVP 之 CSV 匯入 |
+| WAC | 加權平均成本基礎（與既有 FIFO 並列） |
+| 多幣別 FX | IAS 21/ASC 830，目標市場台灣/日本/香港/韓國（D15） |
+| RBAC + 完整 audit log | 取代 MVP 最小 change log |
+| Walrus 審計包 + Seal | 審計包可取回性保證 + 加密存取控制（D5、D14 綁定） |
+| Recon ERP 層 | subledger ↔ ERP 對帳（第三層，MVP 僅 wallet↔subledger） |
+| NetSuite export | Import Assistant CSV（D8） |
+| 揭露加厚 | significant holdings、出售限制、cost basis method 揭露 |
+| revaluation model 機制 | IFRS revaluation model 政策選項（OCI/surplus 科目、IAS 38.75 active market 警示） |
+
+### P2
+
+| 項目 | 內容 |
+|---|---|
+| 報表引擎 | 三大表（資產負債表/損益表/現金流量表）supporting schedules |
+| ERP API connectors | 取代 MVP/P1 之 CSV 匯出，原生 API 整合 |
+| 多實體 consolidation | 跨實體合併報表、transfer pricing |
+| zkLogin / 企業 SSO | 降低 Web2 財務人員 onboarding 摩擦 |
 
 ## 附錄 A 現況差距對照
 
-（本節由 Task 2/3 填寫）
+依 D9（目標態主文 + 現況差距附錄，實作推進只更新本附錄、不改主文）收斂自 `tasks/spec-gap-analysis.md` 逐項差距表為下列三欄格式。**本附錄隨實作推進持續更新，主文（§1–§7）不因現況變化而改寫。**
+
+| 規格章節 | 現況（已驗證，2026-07-11） | 差距 |
+|---|---|---|
+| §5-1 Data Ingestion（Sui gRPC MVP） | 主流程吃 FixtureSource；`SuiJsonRpcSource` 僅 40 行、只有 CLI `run-ingest` 用到，未接 API 主流程；且 JSON-RPC 已排定 2026-07-31 停用（D7） | ❌ 大缺口：需改建 gRPC checkpoint streaming + custom indexer，`SuiJsonRpcSource` 須汰換 |
+| §5-2 Normalization（CEX 存提/staking reward 過渡映射） | 只有 5 類（receipt/payment/swap/gas/transfer）+ opening_lot；缺 staking 三態、CEX 存提、期末重估/減損（rules-engine grep 零命中） | ❌ 缺的正是最「會計」的部分 |
+| §5-3 Rules Engine — PolicySet + CoA 落庫可配置 | `DEMO_POLICY_SET` / `DEMO_COA_RULES` 寫死於 `policyConstants.ts`；schema 無 policy 表；版本欄位有記錄但僅單一 hardcoded 版本 | ❌ 三大差異化主軸之一（policy-switchable engine）尚未兌現 |
+| §5-3 Rules Engine — 規則引擎架構 | 11-phase pipeline，含 recognition/measure/COA mapping/disclosure | ✅ 超規格 |
+| §5-4 Review & Approval — AI 建議 + review workflow | classify + confidence + review queue + copilot + triage agent 提案（human accept） | ✅ 超規格（agentic 部分優於原設計） |
+| §5-5 Reconciliation | book vs live chain 兩層對帳；無 ERP 第三層 | ⚠️ MVP 可接受（ERP 層本屬 P1 範圍） |
+| §5-3 Cost basis FIFO/WAC | FIFO 已實作；WAC 未實作 | ⚠️ WAC 屬 P1 範圍，MVP 無需補齊 |
+| §5-6 ERP/GL Integration | 僅 generic CSV/PDF；全 repo 無任何 ERP 欄位映射（grep 零命中） | ❌ subledger 的最後一哩尚未打通，需依 D8 補 Xero/QBO 欄位映射 |
+| §5-7 Audit Trail & Walrus Snapshot | 換成自建 audit_anchor 合約：hash-only 上鏈，資料包不可取回；Walrus 審計包未實作 | 🔀 完整性更強、可取回性更弱（規格外自建），定位收斂為完整性層（D5），Walrus+Seal 列 P1 |
+| §5-9 Security & Permissions（RBAC + Audit Log） | 無；maker-checker SoD 已列 deferred | ❌ 屬 P1 範圍 |
+| §6/§7 揭露：roll-forward/期末餘額 by asset | disclosure facts phase 存在，但無 roll-forward 報告與 trial balance 視圖 | ⚠️ 屬 MVP 範圍，待補（見 §7 MVP「揭露視圖」項） |
+| §6 非目標第 2 條：完整三大報表 | 無 | ✅ 按規格本就不做，非缺口（規格本來就列 P2） |
 
 ## 附錄 B 詞彙表
 
@@ -166,4 +279,9 @@
 
 ## 附錄 C Sui 生態整合機會
 
-（本節由 Task 2/3 填寫）
+本附錄為機會清單（D12），非承諾功能；是否納入 roadmap 待後續評估與商業驗證。
+
+- **DeepBook**（交易來源 parser / 對沖延伸）：作為做市商、交易策略、treasury 客群（L2）的 on-chain 交易來源，需專門 parser 解析成交/撤單/掛單 fee 事件，供 Normalization 模組（§5-2）納入 taxonomy。延伸機會：從 subledger 直接發起對沖指令到 DeepBook（policy 超標觸發），屬長期擴展方向，非 MVP/P1 承諾項目。
+- **SuiNS**（counterparty 顯示）：用於 Review & Approval Workflow（§5-4）與 Reconciliation（§5-5）UI 中，將 counterparty 地址解析為人類可讀名稱，降低財務人員閱讀與核對成本；不影響底層資料模型，屬純 UI 呈現層增強。
+- **Enoki sponsored-tx anchoring 評估**（`tasks/review-findings-2026-07-11.md` 一之 5c）：Audit Trail & Walrus Snapshot 模組（§5-7）的 anchoring 動作需消耗 SUI gas，sponsored transaction（Enoki）/ gasless 模式可降低企業客戶的 gas 管理負擔，值得評估是否納入 P1 Walrus 審計包 + Seal 批次一併規劃；需一併評估 sponsored tx 的 gas payer ≠ entity 情境下之 payer 欄位記錄需求（呼應 §5-2 taxonomy 的 sponsored tx payer 欄位設計）。
+- **Nautilus**（oracle/off-chain data bridge 候選）：若會計技術規格書 §6 Pricing 章節的 oracle 選型（Pyth 與 Nautilus 之間）於實作階段仍未定案，Nautilus 作為候選之一保留於本附錄，可用於 valuation/fair value price feed 的可驗證上鏈，亦可延伸用於將 PolicySet 版本/核准紀錄安全寫入 Sui 作為 policy log。
