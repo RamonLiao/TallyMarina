@@ -256,7 +256,7 @@ MVP 限單一 functional currency = USD（D15，見商業冊 §6 非目標第 5 
 | Cr | GasRebateIncome（超出當期費用部分） | 0.20 | RESIDUAL | 通用 |
 
 - 新 lot 之 cost basis = 淨收 SUI 之 FV（§6 當日價；qty = 淨收量），`acquisition_date` = 該 tx accounting_date（§6.4），後續處分沿 §7 cost method。
-- 貸方順序：先沖減當期 `GasFeeExpense`（contra，**不得**使該科目轉為貸方淨額），仍有餘額者認列 `GasRebateIncome`（其他收入，須加入 §10.3 CoA seed）；當期無 gas 費用可沖時，全額入 `GasRebateIncome`。
+- 貸方順序：先沖減當期 `GasFeeExpense`（contra，**不得**使該科目轉為貸方淨額），仍有餘額者認列 `GasRebateIncome`（其他收入，須加入 §10.3 CoA seed）；當期無 gas 費用可沖時，全額入 `GasRebateIncome`。上限以**該 JE 入帳時點、依事件時間序已認列之當期 `GasFeeExpense` 累計餘額**為準（決定性：同一事件集重跑必得相同拆分，符合可重現 subledger 原則）。
 - **兩軌一致**：GAAP FV 軌新 lot 以 FV 入帳（與 §5.1 ASU 2023-08 後續 FV 重估銜接）；IFRS 成本軌新 lot 以取得日 FV 為取得成本（IAS 38）。二軌借方 cost basis 皆為 §6 當日 FV，差異僅在後續衡量（§5），本入帳模板通用。
 
 ### §4.5 SWAP（資產對資產兌換）— MVP

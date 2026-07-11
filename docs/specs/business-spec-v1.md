@@ -103,7 +103,7 @@
 ### 4. Review & Approval Workflow
 - **目的**：人工核准節點——AI 建議須經 accept/edit/reject 才能進入規則引擎產出正式分錄（§1 五原則之四）。
 - **輸入**：NormalizedEvent + AI 建議（含 Sui Explorer link）。**輸出**：review_status（APPROVED 等）+ 月結 checklist 狀態。
-- **標記**：**MVP** — 既有 Transaction Review Queue / Journal Review（可調 account_code/memo/dimension）照舊運作 + 月結 checklist 流程（事件全分類→recon 乾淨→重估過帳→TB→roll-forward→lock→snapshot/anchor→export）+ UI 執行落差修復批次（journal 金額 formatter、字體載入、表格/badge 收斂，D17，見 §7）。**P1** — RBAC + 完整 audit log（MVP 僅最小 change log，見模組 9）。
+- **標記**：**MVP** — 既有 Transaction Review Queue / Journal Review（可調 account_code/memo/dimension）照舊運作 + 月結 checklist 流程（事件全分類→exceptions 結清→recon 乾淨→重估過帳→TB→roll-forward→lock→snapshot/anchor→export）+ UI 執行落差修復批次（journal 金額 formatter、字體載入、表格/badge 收斂，D17，見 §7）。**P1** — RBAC + 完整 audit log（MVP 僅最小 change log，見模組 9）。
 
 ### 5. Reconciliation
 - **目的**：按 entity + wallet + asset + period 比對來源餘額與 subledger 餘額，標記差異。
@@ -160,7 +160,7 @@
 | 期初餘額導入 | opening lot cut-over（cost basis + 取得日） |
 | 事件覆蓋擴充 | CEX 存提（transfer 子型，D16）+ staking reward 過渡映射（D18） |
 | 揭露視圖 | trial balance + roll-forward |
-| 月結流程 | close checklist（事件全分類→recon 乾淨→重估過帳→TB→roll-forward→lock→snapshot/anchor→export） |
+| 月結流程 | close checklist（事件全分類→exceptions 結清→recon 乾淨→重估過帳→TB→roll-forward→lock→snapshot/anchor→export） |
 | ERP export | Xero manual journal CSV + QuickBooks Online journal CSV（D8） |
 | Ingestion | Sui gRPC checkpoint streaming ingestion + normalization 層 + 通用 CSV import（D6、D7） |
 | UI 執行落差修復批次 | 字體單一來源且實際載入、表格/badge 收斂為 shared primitive、journal 金額 formatter（D17） |
