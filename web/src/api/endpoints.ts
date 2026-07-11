@@ -3,6 +3,7 @@ import type {
   EntityDTO, EventDTO, JournalDTO, AnchorDTO, CopilotAdvice,
   SnapshotDTO, PrepareDTO, InclusionProof, PolicyActiveDTO,
   OnboardingDTO, ChallengeDTO, VerifyResultDTO,
+  PolicyDocDTO, CoaRuleDTO, PolicyHistoryDTO,
 } from './types';
 
 const enc = encodeURIComponent;
@@ -99,8 +100,27 @@ export async function getAnchors(
 }
 
 // 14. GET /policy/active
-export async function getPolicyActive(): Promise<PolicyActiveDTO> {
-  return fetchJson<PolicyActiveDTO>('/policy/active');
+export async function getPolicyActive(entityId?: string): Promise<PolicyActiveDTO> {
+  return fetchJson<PolicyActiveDTO>(`/policy/active${entityId ? `?entity=${enc(entityId)}` : ''}`);
+}
+
+// 14a. PATCH /policy/policy-set
+export async function patchPolicySet(body: {
+  entity: string; actor: string; reason: string; changes: Partial<PolicyDocDTO>;
+}): Promise<{ policyVersion: number; policyDoc: PolicyDocDTO }> {
+  return fetchJson('/policy/policy-set', { method: 'PATCH', body: JSON.stringify(body) });
+}
+
+// 14b. PUT /policy/coa-mapping
+export async function putCoaMapping(body: {
+  entity: string; actor: string; reason: string; rules: CoaRuleDTO[];
+}): Promise<{ coaVersion: number; ruleVersion: string; policyVersion: number; rules: CoaRuleDTO[] }> {
+  return fetchJson('/policy/coa-mapping', { method: 'PUT', body: JSON.stringify(body) });
+}
+
+// 14c. GET /policy/history
+export async function getPolicyHistory(entityId: string): Promise<PolicyHistoryDTO> {
+  return fetchJson(`/policy/history?entity=${enc(entityId)}`);
 }
 
 // 15. GET /onboarding/:entityId

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { JournalDTO, EventDTO, PolicyActiveDTO } from '../api/types';
-import { getJournal, listEvents, getPolicyActive } from '../api/endpoints';
+import type { JournalDTO, EventDTO, PolicyActiveDTO, PolicyDocDTO, CoaRuleDTO } from '../api/types';
+import { getJournal, listEvents, getPolicyActive, patchPolicySet, putCoaMapping } from '../api/endpoints';
 
 interface PolicyValue {
   policy: PolicyActiveDTO;
@@ -32,7 +32,7 @@ export function usePolicyData(entityId: string) {
     setState((prev) => ({ ...prev, error: undefined }));
     try {
       const [policy, journal, events] = await Promise.all([
-        getPolicyActive(),
+        getPolicyActive(capturedEntityId),
         getJournal(capturedEntityId),
         listEvents(capturedEntityId),
       ]);
@@ -58,5 +58,23 @@ export function usePolicyData(entityId: string) {
   const data = state.entityId === entityId ? state.value : undefined;
   const error = state.entityId === entityId ? state.error : undefined;
 
-  return { data, loading, error, refetch };
+  // Mutations: throw on API error (caller renders the message — never swallow),
+  // and on success await refetch() before resolving so consumers see fresh data.
+  const applyPolicyChanges = useCallback(
+    async (changes: Partial<PolicyDocDTO>, reason: string, actor: string) => {
+      await patchPolicySet({ entity: entityId, actor, reason, changes });
+      await refetch();
+    },
+    [entityId, refetch],
+  );
+
+  const applyCoaMapping = useCallback(
+    async (rules: CoaRuleDTO[], reason: string, actor: string) => {
+      await putCoaMapping({ entity: entityId, actor, reason, rules });
+      await refetch();
+    },
+    [entityId, refetch],
+  );
+
+  return { data, loading, error, refetch, applyPolicyChanges, applyCoaMapping };
 }

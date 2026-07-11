@@ -248,11 +248,41 @@ export interface CoaRuleDTO {
   account: string;
 }
 
+export interface PolicyDocDTO {
+  accountingStandard: 'IFRS' | 'US_GAAP';
+  functionalCurrency: string; reportingCurrency: string;
+  costBasisMethod: 'FIFO' | 'WAC';
+  stablecoinTreatment: 'FINANCIAL_ASSET_IFRS9' | 'INTANGIBLE_ASSET' | 'CASH_EQUIVALENT';
+  cryptoClassificationDefault: string;
+  stakingIncomePolicy: 'OPERATING_REVENUE' | 'OTHER_INCOME';
+  feeExpensePolicy: 'EXPENSE_IMMEDIATE' | 'CAPITALIZE_TO_ASSET';
+  revaluationPolicy: 'cost' | 'revaluation';
+  asu202308Applies: Record<string, boolean>;
+  policySetVersion: string; assetPolicyVersion: string; eventPolicyVersion: string;
+  ruleVersion: string; parserVersion: string; normalizationVersion: string;
+  roundingThresholdMinor: string;
+}
+
+export interface ChangeRowDTO {
+  seq: number; entityId: string; actor: string; at: string;
+  objectType: string; objectRef: string; before: string | null; after: string; reason: string;
+}
+
+export interface PolicyHistoryDTO {
+  changes: ChangeRowDTO[];
+  policyVersions: Array<{ version: number; createdAt: string; createdBy: string }>;
+  coaVersions: Array<{ version: number; ruleVersion: string; createdAt: string; createdBy: string }>;
+}
+
 export interface PolicyActiveDTO {
   policySet: ResolvedPolicySetDTO;
   // null = fail-closed: unmapped legs raise MAPPING_MISSING instead of a suspense default.
-  coaMapping: { rules: CoaRuleDTO[]; defaultAccount: string | null };
+  coaMapping: { rules: CoaRuleDTO[]; defaultAccount: string | null; version: number; ruleVersion: string };
   periodId: string;
+  // Additive (Task 7): full policy doc + version dims, mirrors GET /policy/active's top-level fields.
+  policyDoc: PolicyDocDTO;
+  policyVersion: number;
+  coaVersion: number;
 }
 
 // ---- Onboarding types ----
