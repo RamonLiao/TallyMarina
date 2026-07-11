@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { backfillPeriodIds } from './backfillPeriod';
+import { ensurePolicySeed } from './policyStore';
 
 export type Db = Database.Database;
 
@@ -40,6 +41,8 @@ export function openDb(path: string): Db {
     // CHECK via ALTER ADD COLUMN, so fresh DBs enforce the IN(...) allow-list on this column
     // while pre-existing dev DBs get the column WITHOUT the CHECK — same situation as snapshots.seq.
     'ALTER TABLE asset_registry ADD COLUMN metadata_cap_state TEXT',
+    'ALTER TABLE journal_entries ADD COLUMN policy_set_version TEXT',
+    'ALTER TABLE journal_entries ADD COLUMN rule_version TEXT',
   ];
   for (const m of MIGRATIONS) {
     try { db.exec(m); } catch (err) {
@@ -50,6 +53,7 @@ export function openDb(path: string): Db {
   }
   ensureSnapshotSeqUnique(db);
   backfillPeriodIds(db);
+  ensurePolicySeed(db);
   return db;
 }
 

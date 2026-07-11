@@ -22,7 +22,9 @@ CREATE TABLE IF NOT EXISTS journal_entries (
   je_json TEXT NOT NULL,
   idempotency_key TEXT NOT NULL UNIQUE,
   leaf_hash TEXT NOT NULL,
-  period_id TEXT
+  period_id TEXT,
+  policy_set_version TEXT,
+  rule_version TEXT
 );
 CREATE TABLE IF NOT EXISTS snapshots (
   id TEXT PRIMARY KEY,
@@ -241,4 +243,43 @@ CREATE TABLE IF NOT EXISTS asset_registry_log (
   detail           TEXT,
   actor            TEXT NOT NULL,
   at               TEXT NOT NULL
+);
+
+-- Spec 2026-07-11 policyset-coa-persistence §3: append-only versioned policy documents.
+-- active = MAX(version). Rows are NEVER updated or deleted (restatement interface: versions coexist).
+CREATE TABLE IF NOT EXISTS policy_sets (
+  entity_id  TEXT NOT NULL REFERENCES entities(id),
+  version    INTEGER NOT NULL,
+  doc        TEXT NOT NULL,      -- JSON: PolicyDoc (§9.1 ten fields + 6 version dims + roundingThresholdMinor)
+  created_at TEXT NOT NULL,
+  created_by TEXT NOT NULL,
+  PRIMARY KEY (entity_id, version)
+);
+CREATE TABLE IF NOT EXISTS coa_mapping_sets (
+  entity_id    TEXT NOT NULL REFERENCES entities(id),
+  version      INTEGER NOT NULL,
+  rules        TEXT NOT NULL,    -- JSON: [{eventType, leg, account}], leg='*' catch-all
+  rule_version TEXT NOT NULL,    -- audit anchor: equals doc.ruleVersion written in the same transaction
+  created_at   TEXT NOT NULL,
+  created_by   TEXT NOT NULL,
+  PRIMARY KEY (entity_id, version)
+);
+CREATE TABLE IF NOT EXISTS accounts (
+  entity_id      TEXT NOT NULL REFERENCES entities(id),
+  name           TEXT NOT NULL,  -- the JE-line account string (single authority, no id alias)
+  class          TEXT NOT NULL CHECK (class IN ('asset','liability','equity','income','expense')),
+  source_section TEXT NOT NULL,
+  status         TEXT NOT NULL CHECK (status IN ('active','reserved_p1')),
+  PRIMARY KEY (entity_id, name)
+);
+CREATE TABLE IF NOT EXISTS change_log (
+  seq         INTEGER PRIMARY KEY AUTOINCREMENT,
+  entity_id   TEXT NOT NULL REFERENCES entities(id),
+  actor       TEXT NOT NULL,
+  at          TEXT NOT NULL,
+  object_type TEXT NOT NULL CHECK (object_type IN ('policy_set','mapping_rule','asset_class','manual_price','je_void')),
+  object_ref  TEXT NOT NULL,
+  before      TEXT,              -- JSON; NULL for the first human change of an object
+  after       TEXT NOT NULL,
+  reason      TEXT NOT NULL
 );
