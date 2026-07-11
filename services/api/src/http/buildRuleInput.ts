@@ -3,8 +3,9 @@ import type {
   RuleInput, NormalizedEvent, RunContext, ResolvedPolicySet, ClassificationAssessment,
   PositionLot, PricePoint, FxRate, CoaMapping,
 } from '../deps/rulesEngine.js';
-// DEMO_POLICY_SET / buildCoaMapping imports DELETED — policy now arrives from the DB
-// loader via opts (loaded once per request by the caller; spec §5 read-path switchover).
+// Imports of the legacy demo policy constants and mapping builder DELETED — policy now
+// arrives from the DB loader via opts (loaded once per request by the caller; spec §5
+// read-path switchover).
 
 export function buildRuleInput(
   event: EventRow,

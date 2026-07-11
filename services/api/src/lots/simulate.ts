@@ -28,7 +28,7 @@ export function simulateLots(db: Db, entityId: string): SimulateResult {
   const gapPools = new Set<string>();
   let nextSeq = 0;
   // Loaded ONCE per call (Task 3 read-path switchover) — the drift probe uses the CURRENT
-  // active policy, never DEMO_POLICY_SET/DEMO_COA_RULES.
+  // active policy, never the legacy demo policy constants.
   const activePolicy = getActivePolicy(db, entityId);
   const activeCoa = getActiveCoaMapping(db, entityId);
   const enginePolicy = toResolvedPolicySet(activePolicy.doc, true);

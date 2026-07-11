@@ -43,7 +43,7 @@ export function collectExceptions(db: Db, entityId: string, periodId: string, lo
   // matches what run-rules would actually do (locked → PERIOD_CLOSED is truthful).
   const periodOpen = getPeriodLock(db, entityId, periodId).status !== 'LOCKED';
   // Loaded ONCE per call (Task 3 read-path switchover) — never per-event, never from the
-  // DEMO_POLICY_SET/DEMO_COA_RULES constants.
+  // legacy demo policy constants.
   const activePolicy = getActivePolicy(db, entityId);
   const activeCoa = getActiveCoaMapping(db, entityId);
   const enginePolicy = toResolvedPolicySet(activePolicy.doc, periodOpen);

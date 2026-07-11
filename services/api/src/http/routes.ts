@@ -541,7 +541,7 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
       .filter((ev) => ev.periodId === periodId)
       .sort((a, b) => eventTimeOf(a).localeCompare(eventTimeOf(b)) || a.id.localeCompare(b.id));
     // Load the active policy/CoA ONCE per request (Task 3 read-path switchover) — never
-    // per-event, and never from the DEMO_POLICY_SET/DEMO_COA_RULES constants.
+    // per-event, and never from the legacy demo policy constants.
     const activePolicy = getActivePolicy(db, req.params.id);
     const activeCoa = getActiveCoaMapping(db, req.params.id);
     const enginePolicy = toResolvedPolicySet(activePolicy.doc, periodOpen);
@@ -572,7 +572,9 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
             leafHash: leafHash(je),
             periodId: ev.periodId, // inherit from source event (spec §5.2.4)
             policySetVersion: activePolicy.doc.policySetVersion,
-            ruleVersion: activePolicy.doc.ruleVersion,
+            // §9.2: JE header records the version of the rules that actually built the
+            // CoA it posted against — not the policy doc's own copy of that version.
+            ruleVersion: activeCoa.ruleVersion,
           });
           if (res === 'inserted') { postedHere++; if (anchorJeId === null) anchorJeId = jeId; } else skippedHere++;
         }
