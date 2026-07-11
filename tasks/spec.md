@@ -30,4 +30,7 @@
 
 ## 修訂紀錄
 
-- （尚無）
+- 2026-07-11 撰寫過程增補（非偏離，desk check 驅動）：§4.4.1 負 gas 淨額 JE（新科目
+  GasRebateIncome）、§14 缺價 blocking 統一 fail-closed（依 D13）、§7.3 GAAP FV 軌
+  opening_fv + ASU 2023-08 過渡調 RE（新科目 RetainedEarnings，opening_fv_minor 由
+  deferred 改 MVP 必要）。CoA seed 六→八科目。G1–G9 驗證均在增補後複核通過。
