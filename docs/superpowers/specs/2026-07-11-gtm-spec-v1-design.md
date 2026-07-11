@@ -31,7 +31,7 @@ rev2：經 sui-architect、執業會計師視角、frontend-design 三路獨立 
 | D12 | 全文中文；DeepBook/SuiNS 降商業冊附錄「機會清單」 | Claude 裁定 |
 | D13 | **價格來源是 MVP 硬依賴**（重估/FV 需要）：新增 Pricing 章（MVP），來源含 oracle（Pyth/Nautilus 評估）+ 手動輸入 fallback | rev2：sui-architect + 會計師 review 同時命中 |
 | D14 | **Seal 與 Walrus 審計包綁定同列 P1**（審計包含 JE 財務明細，公開 blob = 洩漏），自附錄拉回 roadmap | rev2：sui-architect review |
-| D15 | **FX 範圍（待使用者確認）**：MVP 限單一 functional currency（= reporting currency，預設 USD），IAS 21/ASC 830 多幣別換算列 P1；此限制明文寫入商業冊非目標 | rev2：會計師 review；Claude 建議值 |
+| D15 | **FX 範圍（使用者已確認）**：MVP 限單一 functional currency = USD，明文寫入商業冊非目標。但架構必須模組化保留擴充接口：幣別換算集中於 rules engine 的 Price/FX lookup 階段（可插拔）、functional_currency 只存在於 PolicySet 欄位（禁止 USD 硬編碼散落）、JE lines 保留 currency/fx_rate 欄位。P1 多幣別（IAS 21/ASC 830）目標市場：台灣/日本/香港/韓國 | rev2：會計師 review；使用者 2026-07-11 確認 |
 | D16 | **CEX 存提拉進 MVP**（transfer 子型，F4 §3.4）：CSV import 進 MVP 而事件類型留 P1 互相矛盾，修正 | rev2：會計師 review |
 | D17 | 規格書新增 **UI/UX 標準章**（5 條可判定條文，見文件二 §15）；現有 UI 執行落差（字體未載入、4 套表格、journal 金額不可讀）列 MVP 修復批次 | rev2：frontend-design review |
 | D18 | staking 三態整包留 P1，但 MVP 註記過渡方案：staking reward 以 receipt + economic_purpose 映射 Staking Income | rev2：會計師 review |
