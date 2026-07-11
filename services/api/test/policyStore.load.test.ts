@@ -62,4 +62,14 @@ describe('policy loaders (Task 2)', () => {
     db.prepare("INSERT INTO coa_mapping_sets (entity_id, version, rules, rule_version, created_at, created_by) VALUES ('e1', 2, ?, 'demo-rule-1', 't', 'monkey')").run(JSON.stringify({ not: 'an array' }));
     expect(() => getActiveCoaMapping(db, 'e1')).toThrowError(PolicyPersistenceError);
   });
+
+  it('POLICY_CORRUPT: a valid-but-non-FIFO doc (WAC) is storable but not executable', () => {
+    try {
+      toResolvedPolicySet({ ...SEED_POLICY_DOC, costBasisMethod: 'WAC' }, true);
+      expect.unreachable('should throw');
+    } catch (e) {
+      expect(e).toBeInstanceOf(PolicyPersistenceError);
+      expect((e as PolicyPersistenceError).code).toBe('POLICY_CORRUPT');
+    }
+  });
 });
