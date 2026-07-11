@@ -730,18 +730,104 @@ MVP 提供通用 CSV import，將 CEX 對帳單 / 交易明細映射為 Normaliz
   - **re-anchor（重錨）**：修正後須 **re-lock**（回 LOCKED，`/snapshot` 之 LOCKED-gate 強制此步）→ 重出 snapshot → re-anchor。re-anchor 之 anchor 以 **`supersedes_seq` 指向前一版 seq**（引用 audit_anchor 現有合約語意：`supersedes_seq` 為 metadata，鏈上不驗；同 period restatement 產生 seq=N、`supersedes_seq=N−1`），使新 anchor 取代（supersede）前版 on-chain snapshot；`staleAnchor` 於 re-anchor 後清除。
   - **實作現況**：B1 之 freeze 路徑尚未產生 v2 superseding snapshot（reopen-of-anchored 僅設 `staleAnchor`、可 re-lock，但產生鏈上 v2 為已追蹤之未來升級；Move 合約已支援 `supersedes_seq`）。本規格為目標態，實作差距見既有 anchor 服務追蹤紀錄，不阻本節目標態定義。
 
-## §15 UI/UX 標準
+## §15 UI/UX 標準（D17）
 
-（本節由 Task 7 填寫）
+前端設計系統（TallyMarina：paper/ink/brass/aqua 色階、語意色合約、mascot governance、break-precision 渲染）具真意圖，達 GTM 水準；問題是**執行落差**（見 `tasks/review-findings-2026-07-11.md` 三、frontend-design review「執行落差」1–9 項：字體未實際載入、字體雙重宣告來源矛盾、journal 金額無 formatter、表格實作四套、badge/pill 五套與對比度違規、版面骨架 inline style、裸原生按鈕、標題層級不一致、Exceptions 摘要數字過小）。**該執行落差修復批次屬 MVP 實作範圍**（分期見商業冊 §7），本節只定規格條文，落差清單以引用方式收錄、不重抄。
+
+下列 5 條為可判定規格條文（`tasks/review-findings-2026-07-11.md` 三、frontend-design review「規格條文」1–5 條照錄），每條附判定方式：
+
+| # | 條文 | 判定方式 |
+|---|---|---|
+| 1 | **金額必經 formatter**：千分位 + scale 換算 + U+2212（負號），數字欄一律右對齊、`tabular-nums`、等寬字體；scale 未知時渲染 raw minor 並帶 `?` 上標，**禁止 default scale**（未知 scale 視為缺陷，不得靜默假設） | grep 檢查表格/金額渲染元件是否呼叫統一 formatter（如既有 `fmtMinor`，`web/src/workspaces/recon/ReconTable.tsx`）而非直接插值 raw 數字；`web/src/test/mascot-governance.test.tsx` 同族之 data-surface 測試模式延伸驗證金額欄位 |
+| 2 | **語意色合約**：aqua 僅用於 on-chain / anchor 相關狀態；credit / debit 色僅用於借貸方向與流程通過 / 阻擋語意；brass = manual / off-chain 與導航 CTA；status 色（燈號等）必伴隨非顏色線索（圖示 / 文字），不得單靠色彩傳達語意；brass 底文字必為 ink 色，**禁止白字**（對比 < 4.5:1 即判定 fail，WCAG AA） | grep 掃描元件 CSS/TSX 內 brass 底 class 是否搭配白字 token（如 `beea832`/`6a272e0` 已修復案例之反例掃描）；對比度以 4.5:1 為量化門檻，可用色值算 contrast ratio 腳本驗證 |
+| 3 | **token-only styling**：元件禁用 hex 字面值，禁繞過既有 type scale；表格 / badge / button 必用 shared primitive（不得複製貼上另建一套） | **stylelint `declaration-strict-value`** 規則掃描 `web/src/**/*.css`（禁 hex/color 字面值，強制引用 CSS custom property）；grep 統計表格 / badge 實作套數是否收斂至 1 套 primitive + modifier |
+| 4 | **字體單一來源**：`display=Fraunces`、`mono=IBM Plex Mono`、`body` 必須實際被瀏覽器載入（非 fallback 到 system-ui）；宣告只能單一出處，**禁止 `@import` 與 `<link>` 並存** | grep `web/index.html` 與 `web/src/tokens.css` 確認僅一處聲明 body 字體來源；瀏覽器 devtools / build 產物檢查 `Mona Sans`（或替代字體）之 `font-family` 實際生效（非退回 system-ui） |
+| 5 | **data-surface 紀律**：mascot / 裝飾元素禁止出現於 journal 表、hash 顯示、對帳格（recon grid）、簽名 modal 等資料密度高、須被信任的介面 | 沿用既有測試 `web/src/test/mascot-governance.test.tsx`（驗收方式即該測試通過；新增 data-surface 元件須追加同類斷言） |
 
 ## §16 對帳
 
-（本節由 Task 7 填寫）
+MVP 對帳範圍為 **wallet ↔ subledger**；**↔ ERP 第三層列 P1**（見商業冊 §5「Reconciliation」模組分期）。對帳掛入 §14 月結步驟 3（「recon 乾淨或 break 已 disposition」，引用該步驟編號，不重定義）。
+
+### §16.1 wallet ↔ subledger 對帳（MVP）
+
+- **book balance**：由 `lot_movement` 折疊而成——即該 wallet × coinType 之期初餘額（opening）加計本期 JE 借貸淨額（movement，依 §7 lot 異動 net 而得），`OPENING_LOT` 之 `ACQUISITION` 腿屬期初宣告、不計入本期 movement（避免與 opening 重複計）。
+- **chain balance**：目標態取自鏈上 `addressBalance`（gRPC，全類型資產，§13.3；不用 `coinBalance`，理由同 §13.3）。
+- **break**：`break = book_balance − chain_balance`；`|break| ≥ threshold` 判定為 material（threshold 依資產可配置；零容差時 threshold=0，非零 break 即 material）。break 物件同時保留 opening / movement / computed（book）/ statement（chain）/ break / threshold 五值與借貸 control 總數（∑debit、∑credit、legs），供審計回溯差異來源，不只顯示淨額。
+- **disposition 流程**：沿用既有 exception disposition 狀態機語意——`open → resolved / dismissed / deferred`；`deferred` 可回 `open`；`resolved` / `dismissed` 為終態。僅 `resolved` 與 `dismissed` 解除 close-blocking；`open` 與 `deferred` 持續 block（§14 步驟 3 之 `recon.blocking` 計數依此判定）。disposition 須留 `reason_code`（枚舉：`timing` / `error` / `fee` / `fx` / `in-transit` / `unidentified` / `OTHER`）、`reason_note`（自由文字）、`decided_by`、`decided_at`，供審計回溯 break 之人工判斷依據。
+- **未註冊資產（unregistered asset）**：break 涉及尚未於 asset registry 登記之 coinType 時，`decimals` 為 `null`（scale 未知，禁止預設，§15 條文 1 之精神延伸），介面須誠實呈現「未知 scale」而非假設，並提供「登記資產」CTA（brass 語意色，§15 條文 2）。
+
+### §16.2 subledger ↔ ERP 對帳（P1）
+
+已匯出 ERP（§12）之 JE 與 ERP 側實際入帳結果之第三層比對（偵測匯入失敗、客戶端手動改動等），列 P1（見商業冊 §7、§5「Reconciliation」模組分期表）；MVP 範圍不含此層，§12.1 之 `exported` 標記已足以支撐 MVP 的「已交付」語意判定。
 
 ## §17 審計層
 
-（本節由 Task 7 填寫）
+`audit_anchor` 合約為**完整性層**（integrity layer，非可取回性層——見過渡語意）：
+
+- **chain head**：`EntityAnchorChain`（shared object，固定大小，只存最新鏈頭，歷史以 event 存放，非物件累積增長）。
+- **seq**：單調遞增序號，每次 anchor 產生新 `seq = 前 seq + 1`，為鏈上正典順序。
+- **supersedes_seq**：restatement（重編）時新 anchor 之 metadata 欄位，指向其取代之前版 `seq`（鏈上不驗證此欄位之語意正確性，僅作記錄；見 §14.1 之 re-anchor 流程，本節不重規格）。
+- **Merkle inclusion proof**：`SnapshotAnchored` event 攜帶 32-byte `merkle_root`；單筆 JE 之 inclusion proof 對此 root 驗證（off-chain 驗證，鏈上僅存 hash，不存明細——保護隱私、同時可驗證性）。
+- **cap-based 授權**：寫入權限由**擁有型 `AnchorCap`**（非 `ctx.sender()`）承載，並綁定 epoch（`cap_epoch`）；cap 過期（rotate 後）之寫入呼叫 abort，防 sponsored tx 場景下之偽造授權。
+- **hash-only 上鏈**：僅存 32-byte `manifest_hash` 與 `merkle_root`（及其鏈式雜湊 `link = sha2_256(prev_link || manifest_hash || merkle_root || period_id || bcs(seq))`），不存 JE / positions 明細本體。
+
+以上合約語意**引用現有 `move/audit_anchor/sources/audit_anchor.move` 實作，本節不重規格**（合約細節、狀態轉移、錯誤碼等以合約原始碼為準）。
+
+### §17.1 過渡語意（D5，明文）
+
+**Walrus P1 前，manifest 只存自有 DB**——鏈上 anchor 僅證明「該 Merkle root 於某時點存在且未被竄改」（完整性），**不證明資料可取回性**（availability）；manifest 本身（描述一組審計相關檔案之清單，見商業冊附錄 B「Manifest」詞條）於 Walrus 上線前僅落自有資料庫，不具備去中心化可取回性保證。此為目標態下之**過渡態**，非缺陷：完整性層（anchor）與可取回性層（Walrus）為獨立能力，前者 MVP 即具備，後者列 P1。
+
+### §17.2 P1：Walrus 審計包 + Seal 存取控制（D14）
+
+**Walrus 審計包**（P1）與 **Seal 加密存取控制**綁定同列 P1，不得拆開規劃（審計包含 JE 財務明細，若以公開 blob 形式存放 Walrus 即等同洩漏客戶財務資料；故上 Walrus 之審計包必須同時具備 Seal 的存取控制加密，二者為同一 P1 交付單元，D14）。
+
+- **審計包內容**：JE（journal entries，含明細）、positions（PositionLot 狀態）、recon（對帳紀錄與 break disposition）、manifest（描述本包內容之清單，與現行 DB-only manifest 為同一詞條之 P1 擴充版）。
+- **P1 交付需同時具備**：(1) 審計包封裝上傳 Walrus；(2) Seal 的 threshold encryption 存取控制策略，限定僅授權對象（entity 自身、其審計師）可解密取回；缺一不得單獨上線（純 Walrus 無 Seal = 洩漏風險，純 Seal 無 Walrus = 無去中心化可取回性）。
+
+### §17.3 anchoring gas 之 sponsored tx 評估
+
+anchor 動作消耗 SUI gas；sponsored transaction（Enoki）/ gasless 模式可降低企業客戶之 gas 管理負擔，是否納入 P1 Walrus 審計包 + Seal 批次一併規劃，**評估詳見商業冊附錄 C**（本節不重複評估內容，僅指路）；若採 sponsored tx，需同步考量 gas payer ≠ entity 情境下之 payer 欄位記錄需求（呼應 §13.2(c) sponsored tx payer 欄位設計，同一資料需求適用於 anchoring gas 與一般鏈上事件 gas）。
 
 ## §18 資料模型
 
-（本節由 Task 7 填寫）
+本節將 F6（`首版資料模型與會計規則引擎設計.md`，見 `tasks/ideas-summary.md` §2.4）之 10 核心實體對照現有 schema（`services/api/src/store/schema.sql`），並收錄 rev2 review 新增之資料模型需求（PolicySet 表、MappingRule 表、PricePoint 表、manual JE 支援、change log 表、opening lot 導入、per-lot 累計 FV 調整追蹤）。
+
+### §18.1 F6 十實體 ↔ 現有 schema 對照表
+
+| F6 實體 | 現有 schema 落點 | 對照說明 |
+|---|---|---|
+| **Entity** | `entities` | 已落地：`id` / `display_name` / `chain_object_id` / `cap_object_id` / `original_package_id`。多實體隔帳之基礎維度（商業冊附錄 B）。 |
+| **AccountSource** | 無獨立表；現以 `events.raw_json` 內嵌來源資訊 + `entities.chain_object_id`（鏈上來源）承載 | **落地缺口**：AccountSource（錢包地址 / CEX API 帳戶 / CSV 匯入設定）尚無獨立表落庫版本化；MVP 現況以 event 層內嵌來源欄位替代，未來若需管理多 AccountSource 之啟用狀態 / 憑證，需補獨立表（本規格不因此新增表——現況足以支撐 MVP ingestion，屬附錄 A 現況差距追蹤範圍，非阻斷）。 |
+| **RawTransaction** | `events.raw_json`（含 `events.id` / `entity_id` / `status` / `period_id`） | `raw_json` 即未經會計判斷之原始攝取內容，`events` 表本身 append-only（無 UPDATE raw_json 之路徑），符合 F6「永不覆蓋、可重跑」原則。 |
+| **NormalizedEvent** | `events`（`ai_event_type` / `ai_purpose` / `ai_counterparty` / `ai_confidence` / `ai_reasoning` / `final_event_type` / `final_purpose` / `status` / `period_id`） | AI 建議欄位（`ai_*`）與人工核定欄位（`final_*`）分離，符合「AI 只建議、人工 approve」原則（§10.2 fail-closed 邊界之資料面對應）。 |
+| **PositionLot** | `lot_movement`（append-only lot 異動帳，非直接存 lot 現值） | `lot_movement` 為**異動事件表**（`delta_qty_minor` / `delta_cost_minor` 帶號增減），非 F6 原意之 lot 現值快照表；`remaining_qty`（§7.2）為**衍生值**（fold 該 `lot_id` 全部 movement 而得，非落庫欄位）。此為既有實作之衍生帳設計（表頭註解：「Derived ledger: rows are a materialized audit trail; truth is recomputable from events」），本規格採現況、不要求另建現值快照表。 |
+| **PricePoint** | **現有 schema 無此表**（見 §18.2 新增需求） | rev2 新增需求，§6 已定欄位規格，落庫需新建表。 |
+| **PolicySet** | **現有 schema 無此表**（見 §18.2 新增需求；現況為程式碼常數 `DEMO_POLICY_SET`） | §9 已定欄位規格，落庫需新建表，取代現行常數（§9 開頭）。 |
+| **MappingRule** | **現有 schema 無此表**（見 §18.2 新增需求；現況為程式碼常數 `DEMO_COA_RULES`） | §10 已定結構，落庫需新建表，取代現行常數（§10 開頭）。 |
+| **JournalEntry** | `journal_entries`（`je_json` / `idempotency_key` / `leaf_hash` / `period_id`） | header+lines 以 `je_json` 整包存放（非逐欄正規化）；`leaf_hash` 供 Merkle tree 葉節點（§17 anchor 之 inclusion proof 基礎）；`idempotency_key` 防重複出帳。manual JE（§8）沿用同一表，以 `je_json` 內之 `source_event_id`（空值）與 `status`（手工標記）區分（見 §18.2）。 |
+| **ReconciliationRecord** | `recon_break_disposition`（disposition 覆蓋層）+ recompute-on-read 之 break 計算（`lot_movement` 折疊 + recon fixture，非落庫之比對結果） | break 本身**不落表**（recompute-on-read，見 §16.1 引用之 `collectBreaks` 語意：「NO writes」），僅 disposition（人工判斷結果）落 `recon_break_disposition`；`recon_break_disposition_log` 為其 append-only 異動歷史。此為既有「唯讀重算 + 覆蓋層落庫」之設計選擇，本規格採現況。 |
+
+F6 十實體之外，既有 schema 尚有若干支撐月結、審計、review workflow 之表未落在 F6 概念模型內（F6 為 2026 年初資料流設計，晚於 close/audit/review 等能力之落地）；為求 §18 對照表完整覆蓋，逐一列於下表，各自連回已定義之規格節次：
+
+| 既有表 | 支撐之規格節次 | 對照說明 |
+|---|---|---|
+| `snapshots` | §14 步驟 8（snapshot + anchor）、§17 | 月結 LOCKED-gate 後產出之帳本快照，含 `manifest_json` / `manifest_hash` / `merkle_root` / `leaf_count` / `seq` / `supersedes_seq`；`seq`/`supersedes_seq` 對應 §17 audit_anchor 合約之鏈上同名欄位語意（§14.1 restatement 流程）。 |
+| `anchors` | §17 | `snapshots` 上鏈紀錄，`link` / `digest` / `explorer_url` / `seq` 對應 §17 所引用之 `audit_anchor` 合約 `SnapshotAnchored` event 資料。 |
+| `period_lock` | §14 步驟 7、§14.1 | 期間鎖定狀態機（`status` / `locked_at` / `locked_by` / `lights_snapshot` / `reopened_at` / `reopen_count`），承載 §14 步驟 7 之 lock 判定與 §14.1 之 reopen 程序（`restatement_reason` / `reason_code`）。 |
+| `asset_registry` | §2、§15 條文 1（scale 未知不得預設） | 資產（coin type）之 `decimals` / `symbol` / `display_name` / `source`（`chain`/`manual`）登記表；§16.1 未註冊資產 break 之 `decimals=null` 即查此表得空結果之情形。 |
+| `exception_disposition` | §14 步驟 2（exceptions 結清） | review queue 中各類 exception（如 §6.3 `PRICE_MISSING`、§7.3 `LOT_SHORTFALL`、§10.2 `MAPPING_MISSING`）之人工 disposition 覆蓋層，狀態機與 §16.1 recon disposition 同源（`open`/`resolved`/`dismissed`/`deferred`，`assertDispositionTransition` 共用）。 |
+| `triage_proposal` | §10.2 fail-closed 邊界（AI 只建議、人工 approve） | AI 對 exception 之處置建議（`action` / `reason_code` / `rationale` / `confidence` / `model`），`status` 預設 `proposed`，須人工 `decided_by` 核定，符合「AI 只建議不自動 posting」原則（ideas-summary §2.4 設計原則第 4 條）。 |
+
+`recon_break_disposition` 已於 §18.1 之 **ReconciliationRecord** 列對照，`events` / `journal_entries` / `lot_movement` 已於 §18.1 之 **NormalizedEvent** / **JournalEntry** / **PositionLot** 列對照，十表全數收錄完畢。
+
+### §18.2 rev2 新增資料模型需求（逐條）
+
+以下七項為 rev2 review（會計師視角 findings 1/2/8/14/15；D19）命中、現有 schema 未覆蓋之落庫需求：
+
+1. **PolicySet 表**（§9）：落地 §9.1 全欄位（`accounting_standard` / `functional_currency` / `reporting_currency` / `cost_basis_method` / `stablecoin_treatment` / `crypto_classification_default` / `staking_income_policy` / `fee_expense_policy` / `revaluation_policy` / `asu_2023_08_applies`），每 entity 一個 active PolicySet，`policy_set_version` 遞增、舊版本保留（§9.2）；取代 `DEMO_POLICY_SET` 常數。
+2. **MappingRule 表**（§10）：落地 §10.2 三層規則結構（分類規則 / 政策規則 / 分錄生成規則），JSON 化、帶 `rule_version`；取代 `DEMO_COA_RULES` 常數；條件維度含 event_type / leg / asset_class / economic_purpose / accounting_standard / stablecoin_treatment。
+3. **PricePoint 表（含 hierarchy level）**（§6.1）：落地 `price_point_id` / `asset_id` / `quote_currency` / `price` / `as_of` / `source` / `fv_hierarchy_level`（`LEVEL_1` / `LEVEL_2`）/ `principal_market` / `ingested_at` / `staleness_seconds`；JE 引用之 `price_point_id` 隨 JE 留存供審計回溯（§6.1 末段）。
+4. **manual JE 支援**（§8）：`journal_entries` 表結構沿用（`je_json` 承載 header/lines），需擴充語意標記——`source_event_id` 允許空值（manual 來源無源事件）、`status` 增列手工來源標記、`preparer` / `reason` / reviewer（選填）欄位（§8.1）；void / reversal 狀態（`VOIDED`、沖銷 JE 之 `memo` 引用原 `je_id`，§8.3）落於同一表之 `je_json` 或擴充欄位。
+5. **change log 表**（§9.3，D19）：新表，append-only，記錄 PolicySet / MappingRule 變更與 review 人工決策：`who`（`decided_by`）/ `when`（時間戳）/ `what`（變更對象、before/after 值、reason）。既有 `exception_disposition_log`、`recon_break_disposition_log`、`triage_proposal_log`、`asset_registry_log` 為同一 append-only-log 模式之現況先例（本規格新表沿用相同模式：主表 + `_log` 影子表）；PolicySet/MappingRule 落庫後，其 change log 比照此模式新建。
+6. **opening lot 導入**（§7.3）：`lot_movement` 表既有 `OPENING_LOT` 事件路徑（`je_id` 欄位註解明載：「NULL for zero-basis OPENING_LOT (no JE) and pre-feature legacy rows; non-zero OPENING_LOT does get a JE」），落庫路徑已存在；本規格新增之要求為**匯入格式**（§7.3 之 `asset` / `qty` / `unit_cost` / `acquisition_date` / `source_note` 五欄，見 §7.3 表），非新建表——沿現有 `lot_movement` + 對應 `journal_entries` 落地。
+7. **per-lot 累計 FV 調整追蹤**（§11.2 依賴）：**現有 schema 無此落點**——`lot_movement` 目前只記 `delta_qty_minor` / `delta_cost_minor`（取得/處分之數量與成本異動），不記期末重估（§5）對個別 lot 之累計 FV 調整。為支撐 §11.2 roll-forward 之 realized/unrealized 拆分（處分時將該 lot 先前未實現部分重分類為已實現），需新增落庫維度：逐 lot 記錄歷次期末重估之 FV 調整累計（`lot_id` × 累計調整額，隨每次重估 JE 更新或以新增 movement-like 列追加，沿用 `lot_movement` 之 append-only 精神）。MVP 之 §11.2 roll-forward 先出總額行（不逐 lot 拆分），本落庫需求供未來 realized/unrealized 逐 lot 拆分擴充時使用；不阻 MVP 月結（§14 步驟 6）。
