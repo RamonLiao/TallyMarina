@@ -131,8 +131,10 @@ rev2：經 sui-architect、執業會計師視角、frontend-design 三路獨立 
   與 staking reward 過渡拉進 MVP；Seal 綁 Walrus P1；商業冊非目標補 tax basis
   與單一 functional currency。~~原 §11「Ingestion：Sui gRPC source + 通用
   CSV」~~ → 擴為 §13。Why：三路 review 各自命中「引擎規格 ≠ 會計師能關帳的
-  規格」與 Sui 資料層精確性缺口。**D15（FX 限單一 functional currency）為
-  重大 scope 限制，待使用者確認。**
+  規格」與 Sui 資料層精確性缺口。
+- 2026-07-11 rev3：~~D15 待使用者確認~~ → 使用者確認：MVP USD-only，但 FX
+  換算走可插拔接口、functional_currency 集中於 PolicySet（禁止硬編碼散落），
+  為 P1 多幣別（台灣/日本/香港/韓國市場）預留擴充。
 
 ## 下一步
 
