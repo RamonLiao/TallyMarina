@@ -115,6 +115,17 @@ export const CoaRulesSchema = z.array(z.object({
   eventType: z.string().min(1), leg: z.string().min(1), account: z.string().min(1),
 }).strict()).nonempty();
 
+// Task 4/5 shared writer: appends a new policy_sets row for entityId (MAX(version)+1) and
+// returns the new version number. Callers wrap this + appendChange in one db.transaction so
+// a change_log write failure rolls the version row back too.
+export function insertPolicyVersion(db: Db, entityId: string, doc: PolicyDoc, createdBy: string): number {
+  const cur = db.prepare('SELECT MAX(version) AS v FROM policy_sets WHERE entity_id = ?').get(entityId) as { v: number | null };
+  const next = (cur.v ?? 0) + 1;
+  db.prepare('INSERT INTO policy_sets (entity_id, version, doc, created_at, created_by) VALUES (?, ?, ?, ?, ?)')
+    .run(entityId, next, JSON.stringify(PolicyDocSchema.parse(doc)), new Date().toISOString(), createdBy);
+  return next;
+}
+
 export function getActivePolicy(db: Db, entityId: string): { version: number; doc: PolicyDoc } {
   const row = db.prepare(
     'SELECT version, doc FROM policy_sets WHERE entity_id = ? ORDER BY version DESC LIMIT 1',

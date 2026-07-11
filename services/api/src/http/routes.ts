@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { z } from 'zod';
 import type { Db } from '../store/db.js';
 import type { ApiConfig } from '../config.js';
 import type { GeminiClient } from '../ai/geminiClient.js';
@@ -39,7 +40,9 @@ import { prepareAnchor, confirmAnchor, type AnchorServiceDeps } from './anchorSe
 import { SnapshotError } from '@subledger/snapshot-svc';
 import {
   getActivePolicy, getActiveCoaMapping, toResolvedPolicySet, buildCoaMappingFromRules, PolicyPersistenceError,
+  insertPolicyVersion, bumpVersion, type PolicyDoc,
 } from '../store/policyStore.js';
+import { appendChange } from '../store/changeLogStore.js';
 import { deriveSources } from '../onboarding/sources.js';
 import { issueChallenge } from '../onboarding/challenge.js';
 import { verifyOwnership } from '../onboarding/verify.js';
@@ -257,6 +260,56 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
       periodId: DEFAULT_PERIOD,
       policyDoc: doc, policyVersion, coaVersion,            // additive: full §9.1 doc + table versions
     };
+  });
+
+  // PATCH /policy/policy-set — versioned edit of the §9.1 policy fields (spec §4 V1/V2 +
+  // §3.4/D19 append-only change_log). Currency fields are USD-locked in MVP (CURRENCY_LOCKED);
+  // the 6 version dims are not in the changes schema, so .strict() rejects them outright.
+  const PatchPolicyBody = z.object({
+    entity: z.string().min(1), actor: z.string().min(1),
+    reason: z.string().trim().min(1),
+    changes: z.object({
+      accountingStandard: z.enum(['IFRS', 'US_GAAP']).optional(),
+      costBasisMethod: z.enum(['FIFO', 'WAC']).optional(),
+      stablecoinTreatment: z.enum(['FINANCIAL_ASSET_IFRS9', 'INTANGIBLE_ASSET', 'CASH_EQUIVALENT']).optional(),
+      cryptoClassificationDefault: z.string().min(1).optional(),
+      stakingIncomePolicy: z.enum(['OPERATING_REVENUE', 'OTHER_INCOME']).optional(),
+      feeExpensePolicy: z.enum(['EXPENSE_IMMEDIATE', 'CAPITALIZE_TO_ASSET']).optional(),
+      revaluationPolicy: z.enum(['cost', 'revaluation']).optional(),
+      asu202308Applies: z.record(z.string(), z.boolean()).optional(),
+      roundingThresholdMinor: z.string().regex(/^\d+$/).optional(),
+      functionalCurrency: z.string().optional(),   // listed to give CURRENCY_LOCKED its own error
+      reportingCurrency: z.string().optional(),
+    }).strict(),
+  }).strict();
+
+  app.patch('/policy/policy-set', async (req) => {
+    const p = PatchPolicyBody.safeParse(req.body);
+    if (!p.success) throw new ApiError(400, 'VALIDATION', p.error.message);
+    const { entity, actor, reason, changes } = p.data;
+    requireEntity(db, entity);
+    if (changes.functionalCurrency !== undefined || changes.reportingCurrency !== undefined) {
+      throw new ApiError(400, 'CURRENCY_LOCKED', 'functional/reporting currency is USD-locked in MVP (spec §1.3)');
+    }
+    return deps.mutex.run('policy-write', async () => {
+      const { doc: before } = getActivePolicy(db, entity);
+      const merged: PolicyDoc = { ...before, ...changes };
+      if (JSON.stringify(merged) === JSON.stringify(before)) {
+        throw new ApiError(409, 'NO_CHANGE', 'no effective change to the active policy set');
+      }
+      merged.policySetVersion = bumpVersion(before.policySetVersion);   // V2 invariant
+      let newVersion = 0;
+      const txn = db.transaction(() => {
+        newVersion = insertPolicyVersion(db, entity, merged, actor);
+        appendChange(db, {
+          entityId: entity, actor, objectType: 'policy_set',
+          objectRef: `policy_sets:${entity}:v${newVersion}`,
+          before: JSON.stringify(before), after: JSON.stringify(merged), reason,
+        });
+      });
+      txn();
+      return { policyVersion: newVersion, policyDoc: merged };
+    });
   });
 
   // GET /onboarding/:id — entity meta + derived sources + ownership attestation state
