@@ -5,6 +5,8 @@ import type { Db } from './db.js';
 import { DEMO_POLICY_SET, DEMO_COA_RULES, resolveCoa, type CoaRule } from '../http/policyConstants.js';
 import type { ResolvedPolicySet, CoaMapping } from '../deps/rulesEngine.js';
 
+export type { CoaRule };
+
 // §9.1 ten policy fields + the 6 version dims + engine's roundingThresholdMinor.
 // Superset of the engine's ResolvedPolicySet: the engine consumes a subset (Task 2 loader);
 // the §9.1-only fields (accountingStandard, stablecoinTreatment, …) are persisted for the

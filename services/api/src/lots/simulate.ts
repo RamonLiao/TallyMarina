@@ -5,6 +5,7 @@ import type { NormalizedEvent, PositionLot } from '../deps/rulesEngine.js';
 import { listByStatus } from '../store/eventStore.js';
 import { evaluate } from '../deps/rulesEngine.js';
 import { buildRuleInput } from '../http/buildRuleInput.js';
+import { getActivePolicy, getActiveCoaMapping, toResolvedPolicySet, buildCoaMappingFromRules } from '../store/policyStore.js';
 
 export interface SimLot { qtyMinor: string; costMinor: string; wallet: string; coinType: string; originEventId: string }
 // gapPools: `${wallet}|${coinType}` keys whose replay hit a gap — recompute for any lot in
@@ -26,6 +27,12 @@ export function simulateLots(db: Db, entityId: string): SimulateResult {
   const simulationGaps: string[] = [];
   const gapPools = new Set<string>();
   let nextSeq = 0;
+  // Loaded ONCE per call (Task 3 read-path switchover) — the drift probe uses the CURRENT
+  // active policy, never DEMO_POLICY_SET/DEMO_COA_RULES.
+  const activePolicy = getActivePolicy(db, entityId);
+  const activeCoa = getActiveCoaMapping(db, entityId);
+  const enginePolicy = toResolvedPolicySet(activePolicy.doc, true);
+  const engineCoa = buildCoaMappingFromRules(activeCoa.rules);
 
   for (const ev of posted) {
     const raw = JSON.parse(ev.rawJson) as NormalizedEvent;
@@ -35,7 +42,7 @@ export function simulateLots(db: Db, entityId: string): SimulateResult {
 
     let output;
     try {
-      output = evaluate(buildRuleInput(ev, { periodId: ev.periodId ?? raw.eventTime.slice(0, 4), periodOpen: true, lots }));
+      output = evaluate(buildRuleInput(ev, { periodId: ev.periodId ?? raw.eventTime.slice(0, 4), periodOpen: true, lots, policySet: enginePolicy, coaMapping: engineCoa }));
     } catch {
       simulationGaps.push(ev.id); // a throw during replay is an honest gap, not a zero
       gapPools.add(`${raw.wallet}|${raw.coinType}`);

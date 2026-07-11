@@ -6,6 +6,8 @@ import { OffMemory } from '../src/triage/memory/offMemory.js';
 import { loadConfig } from '../src/config.js';
 import type { GeminiClient } from '../src/ai/geminiClient.js';
 import { DEMO_POLICY_SET, DEMO_COA_RULES } from '../src/http/policyConstants.js';
+import { insertEntity } from '../src/store/entityStore.js';
+import { ensurePolicySeed } from '../src/store/policyStore.js';
 
 const cfg = loadConfig({
   SUI_NETWORK: 'testnet', SUI_GRPC_URL: 'https://grpc', ANCHOR_PACKAGE_ID: '0xpkg',
@@ -24,6 +26,10 @@ let app: FastifyInstance;
 
 beforeEach(async () => {
   const db = openDb(':memory:');
+  // openDb's ensurePolicySeed ran before this entity existed; insert it then re-run so
+  // /policy/active (which now requires the entity + a persisted policy row) has both.
+  insertEntity(db, { id: cfg.entityId, displayName: 'Acme', chainObjectId: '0xchain', capObjectId: '0xcap', originalPackageId: '0xpkg' });
+  ensurePolicySeed(db);
   app = Fastify();
   registerRoutes(app, {
     db, cfg, classifyClient: stubClient, copilotClient: stubClient,
@@ -49,5 +55,14 @@ describe('GET /policy/active', () => {
     expect(body.coaMapping.defaultAccount).toBeNull();
     expect(typeof body.periodId).toBe('string');
     expect(body.periodId).toBe('2026-Q2');
+  });
+
+  it('exposes the persisted doc and versions (additive fields)', async () => {
+    const res = await app.inject({ method: 'GET', url: '/policy/active' });
+    const body = res.json();
+    expect(body.policyVersion).toBe(1);
+    expect(body.coaVersion).toBe(1);
+    expect(body.policyDoc.accountingStandard).toBe('IFRS');
+    expect(body.policySet).toEqual(expect.objectContaining({ policySetVersion: 'demo-ps-1' })); // legacy shape intact
   });
 });

@@ -11,7 +11,7 @@ import { getEvent } from '../store/eventStore.js';
 import { getPeriodLock } from '../periodLock/store.js';
 import { hasAnchoredSnapshot } from '../store/snapshotStore.js';
 import { REASON_CODES, type Exception, type ReasonCode } from '../exceptions/types.js';
-import { DEMO_COA_RULES } from '../http/policyConstants.js';
+import { getActiveCoaMapping, type CoaRule } from '../store/policyStore.js';
 import {
   getOpenProposal, hasRejectedProposal, insertProposal, type ProposalAction,
 } from '../store/proposalStore.js';
@@ -74,7 +74,7 @@ export function validateProposal(
   return { ok: true, value: { action, reasonCode, reasonNote, rationale: r.rationale, confidence: r.confidence } };
 }
 
-function buildTriagePrompt(ex: Exception, rawJson: string, fewshot: string): string {
+function buildTriagePrompt(ex: Exception, rawJson: string, fewshot: string, coaRules: CoaRule[]): string {
   const lines = [
     'You are an accounting close assistant. Draft ONE disposition proposal for this exception.',
     'A human controller reviews and accepts or rejects it — you decide nothing.',
@@ -86,7 +86,7 @@ function buildTriagePrompt(ex: Exception, rawJson: string, fewshot: string): str
     '',
     `Exception: ${JSON.stringify({ exceptionId: ex.exceptionId, category: ex.category, reason: ex.reason, amount: ex.amount, ai: ex.ai })}`,
     `Event: ${rawJson}`,
-    `Chart-of-accounts mappings (context): ${JSON.stringify(DEMO_COA_RULES).slice(0, 4000)}`,
+    `Chart-of-accounts mappings (context): ${JSON.stringify(coaRules).slice(0, 4000)}`,
   ];
   if (fewshot) lines.push('', fewshot);
   return lines.join('\n');
@@ -107,6 +107,7 @@ export async function runTriageOnce(
   if (getPeriodLock(db, entityId, periodId).status === 'LOCKED') return { ...none, roundSkipped: 'PERIOD_LOCKED' };
   if (hasAnchoredSnapshot(db, entityId)) return { ...none, roundSkipped: 'ANCHORED' };
 
+  const coaRules = getActiveCoaMapping(db, entityId).rules;
   const summary: TriageRunSummary = { ...none, roundSkipped: null };
   for (const ex of collectExceptions(db, entityId, periodId, cfg.exceptionLowConfidence)) {
     summary.scanned++;
@@ -130,7 +131,7 @@ export async function runTriageOnce(
             hits,
           })
         : null;
-      const raw = await client.generateJson<unknown>(cfg.aiModelCopilot, buildTriagePrompt(ex, ev?.rawJson ?? '{}', renderFewShotBlock(hits)), TRIAGE_SCHEMA);
+      const raw = await client.generateJson<unknown>(cfg.aiModelCopilot, buildTriagePrompt(ex, ev?.rawJson ?? '{}', renderFewShotBlock(hits), coaRules), TRIAGE_SCHEMA);
       const v = validateProposal(ex, raw, cfg.triageMaterialityThreshold);
       if (!v.ok) { summary.failed++; console.warn(`triage: discarded proposal for ${ex.exceptionId}: ${v.reason}`); continue; }
       // F1b TOCTOU: the lock/anchored gate above was checked once at round start, but this

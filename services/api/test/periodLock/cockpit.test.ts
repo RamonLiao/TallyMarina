@@ -2,11 +2,15 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { openDb, type Db } from '../../src/store/db.js';
 import { buildCockpit } from '../../src/periodLock/cockpit.js';
 import { hasAnchoredSnapshotForPeriod } from '../../src/store/snapshotStore.js';
+import { ensurePolicySeed } from '../../src/store/policyStore.js';
 
 let db: Db;
 beforeEach(() => {
   db = openDb(':memory:');
   db.prepare("INSERT INTO entities (id, display_name, chain_object_id, cap_object_id, original_package_id) VALUES ('e1','E1','0x1','0x2','0x3')").run();
+  // Raw SQL bypasses insertEntity's ensurePolicySeed call (Task 3 read-path switchover
+  // requires every entity have a persisted policy row) — re-run it explicitly.
+  ensurePolicySeed(db);
 });
 
 it('pricing and export lights are mock and never green', () => {

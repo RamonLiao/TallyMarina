@@ -20,12 +20,16 @@ import { openMaterialReconBlockers } from '../src/reconciliation/collect.js';
 import { applyReconDisposition } from '../src/reconciliation/disposition.js';
 import { loadReconFixture } from '../src/reconciliation/fixture.js';
 import { registerAcmeFixtureAssets } from './helpers/registerTestAsset.js';
+import { ensurePolicySeed } from '../src/store/policyStore.js';
 
 const EID = 'acme:pilot-001';
 const PERIOD = '2026-Q2';
 
 function seedEntity(db: Db) {
   db.prepare("INSERT INTO entities (id, display_name, chain_object_id, cap_object_id, original_package_id) VALUES ('acme:pilot-001','Acme','0x1','0x2','0x3')").run();
+  // Raw SQL bypasses insertEntity's ensurePolicySeed call (Task 3 read-path switchover
+  // requires every entity have a persisted policy row) — re-run it explicitly.
+  ensurePolicySeed(db);
 }
 
 function lockPeriod(db: Db) {

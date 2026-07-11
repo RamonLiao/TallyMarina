@@ -37,7 +37,9 @@ import { buildSnapshot } from '../deps/snapshotSvc.js';
 import { SqliteSnapshotRepo } from '../store/sqliteSnapshotRepo.js';
 import { prepareAnchor, confirmAnchor, type AnchorServiceDeps } from './anchorService.js';
 import { SnapshotError } from '@subledger/snapshot-svc';
-import { DEMO_POLICY_SET, DEMO_COA_RULES } from './policyConstants.js';
+import {
+  getActivePolicy, getActiveCoaMapping, toResolvedPolicySet, buildCoaMappingFromRules, PolicyPersistenceError,
+} from '../store/policyStore.js';
 import { deriveSources } from '../onboarding/sources.js';
 import { issueChallenge } from '../onboarding/challenge.js';
 import { verifyOwnership } from '../onboarding/verify.js';
@@ -227,6 +229,9 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     if (err instanceof ApiError) return reply.code(err.statusCode).send(toEnvelope(err.code, err.message));
     if (err instanceof StateError) return reply.code(409).send(toEnvelope('ILLEGAL_TRANSITION', err.message));
     if (err instanceof SnapshotError) return reply.code(409).send(toEnvelope(err.code, err.message));
+    if (err instanceof PolicyPersistenceError) {
+      return reply.code(503).send(toEnvelope(err.code, err.message));
+    }
     if (err instanceof AnchorError) {
       const map: Record<string, number> = {
         ENTITY_REF_MISMATCH: 409, STALE_CAP: 409, BAD_HASH_LEN: 400, PERIOD_TOO_LONG: 400, SEQ_OUT_OF_RANGE: 400,
@@ -238,12 +243,21 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     return reply.code(500).send(toEnvelope('INTERNAL', 'Internal error'));
   });
 
-  // GET /policy/active — read-only policy constants endpoint
-  app.get('/policy/active', async () => ({
-    policySet: DEMO_POLICY_SET,
-    coaMapping: { rules: DEMO_COA_RULES, defaultAccount: null },
-    periodId: DEFAULT_PERIOD,
-  }));
+  // GET /policy/active — persisted policy (spec §5). ?entity falls back to the configured
+  // demo entity (mirrors DEFAULT_PERIOD's known laxness — single-entity MVP; the WRITE
+  // endpoints in Tasks 4-5 require an explicit entity, hard 400).
+  app.get<{ Querystring: { entity?: string } }>('/policy/active', async (req) => {
+    const entityId = req.query.entity ?? cfg.entityId;
+    requireEntity(db, entityId);
+    const { version: policyVersion, doc } = getActivePolicy(db, entityId);
+    const { version: coaVersion, ruleVersion, rules } = getActiveCoaMapping(db, entityId);
+    return {
+      policySet: toResolvedPolicySet(doc, true),          // legacy DTO shape (periodOpen was always true here)
+      coaMapping: { rules, defaultAccount: null, version: coaVersion, ruleVersion },
+      periodId: DEFAULT_PERIOD,
+      policyDoc: doc, policyVersion, coaVersion,            // additive: full §9.1 doc + table versions
+    };
+  });
 
   // GET /onboarding/:id — entity meta + derived sources + ownership attestation state
   app.get<{ Params: { id: string } }>('/onboarding/:id', async (req) => {
@@ -526,9 +540,15 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     ]
       .filter((ev) => ev.periodId === periodId)
       .sort((a, b) => eventTimeOf(a).localeCompare(eventTimeOf(b)) || a.id.localeCompare(b.id));
+    // Load the active policy/CoA ONCE per request (Task 3 read-path switchover) — never
+    // per-event, and never from the DEMO_POLICY_SET/DEMO_COA_RULES constants.
+    const activePolicy = getActivePolicy(db, req.params.id);
+    const activeCoa = getActiveCoaMapping(db, req.params.id);
+    const enginePolicy = toResolvedPolicySet(activePolicy.doc, periodOpen);
+    const engineCoa = buildCoaMappingFromRules(activeCoa.rules);
     let posted = 0, skipped = 0;
     for (const ev of candidates) {
-      const output = evaluate(buildRuleInput(ev, { periodId, periodOpen, lots: lotsForEvent(db, ev) }));
+      const output = evaluate(buildRuleInput(ev, { periodId, periodOpen, lots: lotsForEvent(db, ev), policySet: enginePolicy, coaMapping: engineCoa }));
       // JE-less POSTABLE outputs still carry lot movements that must persist — the old
       // `journalEntries.length === 0 → skip` guard is gone. Non-zero OPENING_LOT now posts
       // a real JE (Dr ACQUISITION / Cr OPENING_EQUITY, Task 1+2); the JE-less branch now
@@ -551,6 +571,8 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
             idempotencyKey: je.idempotencyKey,
             leafHash: leafHash(je),
             periodId: ev.periodId, // inherit from source event (spec §5.2.4)
+            policySetVersion: activePolicy.doc.policySetVersion,
+            ruleVersion: activePolicy.doc.ruleVersion,
           });
           if (res === 'inserted') { postedHere++; if (anchorJeId === null) anchorJeId = jeId; } else skippedHere++;
         }
@@ -569,7 +591,7 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
             lotSeq: isAcquire ? acquireStamp : acquireLotSeq(db, ev.entityId, m.lotId),
             periodId: ev.periodId!, coinType: m.coinType, wallet: m.wallet,
             deltaQtyMinor: m.deltaQtyMinor, deltaCostMinor: m.deltaCostMinor,
-            costBasisMethod: 'FIFO', policySetVersion: DEMO_POLICY_SET.policySetVersion,
+            costBasisMethod: 'FIFO', policySetVersion: activePolicy.doc.policySetVersion,
             idempotencyKey: `${anchorKey}|${m.lotId}`,
           });
         }

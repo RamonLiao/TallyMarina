@@ -9,6 +9,7 @@ import { buildRuleInput } from '../src/http/buildRuleInput.js';
 import { lotsForEvent } from '../src/http/lotsForEvent.js';
 import { evaluate } from '../src/deps/rulesEngine.js';
 import { buildSnapshot, InMemorySnapshotRepo } from '../src/deps/snapshotSvc.js';
+import { DEMO_POLICY_SET, buildCoaMapping } from '../src/http/policyConstants.js';
 
 // D5 (spec): the registry VALIDATES assetDecimals, it does not replace it. So the ingest gate
 // must leave leaf hashes, merkle roots and every previously anchored snapshot byte-identical —
@@ -64,7 +65,7 @@ function newDb(): Db {
 }
 
 function pipeline(db: Db, row: EventRow): { merkleRoot: string; manifestHash: string } {
-  const output = evaluate(buildRuleInput(row, { periodId: PERIOD, periodOpen: true, lots: lotsForEvent(db, row) }));
+  const output = evaluate(buildRuleInput(row, { periodId: PERIOD, periodOpen: true, lots: lotsForEvent(db, row), policySet: DEMO_POLICY_SET, coaMapping: buildCoaMapping() }));
   if (output.decision !== 'POSTABLE') throw new Error(`expected POSTABLE, got ${output.decision}`);
   expect(output.journalEntries.length).toBeGreaterThan(0);
   const { auditSnapshot } = buildSnapshot(

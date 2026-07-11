@@ -1,4 +1,5 @@
 import type { Db } from './db.js';
+import { ensurePolicySeed } from './policyStore.js';
 
 export interface EntityRow {
   id: string; displayName: string; chainObjectId: string; capObjectId: string; originalPackageId: string;
@@ -8,6 +9,10 @@ export function insertEntity(db: Db, e: EntityRow): void {
   db.prepare(
     'INSERT INTO entities (id, display_name, chain_object_id, cap_object_id, original_package_id) VALUES (?, ?, ?, ?, ?)',
   ).run(e.id, e.displayName, e.chainObjectId, e.capObjectId, e.originalPackageId);
+  // openDb's ensurePolicySeed ran before this entity existed (Task 2 seeding is DB-open-time
+  // only) — re-run now so every read-path loader (Task 3: getActivePolicy/getActiveCoaMapping)
+  // finds a row for entities created after boot.
+  ensurePolicySeed(db);
 }
 
 function map(r: Record<string, unknown>): EntityRow {

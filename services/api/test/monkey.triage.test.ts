@@ -5,6 +5,7 @@ import type { GeminiClient } from '../src/ai/geminiClient.js';
 import { insertProposal, getProposal, listProposals, decideProposal } from '../src/store/proposalStore.js';
 import { upsertReconDisposition } from '../src/store/reconBreakStore.js';
 import { registerAcmeFixtureAssets } from './helpers/registerTestAsset.js';
+import { ensurePolicySeed } from '../src/store/policyStore.js';
 import type { Db } from '../src/store/db.js';
 
 const P = '2026-Q2';
@@ -28,6 +29,9 @@ function seedReviewEvent(db: Db, id: string, amount = '100') {
   db.prepare(
     "INSERT OR IGNORE INTO entities (id, display_name, chain_object_id, cap_object_id, original_package_id) VALUES (?, 'd', '0xchain', '0xcap', '0xpkg')",
   ).run(TEST_ENTITY_ID);
+  // Raw SQL bypasses insertEntity's ensurePolicySeed call (Task 3 read-path switchover
+  // requires every entity have a persisted policy row) — re-run it explicitly.
+  ensurePolicySeed(db);
   db.prepare(
     "INSERT INTO events (id, entity_id, raw_json, ai_event_type, ai_confidence, ai_reasoning, status, period_id) VALUES (?, ?, ?, 'DIGITAL_ASSET_RECEIPT', 0.4, 'unsure', 'NEEDS_REVIEW', ?)",
   ).run(id, TEST_ENTITY_ID, JSON.stringify({ eventType: 'DIGITAL_ASSET_RECEIPT', amount, entityId: TEST_ENTITY_ID }), P);
@@ -141,6 +145,7 @@ describe('monkey: triage', () => {
     app._db.prepare(
       "INSERT OR IGNORE INTO entities (id, display_name, chain_object_id, cap_object_id, original_package_id) VALUES (?, 'd', '0xchain', '0xcap', '0xpkg')",
     ).run(TEST_ENTITY_ID);
+    ensurePolicySeed(app._db);
     // APPROVED with an entityId mismatch → rules engine cannot post → RULES_FAILED (not gated by
     // the "pending NEEDS_REVIEW" half of the classification light, only by the disposition-open half).
     app._db.prepare(

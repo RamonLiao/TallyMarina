@@ -27,7 +27,7 @@ import { insertLotMovement, acquireLotSeq } from '../src/store/lotMovementStore.
 import { insertSnapshot } from '../src/store/snapshotStore.js';
 import { buildRuleInput } from '../src/http/buildRuleInput.js';
 import { lotsForEvent } from '../src/http/lotsForEvent.js';
-import { DEMO_POLICY_SET } from '../src/http/policyConstants.js';
+import { getActivePolicy, getActiveCoaMapping, toResolvedPolicySet, buildCoaMappingFromRules } from '../src/store/policyStore.js';
 import { evaluate, leafHash, type JournalEntry } from '../src/deps/rulesEngine.js';
 import { buildSnapshot, InMemorySnapshotRepo } from '../src/deps/snapshotSvc.js';
 import { prepareAnchor, confirmAnchor } from '../src/http/anchorService.js';
@@ -97,9 +97,14 @@ async function main(): Promise<void> {
     ...listByStatus(db, cfg.entityId, 'APPROVED'),
     ...listByStatus(db, cfg.entityId, 'AUTO'),
   ].sort((a, b) => eventTimeOf(a).localeCompare(eventTimeOf(b)) || a.id.localeCompare(b.id));
+  // Loaded ONCE for the demo run (Task 3 read-path switchover) — db is already seeded.
+  const activePolicy = getActivePolicy(db, cfg.entityId);
+  const activeCoa = getActiveCoaMapping(db, cfg.entityId);
+  const enginePolicy = toResolvedPolicySet(activePolicy.doc, true);
+  const engineCoa = buildCoaMappingFromRules(activeCoa.rules);
   for (const ev of approved) {
     // Fresh in-memory DB — the demo period is never locked here.
-    const out = evaluate(buildRuleInput(ev, { periodId, periodOpen: true, lots: lotsForEvent(db, ev) }));
+    const out = evaluate(buildRuleInput(ev, { periodId, periodOpen: true, lots: lotsForEvent(db, ev), policySet: enginePolicy, coaMapping: engineCoa }));
     if (out.decision !== 'POSTABLE') {
       // Fail loud: the curated fixture is all happy-path, a skip here means a real regression.
       throw new Error(`demo-e2e: expected POSTABLE for ${ev.id} but got ${out.decision} ${JSON.stringify(out.exceptions)}`);
@@ -130,7 +135,7 @@ async function main(): Promise<void> {
           lotId: m.lotId, lotSeq: isAcquire ? acquireStamp : acquireLotSeq(db, ev.entityId, m.lotId),
           periodId: ev.periodId ?? periodId, coinType: m.coinType, wallet: m.wallet,
           deltaQtyMinor: m.deltaQtyMinor, deltaCostMinor: m.deltaCostMinor,
-          costBasisMethod: 'FIFO', policySetVersion: DEMO_POLICY_SET.policySetVersion,
+          costBasisMethod: 'FIFO', policySetVersion: activePolicy.doc.policySetVersion,
           idempotencyKey: `${anchorKey}|${m.lotId}`,
         });
       }

@@ -5,7 +5,8 @@ import { insertJournalEntry, listJournal } from '../src/store/journalStore.js';
 function db() {
   const d = new Database(':memory:');
   d.exec(`CREATE TABLE journal_entries (id TEXT PRIMARY KEY, entity_id TEXT, event_id TEXT,
-    je_json TEXT, idempotency_key TEXT, leaf_hash TEXT, period_id TEXT)`);
+    je_json TEXT, idempotency_key TEXT, leaf_hash TEXT, period_id TEXT,
+    policy_set_version TEXT, rule_version TEXT)`);
   return d;
 }
 

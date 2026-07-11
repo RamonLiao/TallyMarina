@@ -14,7 +14,7 @@ import { insertLotMovement, acquireLotSeq } from '../../src/store/lotMovementSto
 import { insertSnapshot } from '../../src/store/snapshotStore.js';
 import { buildRuleInput } from '../../src/http/buildRuleInput.js';
 import { lotsForEvent } from '../../src/http/lotsForEvent.js';
-import { DEMO_POLICY_SET } from '../../src/http/policyConstants.js';
+import { getActivePolicy, getActiveCoaMapping, toResolvedPolicySet, buildCoaMappingFromRules } from '../../src/store/policyStore.js';
 import { evaluate, leafHash, type JournalEntry } from '../../src/deps/rulesEngine.js';
 import { buildSnapshot, InMemorySnapshotRepo } from '../../src/deps/snapshotSvc.js';
 import { classifyEvent } from '../../src/ai/classify.js';
@@ -60,8 +60,13 @@ export async function runPipeline(
     ...listByStatus(db, cfg.entityId, 'APPROVED'),
     ...listByStatus(db, cfg.entityId, 'AUTO'),
   ].sort((a, b) => eventTimeOf(a).localeCompare(eventTimeOf(b)) || a.id.localeCompare(b.id));
+  // Loaded ONCE for the pipeline run (Task 3 read-path switchover) — db is already seeded.
+  const activePolicy = getActivePolicy(db, cfg.entityId);
+  const activeCoa = getActiveCoaMapping(db, cfg.entityId);
+  const enginePolicy = toResolvedPolicySet(activePolicy.doc, true);
+  const engineCoa = buildCoaMappingFromRules(activeCoa.rules);
   for (const ev of approved) {
-    const out = evaluate(buildRuleInput(ev, { periodId, periodOpen: true, lots: lotsForEvent(db, ev) })); // scenario DB — period never locked at this stage;
+    const out = evaluate(buildRuleInput(ev, { periodId, periodOpen: true, lots: lotsForEvent(db, ev), policySet: enginePolicy, coaMapping: engineCoa })); // scenario DB — period never locked at this stage;
     if (out.decision !== 'POSTABLE') {
       console.warn(`  SKIP ${ev.id}: ${out.decision} ${JSON.stringify(out.exceptions)}`);
       continue;
@@ -90,7 +95,7 @@ export async function runPipeline(
         lotId: m.lotId, lotSeq: isAcquire ? acquireStamp : acquireLotSeq(db, ev.entityId, m.lotId),
         periodId: ev.periodId ?? periodId, coinType: m.coinType, wallet: m.wallet,
         deltaQtyMinor: m.deltaQtyMinor, deltaCostMinor: m.deltaCostMinor,
-        costBasisMethod: 'FIFO', policySetVersion: DEMO_POLICY_SET.policySetVersion,
+        costBasisMethod: 'FIFO', policySetVersion: activePolicy.doc.policySetVersion,
         idempotencyKey: `${anchorKey}|${m.lotId}`,
       });
     }

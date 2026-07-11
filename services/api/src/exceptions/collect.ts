@@ -6,6 +6,7 @@ import { buildRuleInput } from '../http/buildRuleInput.js';
 import { lotsForEvent } from '../http/lotsForEvent.js';
 import { evaluate } from '../deps/rulesEngine.js';
 import { getPeriodLock } from '../periodLock/store.js';
+import { getActivePolicy, getActiveCoaMapping, toResolvedPolicySet, buildCoaMappingFromRules } from '../store/policyStore.js';
 import { type Exception, type ExceptionCategory, severityRank } from './types.js';
 
 function aiBlock(e: EventRow) {
@@ -41,6 +42,12 @@ export function collectExceptions(db: Db, entityId: string, periodId: string, lo
   // Probe "would this event post?" under the REAL period state so the diagnosis
   // matches what run-rules would actually do (locked → PERIOD_CLOSED is truthful).
   const periodOpen = getPeriodLock(db, entityId, periodId).status !== 'LOCKED';
+  // Loaded ONCE per call (Task 3 read-path switchover) — never per-event, never from the
+  // DEMO_POLICY_SET/DEMO_COA_RULES constants.
+  const activePolicy = getActivePolicy(db, entityId);
+  const activeCoa = getActiveCoaMapping(db, entityId);
+  const enginePolicy = toResolvedPolicySet(activePolicy.doc, periodOpen);
+  const engineCoa = buildCoaMappingFromRules(activeCoa.rules);
   for (const e of listEventsByPeriod(db, entityId, periodId)) {
     if (e.status === 'NEEDS_REVIEW') {
       out.push(mk('CLASSIFY_REVIEW', e, 'AI routed to human review (low classification confidence)'));
@@ -52,7 +59,7 @@ export function collectExceptions(db: Db, entityId: string, periodId: string, lo
     if (e.status === 'APPROVED' || e.status === 'AUTO') {
       let reason = '';
       try {
-        const o = evaluate(buildRuleInput(e, { periodId, periodOpen, lots: lotsForEvent(db, e) }));
+        const o = evaluate(buildRuleInput(e, { periodId, periodOpen, lots: lotsForEvent(db, e), policySet: enginePolicy, coaMapping: engineCoa }));
         if (o.decision !== 'POSTABLE' || o.journalEntries.length === 0) {
           reason = o.exceptions[0]?.code ?? (o.decision === 'POSTABLE' ? 'NO_JOURNAL_ENTRIES' : o.decision);
         }

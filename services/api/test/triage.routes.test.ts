@@ -3,6 +3,7 @@ import { buildTestApp, TEST_ENTITY_ID, seedSnapshot } from './helpers.js';
 import type { GeminiClient } from '../src/ai/geminiClient.js';
 import { insertProposal, getProposal, type ProposalRow } from '../src/store/proposalStore.js';
 import { lockPeriod } from '../src/periodLock/store.js';
+import { ensurePolicySeed } from '../src/store/policyStore.js';
 import type { Db } from '../src/store/db.js';
 
 const P = '2026-Q2';
@@ -13,6 +14,9 @@ function ensureEntity(db: Db) {
   db.prepare(
     "INSERT OR IGNORE INTO entities (id, display_name, chain_object_id, cap_object_id, original_package_id) VALUES (?, 'd', '0xchain', '0xcap', '0xpkg')",
   ).run(TEST_ENTITY_ID);
+  // Raw SQL bypasses insertEntity's ensurePolicySeed call (Task 3 read-path switchover
+  // requires every entity have a persisted policy row) — re-run it explicitly.
+  ensurePolicySeed(db);
 }
 
 function seedReviewEvent(db: Db, id: string, amount = '100') {

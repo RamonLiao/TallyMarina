@@ -3,6 +3,7 @@ import type { Db } from './db.js';
 
 export interface JournalRow {
   id: string; entityId: string; eventId: string; jeJson: string; idempotencyKey: string; leafHash: string; periodId?: string | null;
+  policySetVersion?: string | null; ruleVersion?: string | null;
 }
 
 export function insertJournalEntry(db: Db, r: JournalRow): 'inserted' | 'duplicate' {
@@ -11,8 +12,8 @@ export function insertJournalEntry(db: Db, r: JournalRow): 'inserted' | 'duplica
   // violation. Using INSERT OR IGNORE means the DB engine serializes at the row level —
   // if the key already exists it silently skips; we detect by checking rows-changed.
   const result = db
-    .prepare('INSERT OR IGNORE INTO journal_entries (id, entity_id, event_id, je_json, idempotency_key, leaf_hash, period_id) VALUES (?, ?, ?, ?, ?, ?, ?)')
-    .run(r.id, r.entityId, r.eventId, r.jeJson, r.idempotencyKey, r.leafHash, r.periodId);
+    .prepare('INSERT OR IGNORE INTO journal_entries (id, entity_id, event_id, je_json, idempotency_key, leaf_hash, period_id, policy_set_version, rule_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(r.id, r.entityId, r.eventId, r.jeJson, r.idempotencyKey, r.leafHash, r.periodId, r.policySetVersion ?? null, r.ruleVersion ?? null);
   if (result.changes > 0) return 'inserted';
   // No row inserted → idempotency_key already exists. Mirrors insertLotMovement's fail-loud
   // pattern (commit aa17bf2): a true replay carries an IDENTICAL payload (entity_id, event_id,
@@ -49,5 +50,6 @@ export function listJournal(db: Db, entityId: string, periodId?: string): Journa
   return rows.map((r) => ({
     id: r.id as string, entityId: r.entity_id as string, eventId: r.event_id as string,
     jeJson: r.je_json as string, idempotencyKey: r.idempotency_key as string, leafHash: r.leaf_hash as string, periodId: (r.period_id as string) || null,
+    policySetVersion: (r.policy_set_version as string) || null, ruleVersion: (r.rule_version as string) || null,
   }));
 }

@@ -4,9 +4,13 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { openDb, type Db } from '../src/store/db.js';
 import { registerRoutes } from '../src/http/routes.js';
 import { OffMemory } from '../src/triage/memory/offMemory.js';
+import { ensurePolicySeed } from '../src/store/policyStore.js';
 
 function seedEntity(db: Db) {
   db.prepare("INSERT INTO entities (id, display_name, chain_object_id, cap_object_id, original_package_id) VALUES ('acme:pilot-001','Acme','0x1','0x2','0x3')").run();
+  // Raw SQL bypasses insertEntity's ensurePolicySeed call (Task 3 read-path switchover
+  // requires every entity have a persisted policy row) — re-run it explicitly.
+  ensurePolicySeed(db);
 }
 
 describe('recon close gate', () => {
@@ -47,6 +51,7 @@ describe('recon gate — fixture-less entity', () => {
     db = openDb(':memory:');
     // 'other:entity' exists but has NO recon fixture in the fixture file
     db.prepare("INSERT INTO entities (id, display_name, chain_object_id, cap_object_id, original_package_id) VALUES ('other:entity','Other','0x10','0x20','0x30')").run();
+    ensurePolicySeed(db);
     app = Fastify();
     registerRoutes(app, { db, cfg: { reconLiveWallet: '0xreal', explorerBase: 'https://x' } as never, classifyClient: {} as never, copilotClient: {} as never, anchorAdapter: null as never, mutex: { run: (_k: string, fn: () => Promise<never>) => fn() }, memory: new OffMemory() });
     await app.ready();

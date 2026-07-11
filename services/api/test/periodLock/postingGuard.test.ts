@@ -13,6 +13,7 @@ import { lockPeriod } from '../../src/periodLock/store.js';
 import { buildRuleInput } from '../../src/http/buildRuleInput.js';
 import { evaluate } from '../../src/deps/rulesEngine.js';
 import { getEvent } from '../../src/store/eventStore.js';
+import { DEMO_POLICY_SET, buildCoaMapping } from '../../src/http/policyConstants.js';
 
 const ENTITY = encodeURIComponent(TEST_ENTITY_ID);
 const PERIOD = '2026-Q2';
@@ -55,7 +56,7 @@ describe('locked period rejects postings (C1)', () => {
     const ev = getEvent(app._db, 'evt-001')!;
     // evt-001 is a receipt (acquires, never consumes) — the PERIOD_CLOSED gate fires
     // before valuation, so an empty lot pool is irrelevant here.
-    const out = evaluate(buildRuleInput(ev, { periodId: PERIOD, periodOpen: false, lots: [] }));
+    const out = evaluate(buildRuleInput(ev, { periodId: PERIOD, periodOpen: false, lots: [], policySet: DEMO_POLICY_SET, coaMapping: buildCoaMapping() }));
     expect(out.decision).not.toBe('POSTABLE');
     expect(out.exceptions.map((e) => e.code)).toContain('PERIOD_CLOSED');
   });

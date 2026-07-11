@@ -15,6 +15,7 @@ import { buildRuleInput } from '../src/http/buildRuleInput.js';
 import { lotsForEvent } from '../src/http/lotsForEvent.js';
 import { evaluate, type PositionLot } from '../src/deps/rulesEngine.js';
 import type { EventRow } from '../src/store/eventStore.js';
+import { DEMO_POLICY_SET, buildCoaMapping } from '../src/http/policyConstants.js';
 
 const E = 'acme:pilot-001';
 const WALLET = '0xacmeTreasury';
@@ -42,7 +43,7 @@ function eventRow(rawJson: string): EventRow {
 
 describe('buildRuleInput folds real lots (C4 Task 4)', () => {
   it('forwards empty opts.lots verbatim — a consuming event rejects with INSUFFICIENT_LOT, not a phantom post', () => {
-    const input = buildRuleInput(eventRow(paymentRaw()), { periodId: '2026-Q2', periodOpen: true, lots: [] });
+    const input = buildRuleInput(eventRow(paymentRaw()), { periodId: '2026-Q2', periodOpen: true, lots: [], policySet: DEMO_POLICY_SET, coaMapping: buildCoaMapping() });
     expect(input.lots).toEqual([]); // no fabricated 'lot-1'
     const out = evaluate(input);
     expect(out.decision).toBe('REJECTED');
@@ -53,7 +54,7 @@ describe('buildRuleInput folds real lots (C4 Task 4)', () => {
     const lots: PositionLot[] = [
       { lotId: 'OPEN-x', seq: 1, coinType: COIN, wallet: WALLET, remainingQtyMinor: '1000000000000', costMinor: '1000000' },
     ];
-    const input = buildRuleInput(eventRow(paymentRaw()), { periodId: '2026-Q2', periodOpen: true, lots });
+    const input = buildRuleInput(eventRow(paymentRaw()), { periodId: '2026-Q2', periodOpen: true, lots, policySet: DEMO_POLICY_SET, coaMapping: buildCoaMapping() });
     expect(input.lots).toBe(lots);
     expect(evaluate(input).decision).toBe('POSTABLE');
   });
