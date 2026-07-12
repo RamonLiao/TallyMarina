@@ -145,7 +145,7 @@ lot_valuation(
 
 **Pricing 對應與驗證（CPA S7）**：
 - run 由 `periodId` 推導目標 `as_of` = 該 period 期末日（entity 時區 23:59:59 → UTC，上游 §6.4 cut-off）。
-- 手動輸入的 `as_of` 必須等於某個已知 period 的 cut-off 日（或本 period 內取得日——負 gas 用），否則 400；期中價/錯期價不收。
+- 手動輸入的 `as_of` 必須**落在某個已知 period 的日期範圍內**（v2.3 放寬：原「僅 cut-off 日」會讓非期末日事件在 D14 fail-closed 下永遠無法過帳——假價 100 移除後暴露）。期末重估不受影響：orchestrate 只讀 `latestPricesAt(cutoff)` 精確日，期中價不會汙染重估基礎（CPA S7 的原始關切保留成立）。
 - §6.3 的 24h staleness 門檻**不適用**於手動期末價（月結價天生 >24h）：手動 LEVEL_2 價的有效性由「as_of 精確等於 cut-off」取代 staleness 檢查（本條為對 §6.3 在手動價情境的顯式釐清，留痕）。
 
 **編排（preview/run 共用一條）**：`getActivePolicy`（fail-loud）→ `foldRemainingLots` → 讀 period cut-off prices + prior valuations → `revalueLots()` → preview 回 DTO / run 開 transaction 落 run header + JE + valuation。重估 JE 走 journalStore 同店、**顯式帶 `periodId`**（SUI N1：不帶就不進當期 merkle root、不被 anchor staleness 偵測）；JE lines 保留 `currency`/`fx_rate` 欄（MVP 恆 USD/1.0 亦不省，§1.3，CPA N2）。
@@ -209,6 +209,7 @@ lot_valuation(
 
 - 2026-07-12 v2.1：run 對 LOCKED period 的回應由 400 `PERIOD_CLOSED` 改 **409 `PERIOD_LOCKED`**（Task 6 review 發現與既有 locked-write 慣例衝突；Rule 11 conventions win，留痕）。
 - 2026-07-12 v2.2：§4.3 補負 gas 的 `NETWORK_FEE_REBATE` 標示慣例與 finalPurpose 翻轉風險（Task 8 review adjudication 2）；D9 累計器語意釘死為「含已 post JE 的 event-time 序 seed」（Task 8 review Critical 修復）。
+- 2026-07-12 v2.3：POST /prices 的 `as_of` 驗證由「僅 cut-off 日」放寬為「落在已知 period 範圍內」（Task 9 review Important：D14 後非期末日事件否則永久 PRICE_MISSING；重估讀價仍鎖 cut-off 精確日，不受期中價影響）。
 
 - 2026-07-12 v1：初版（brainstorming 六裁決 + 三節逐節確認）。self-review 修 2 事實錯誤（GAAP 範圍外 = ASC 350-30 不可迴轉；GAAP 貶值走獨立科目）＋釘死 recoverable amount proxy。
 - 2026-07-12 v2：三路 review 整合（`tasks/review-remeasurement-{sui,cpa,frontend}.md`）。
