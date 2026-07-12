@@ -592,10 +592,10 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
       requireEntity(db, req.params.id);
       const periodId = req.body?.periodId;
       if (!periodId) throw new ApiError(400, 'VALIDATION', 'periodId is required');
-      // Spec §6 pins 400 PERIOD_CLOSED for this route (unlike run-rules' 409 PERIOD_LOCKED):
-      // a revaluation of a closed period is a malformed request, not a state conflict.
+      // Spec §6 (v2.1): aligned with run-rules' 409 PERIOD_LOCKED — a locked period is a
+      // state conflict, not a malformed request (was 400 PERIOD_CLOSED pre-v2.1).
       if (getPeriodLock(db, req.params.id, periodId).status === 'LOCKED') {
-        throw new ApiError(400, 'PERIOD_CLOSED', `period ${periodId} is locked; reopen it before revaluing`);
+        throw new ApiError(409, 'PERIOD_LOCKED', `period ${periodId} is locked; reopen it before revaluing`);
       }
       const result = executeRun(db, req.params.id, periodId);
       reply.code(201);

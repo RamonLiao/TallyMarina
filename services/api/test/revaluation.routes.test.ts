@@ -218,7 +218,7 @@ describe('revaluation preview/run orchestration (Task 6)', () => {
     expect((body as { error?: { code: string } }).error?.code).toBe('PRICE_MISSING');
   });
 
-  it('run: LOCKED period → 400 PERIOD_CLOSED', async () => {
+  it('run: LOCKED period → 409 PERIOD_LOCKED', async () => {
     const app = await freshApp();
     await seedLots(app);
     await postPrice(app, SUI, '3000.00');
@@ -226,8 +226,8 @@ describe('revaluation preview/run orchestration (Task 6)', () => {
     lockPeriod(app._db, { entityId: E, periodId: P, lightsSnapshot: '[]', lockedBy: 'test', now: Date.now() });
 
     const { statusCode, body } = await runReval(app);
-    expect(statusCode).toBe(400);
-    expect((body as { error?: { code: string } }).error?.code).toBe('PERIOD_CLOSED');
+    expect(statusCode).toBe(409);
+    expect((body as { error?: { code: string } }).error?.code).toBe('PERIOD_LOCKED');
   });
 
   it('run replay (double-click): identical fingerprints + policy version → 409 REVAL_ALREADY_CURRENT', async () => {
