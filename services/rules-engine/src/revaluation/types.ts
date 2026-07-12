@@ -32,6 +32,7 @@ export interface RevalueInput {
   prices: PricePoint[];                    // 該 period cut-off 的 as_of 價
   decimalsByCoin: Record<string, number>;  // asset_registry 提供
   policySetVersion: string;
+  transitionMode?: boolean;                // api 判定「首次 GAAP_FV run」時 true；ASU 2023-08 過渡
 }
 
 export interface RevalueOutput {

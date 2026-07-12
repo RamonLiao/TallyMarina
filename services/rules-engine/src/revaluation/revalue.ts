@@ -19,11 +19,11 @@ function priceMissing(coinType: string): RuleException {
 
 function draft(
   lot: PositionLot, prior: bigint, current: bigint, delta: bigint, pricePointId: string, basis: ValuationBasis,
-  reason: LotValuationDraft['reason'] = 'REVALUE',
+  reason: LotValuationDraft['reason'] = 'REVALUE', seq = 1,
 ): LotValuationDraft {
   return {
     lotId: lot.lotId,
-    seq: 1,
+    seq,
     basis,
     qtyMinor: lot.remainingQtyMinor,
     priorCarryingMinor: prior.toString(),
@@ -126,6 +126,27 @@ function gaapFvJe(input: RevalueInput, coinType: string, netDelta: bigint, price
   return { idempotencyKey, lineageHash: lh, lines, reversalOf: null };
 }
 
+// ASU 2023-08 過渡：一次性 cumulative-effect JE，opening_fv 對 cost 的差額計入 RetainedEarnings（CPA S1）。
+// idempotencyKey 刻意不含 periodId/runSeq（與期末重估 JE 格式不同，spec 逐字）：過渡只發生一次，per entity+coin 恆定 key。
+// Caller contract（api 層必須保證）：transitionMode 只在該 entity 首次 GAAP_FV run 為 true。本模組的檢查是
+// per-lot（!hasOpeningSeq0）；若 api 在後續 run 對已過渡的 coin 再送 transitionMode=true 且出現新的無 seq-0 lot，
+// 第二張過渡 JE 會撞同一 key 被 ledger dedup 吞掉（金額不入帳且無 exception）——exactly-once 由 api 端把關。
+function transitionJe(input: RevalueInput, coinType: string, netOpenDelta: bigint, pricePointId: string): JournalEntry {
+  const amount = (netOpenDelta < 0n ? -netOpenDelta : netOpenDelta).toString();
+  const lines: JeLine[] = netOpenDelta > 0n
+    ? [
+        { account: 'DigitalAssets', side: 'DEBIT', amountMinor: amount, origCoinType: coinType, origQtyMinor: null, priceRef: pricePointId, fxRef: null, leg: 'OPENING_FV' },
+        { account: 'RetainedEarnings', side: 'CREDIT', amountMinor: amount, origCoinType: coinType, origQtyMinor: null, priceRef: pricePointId, fxRef: null, leg: 'OPENING_FV' },
+      ]
+    : [
+        { account: 'RetainedEarnings', side: 'DEBIT', amountMinor: amount, origCoinType: coinType, origQtyMinor: null, priceRef: pricePointId, fxRef: null, leg: 'OPENING_FV' },
+        { account: 'DigitalAssets', side: 'CREDIT', amountMinor: amount, origCoinType: coinType, origQtyMinor: null, priceRef: pricePointId, fxRef: null, leg: 'OPENING_FV' },
+      ];
+  const idempotencyKey = `reval-open:${input.entityId}:${coinType}`;
+  const lh = lineageHash({ priceRefs: [pricePointId], fxRefs: [], consumedLots: [], approvalIds: [] });
+  return { idempotencyKey, lineageHash: lh, lines, reversalOf: null };
+}
+
 export function revalueLots(input: RevalueInput): RevalueOutput {
   const out: RevalueOutput = { journalEntries: [], valuations: [], exceptions: [] };
   const byCoin = groupBy(input.lots, (l) => l.coinType);
@@ -136,15 +157,30 @@ export function revalueLots(input: RevalueInput): RevalueOutput {
     if (decimals === undefined) { out.exceptions.push(priceMissing(coinType)); continue; } // registry 缺 → 同 fail-closed
     if (input.basis !== 'GAAP_FV') { impairmentTrack(input, coinType, lots, px, decimals, out); continue; }
     let netDelta = 0n;
+    let netOpenDelta = 0n;
     for (const lot of lots) {
       const v = input.valuations[lot.lotId];
-      const prior = BigInt(lot.costMinor) + BigInt(v?.cumulativeDeltaMinor ?? '0');
+      const isTransitionLot = input.transitionMode === true && !v?.hasOpeningSeq0;
       const current = BigInt(valueOfQty(lot.remainingQtyMinor, px.unitPriceMinor, decimals));
+      let prior: bigint;
+      if (isTransitionLot) {
+        const cost = BigInt(lot.costMinor);
+        const openingFv = current; // 同一 run 只有一個 cut-off 價 → opening_fv 即該價下的 value
+        const transitionDelta = openingFv - cost;
+        if (transitionDelta !== 0n) {
+          out.valuations.push(draft(lot, cost, openingFv, transitionDelta, px.id, input.basis, 'OPENING_FV', 0));
+          netOpenDelta += transitionDelta;
+        }
+        prior = openingFv; // 首期重估段 baseline = opening_fv，非 cost（CPA S2；避免雙重認列）
+      } else {
+        prior = BigInt(lot.costMinor) + BigInt(v?.cumulativeDeltaMinor ?? '0');
+      }
       const delta = current - prior;
       if (delta === 0n) continue;
       out.valuations.push(draft(lot, prior, current, delta, px.id, input.basis));
       netDelta += delta;
     }
+    if (netOpenDelta !== 0n) out.journalEntries.push(transitionJe(input, coinType, netOpenDelta, px.id));
     if (netDelta !== 0n) out.journalEntries.push(gaapFvJe(input, coinType, netDelta, px.id));
   }
   return out;
