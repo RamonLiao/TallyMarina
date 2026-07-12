@@ -1,116 +1,97 @@
-# Task 2 Report — API COA mappings for opening-equity JE
+# Task 2 Report: active loader（fail-loud 讀路徑）+ 髒資料 monkey tests
 
 ## What was implemented
 
-1. `services/api/src/http/policyConstants.ts`: added the two `DEMO_COA_RULES` rows exactly as specified
-   (`OPENING_LOT/ACQUISITION -> DigitalAssets`, `OPENING_LOT/OPENING_EQUITY -> OpeningBalanceEquity`),
-   placed after the GAS_FEE block.
-2. `services/api/src/http/routes.ts:447-450`: updated the stale comment ("JE-less POSTABLE outputs
-   (OPENING_LOT...)") to state that non-zero OPENING_LOT now posts a real JE and the JE-less branch
-   now applies only to zero-basis opening lots and same-wallet INTERNAL_TRANSFER legs. **No route logic
-   was changed** — confirmed via a debug harness that the generic per-event evaluate/persist loop
-   handles a non-empty `journalEntries` array with zero special-casing needed.
-3. Updated 4 test files that pinned the old JE-less opening-lot behavior (see below).
+Appended to `services/api/src/store/policyStore.ts` (after `ensurePolicySeed`):
 
-## Pre-fix failure list (11 failing tests across 3 files, after adding the COA rows, before any test edits)
+- `class PolicyPersistenceError extends Error` with `code: 'POLICY_MISSING' | 'POLICY_CORRUPT'`.
+- `export const CoaRulesSchema` (exported per controller resolution #3, for Task 5).
+- `getActivePolicy(db, entityId)` — SELECT max version from `policy_sets`, throws `POLICY_MISSING` if no row, `POLICY_CORRUPT` on non-JSON or zod-schema-invalid doc.
+- `getActiveCoaMapping(db, entityId)` — same pattern for `coa_mapping_sets`, validated against `CoaRulesSchema` (nonempty array of `{eventType, leg, account}`).
+- `toResolvedPolicySet(doc, periodOpen)` — projects `PolicyDoc` down to the engine's `ResolvedPolicySet` subset; throws `POLICY_CORRUPT` if `costBasisMethod !== 'FIFO'` (engine type pins FIFO; WAC docs are storable but not yet executable).
+- `buildCoaMappingFromRules(rules)` — wraps `resolveCoa` (from `policyConstants.js`) into a `CoaMapping`.
 
-- `test/lots.route.test.ts` (5 failures): clean state, gap-affected recompute, sim-only drift,
-  tampered-row drift, drained pool — all showed the payment's consume never happening (full
-  1000000000/500000 balance instead of the expected post-consume 600000000/300000).
-- `test/lots.tieout.test.ts` (1 failure): "WITH an opening lot" — `total - openingBasisRemaining`
-  (60n) no longer equaled the GL balance (500060n).
-- `test/runRules.lots.test.ts` (5 failures): r1.statusCode 500 instead of 200; `jeId` no longer null;
-  `consume` movement `undefined` (twice, from the same root cause); `posted` count wrong (500/undefined
-  errors, and 1 vs 2 for the eventTime-order test).
+Imports added: `resolveCoa` from `../http/policyConstants.js`, `type { ResolvedPolicySet, CoaMapping }` from `../deps/rulesEngine.js`. The previously-dead `type CoaRule` import is now live (used in loader return types), per controller resolution #2.
 
-## Root cause of the route-level 500s (not a route-logic bug — a test-fixture defect)
+New test file `services/api/test/policyStore.load.test.ts` — brief's test content verbatim, with controller resolution #1 applied: static ESM imports (`getActivePolicy, getActiveCoaMapping, toResolvedPolicySet, buildCoaMappingFromRules, PolicyPersistenceError, SEED_POLICY_DOC, ensurePolicySeed`) instead of inline `require(...)`; `dbWithEntity()` calls the statically-imported `ensurePolicySeed` directly.
 
-`idempotencyKey()` (`services/rules-engine/src/core/idempotency.ts`) is computed from
-`(entityId, bookId, rawPayloadHash, txDigest, eventIndex, policy versions, priorJeId)` — **it never
-includes `eventId` or `eventType`**. Several test files' `baseEvent()` helpers give every event the
-same hardcoded `txDigest: 'DIG'` / `eventIndex: 0` unless overridden. As long as OPENING_LOT was
-JE-less, its lot-movement idempotency anchor was `ev.id` (not the JE hash), so this collision was
-invisible. Now that OPENING_LOT posts a real JE, its anchor is the JE's `idempotencyKey`
-hash — identical to the payment event's hash if they share `txDigest`/`eventIndex`. Both then try
-to write a `lot_movement` row keyed `<hash>|OPEN-<id>`, and the second insert throws
-"idempotency_key already persisted with a DIFFERENT payload — ledger corruption" (a genuine, working
-fail-loud guard in `lotMovementStore.ts:37-44`), which the route surfaces as a 500.
+## TDD evidence
 
-This exact hazard was already known and defended against elsewhere in the same test suite:
-`test/lots.tieout.test.ts` has a standing comment about distinct `txDigest` per event, and
-`test/monkey.lots.test.ts` / `test/lots.lockpin.test.ts` already give `payment()` a distinct default
-`txDigest`. The affected files (`runRules.lots.test.ts`, `lots.route.test.ts`, `lots.simulate.test.ts`)
-had not yet adopted that convention because their `payment()` helpers predate OPENING_LOT posting a
-JE. Confirmed this is test-fixture-only: production events carry real, distinct Sui `txDigest` values,
-so this collision cannot occur outside tests with hand-rolled duplicate stub data. No production route
-logic needed to change.
+**RED** — `cd services/api && npx vitest run test/policyStore.load.test.ts`:
+```
+Test Files  1 failed (1)
+     Tests  5 failed | 1 passed (6)
+```
+(Failures: `getActivePolicy is not a function` / `toResolvedPolicySet is not a function` / `buildCoaMappingFromRules is not a function` / undefined `.code` on missing `PolicyPersistenceError` — as expected before implementation.)
 
-Note: `test/lots.simulate.test.ts` had the identical collision but its two affected tests never
-assert `run-rules`'s HTTP status, so the 500 was silently masked (both `simulateLots` and
-`foldRemainingLots` independently stalled at the pre-consumption state and still agreed with each
-other). It wasn't in the failing list, but I fixed its `payment()` txDigest anyway (drive-by, same
-root cause, same one-line pattern already used in 3 other files in this suite) so a future tightened
-assertion doesn't quietly break.
+**GREEN** — `cd services/api && npx vitest run test/policyStore.load.test.ts test/policyStore.test.ts`:
+```
+Test Files  2 passed (2)
+     Tests  10 passed (10)
+```
 
-## Per-file changes with why
+## Files changed
 
-### `services/api/test/runRules.lots.test.ts`
-- File-header comment: replaced the "handles JE-less POSTABLE outputs (OPENING_LOT)" description with
-  a note that non-zero OPENING_LOT now ALSO posts a real JE (Task 1+2).
-- `payment()`: added `txDigest: 'DIGPAY'` default with a comment explaining the idempotency-key
-  collision this avoids.
-- `'OPENING_LOT posts movements with NO JE and je_id NULL (spec §3)'` → renamed to
-  `'non-zero OPENING_LOT posts ONE anchored JE (Dr ACQUISITION / Cr OPENING_EQUITY) and a real je_id
-  (Task 1+2)'`. New assertions: `jeId` is `not.toBeNull()` and matches `/^je-open1-/` (never the
-  hardcoded sha256 value); reads the persisted `journal_entries` row and asserts its two JE lines
-  exactly (`DigitalAssets` DEBIT / `OpeningBalanceEquity` CREDIT, both `amountMinor: '500000'`).
-- `'candidates process in eventTime order...'`: `posted` expectation changed from `1` to `2` (both
-  the opening's own JE and the payment's disposal JE now post); comment rewritten to clarify the test
-  proves ordering (opening before its consumer), not a fixed JE count.
+- `services/api/src/store/policyStore.ts` (modified — loaders appended, 2 new imports)
+- `services/api/test/policyStore.load.test.ts` (new)
 
-### `services/api/test/lots.route.test.ts`
-- `payment()`: added the same `txDigest: 'DIGPAY'` default (same collision as above). No assertion
-  values changed — once the collision is fixed the consume proceeds normally and every existing
-  expectation (`remainingQtyMinor: '600000000'`, `costMinor: '300000'`, the drift-object values, etc.)
-  is satisfied exactly as originally written; these were never "old JE-less" assertions, they were
-  masked by the 500.
+## Full-suite + typecheck numbers
 
-### `services/api/test/lots.simulate.test.ts`
-- `payment()`: same `txDigest: 'DIGPAY'` fix (drive-by; not in the failing list but silently masked,
-  see above).
+- `cd services/api && npx vitest run`: **605/605 passed** (96 test files), up from 599/599 at Task 1 (+6 new tests from this task, no regressions, no skips).
+- Root `npm run typecheck` (`npm exec --workspaces -- tsc --noEmit`): **clean, zero errors**.
 
-### `services/api/test/lots.tieout.test.ts`
-- Header comment and the second test's comment/title rewritten: the "exclusion identity"
-  (`Σ remaining − openingBasisRemaining === DigitalAssets`) no longer holds because the opening lot's
-  basis now DOES post to the DigitalAssets GL account. Replaced with the plain identity
-  `total === gl` (same as the "WITHOUT opening lots" test above it), since Task 1+2 means opening and
-  non-opening lots are now booked identically to the control account. `openingBasisRemaining` /
-  `nonOpening` assertions kept as-is (still meaningful: proves FIFO drew from the older receipt lot,
-  not the opening lot).
+## Self-review findings
 
-## Test results
-
-- Before test edits (COA rows added, no test changes): 11 failed / 379 passed / 390 total.
-- After all edits: `cd services/api && npx vitest run` → **390/390 passed, 70/70 test files** (same
-  total as baseline — one test renamed/rewritten in place, no tests added or removed).
-- `npx tsc --noEmit` in `services/api`: clean, no errors.
-
-## Self-review
-
-- Confirmed via a throwaway debug harness (not committed) that `evaluate()` for the opening event
-  produces `decision: POSTABLE` with the expected two-line JE once the COA rows exist, and that the
-  route's generic persist loop (routes.ts:446-499) needs no branching changes for a non-empty
-  `journalEntries` array — it already loops `for (const je of output.journalEntries)`.
-- Verified the routes.ts comment edit is comment-only (`git diff` shows no logic lines touched).
-- Verified `git status` before staging showed exactly the 6 intended files, no stray debug artifacts
-  (the temporary `test/dbg.test.ts` scratch file was deleted before staging/committing).
-- Re-ran the full suite once more after committing (implicitly, via `git status --porcelain` clean)
-  — 390/390 green matches the commit contents.
+- Linchpin test (`toResolvedPolicySet(SEED_POLICY_DOC, true)` vs `{...DEMO_POLICY_SET, periodOpen:true}`): verified genuine — `ResolvedPolicySet` has exactly 10 fields (`policySetVersion, assetPolicyVersion, eventPolicyVersion, ruleVersion, parserVersion, normalizationVersion, costBasisMethod, functionalCurrency, roundingThresholdMinor, periodOpen`), all 10 are explicitly assigned in `toResolvedPolicySet`'s return object from `SEED_POLICY_DOC`'s corresponding fields (which are themselves seeded verbatim from `DEMO_POLICY_SET` in Task 1). Vitest's `toEqual` performs recursive structural equality — no partial-match risk. Test passes both `periodOpen: true` and `false` branches.
+- Monkey tests use real `better-sqlite3` in-memory DB via `openDb(':memory:')` and raw `db.prepare(...).run(...)` inserts of dirty JSON payloads (bad enum, missing field, non-JSON string, non-array rules object) directly into `policy_sets`/`coa_mapping_sets` — no mocks. Each confirmed to throw `PolicyPersistenceError` with the correct `.code`, proving the read path never silently falls back to constants or swallows corrupt data.
+- Controller resolutions 1–3 all applied and verified: static imports work identically to the brief's `require`-based version; `CoaRule` import is now live (no unused-import warning); `CoaRulesSchema` is `export const`.
 
 ## Concerns
 
-- None blocking. One judgment call: I fixed `lots.simulate.test.ts`'s masked idempotency-key collision
-  even though it wasn't in the original failing list, because it shares the exact root cause and the
-  one-line fix (add a distinct `txDigest` default, mirroring 3 other files in this suite) is low-risk
-  and prevents a currently-silent ledger-corruption path from resurfacing if that test's assertions
-  are ever tightened to check `run-rules`'s HTTP status.
+None. Full suite green, typecheck clean, commit created with only the two explicit paths staged (`git add services/api/src/store/policyStore.ts services/api/test/policyStore.load.test.ts`).
+
+## Fix: WAC guard test
+
+Added test in `services/api/test/policyStore.load.test.ts` (line 66–73, inside `describe('policy loaders (Task 2)')` block):
+
+```ts
+it('POLICY_CORRUPT: a valid-but-non-FIFO doc (WAC) is storable but not executable', () => {
+  try {
+    toResolvedPolicySet({ ...SEED_POLICY_DOC, costBasisMethod: 'WAC' }, true);
+    expect.unreachable('should throw');
+  } catch (e) {
+    expect(e).toBeInstanceOf(PolicyPersistenceError);
+    expect((e as PolicyPersistenceError).code).toBe('POLICY_CORRUPT');
+  }
+});
+```
+
+**Mutation check (red confirmed → restored green):**
+
+1. **RED** (guard commented out):
+   ```
+   ❯ test/policyStore.load.test.ts > policy loaders (Task 2) > POLICY_CORRUPT: a valid-but-non-FIFO doc (WAC) is storable but not executable
+     → expected AssertionError{ …(6) } to be an instance of PolicyPersistenceError
+   
+    Test Files  1 failed (1)
+         Tests  1 failed | 6 passed (7)
+   ```
+
+2. **GREEN** (guard restored):
+   ```
+   ✓ test/policyStore.load.test.ts  (7 tests) 10ms
+   
+    Test Files  1 passed (1)
+         Tests  7 passed (7)
+   ```
+
+**Both policy test files (4 + 7 = 11 tests):**
+```
+✓ test/policyStore.test.ts  (4 tests) 8ms
+✓ test/policyStore.load.test.ts  (7 tests) 10ms
+
+Test Files  2 passed (2)
+     Tests  11 passed (11)
+```
+
+**Commit:** `716ba58` — `test(policy): red-once coverage for WAC-not-executable guard in toResolvedPolicySet`
