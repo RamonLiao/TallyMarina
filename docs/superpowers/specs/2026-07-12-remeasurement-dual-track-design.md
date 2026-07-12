@@ -210,6 +210,7 @@ lot_valuation(
 - 2026-07-12 v2.1：run 對 LOCKED period 的回應由 400 `PERIOD_CLOSED` 改 **409 `PERIOD_LOCKED`**（Task 6 review 發現與既有 locked-write 慣例衝突；Rule 11 conventions win，留痕）。
 - 2026-07-12 v2.2：§4.3 補負 gas 的 `NETWORK_FEE_REBATE` 標示慣例與 finalPurpose 翻轉風險（Task 8 review adjudication 2）；D9 累計器語意釘死為「含已 post JE 的 event-time 序 seed」（Task 8 review Critical 修復）。
 - 2026-07-12 v2.3：POST /prices 的 `as_of` 驗證由「僅 cut-off 日」放寬為「落在已知 period 範圍內」（Task 9 review Important：D14 後非期末日事件否則永久 PRICE_MISSING；重估讀價仍鎖 cut-off 精確日，不受期中價影響）。
+- 2026-07-12 v2.4（final whole-branch review C1，跨 task 縫隙）：**rerun × 處分語意釘死**——重估後發生處分再 rerun 時：① 對**仍有 remaining lots 的 coin 全額反向**舊重估 JE；**已完全出清的 coin 跳過反向**（fix-wave 代數證明：因 ② 使 release 列存活進新 baseline，守恆式 `(1−f)(O+R2) − X − fold = 0` 只在 X=R2 全額反向時成立；先前提案的「按釋放份額 netting」會在部分處分高估 `f·R2`，實測 90000≠80000，已推翻）；② `supersedeValuationsOfRun` **排除 `DISPOSAL_RELEASE` 列**（release 是已入帳的歷史事實，非估值快照，不可作廢）；③ 原 D6 只寫「seq-0 除外」，未覆蓋 release 列——全額反向＋作廢 release 會使 `DigitalAssets` 雙重扣減（出清後 rerun 轉負）。已知未覆蓋邊界（ledger）：出清→再取得（新 lot id）→rerun 的 exotic 序列。
 
 - 2026-07-12 v1：初版（brainstorming 六裁決 + 三節逐節確認）。self-review 修 2 事實錯誤（GAAP 範圍外 = ASC 350-30 不可迴轉；GAAP 貶值走獨立科目）＋釘死 recoverable amount proxy。
 - 2026-07-12 v2：三路 review 整合（`tasks/review-remeasurement-{sui,cpa,frontend}.md`）。
