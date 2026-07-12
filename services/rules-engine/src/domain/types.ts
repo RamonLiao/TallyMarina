@@ -123,6 +123,12 @@ export interface DisclosureFact { kind: string; detail: Record<string, unknown>;
 export interface RunContext {
   runId: string; entityId: string; bookId: string; periodId: string;
   mode: RunMode; asOf: string;
+  // §4.4.1 (D9): as-of-this-event cumulative GasFeeExpense recognized this period, in
+  // event-time order, NOT including the current event. Caller (api run-rules loop)
+  // maintains this per-event as an accumulator so a full replay of the same event set
+  // reproduces the identical negative-gas contra/income split. Optional; defaults to '0'
+  // (no prior gas expense recognized) when omitted.
+  gasExpenseToDateMinor?: string;
 }
 
 export interface RuleInput {

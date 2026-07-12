@@ -9,7 +9,13 @@ import type {
 
 export function buildRuleInput(
   event: EventRow,
-  opts: { periodId: string; periodOpen: boolean; lots: PositionLot[]; policySet: ResolvedPolicySet; coaMapping: CoaMapping },
+  opts: {
+    periodId: string; periodOpen: boolean; lots: PositionLot[]; policySet: ResolvedPolicySet; coaMapping: CoaMapping;
+    // §4.4.1 (D9): as-of-this-event cumulative GasFeeExpense, event-time ordered, NOT
+    // including this event. Caller (run-rules loop) maintains the running total across
+    // the sorted candidate list; optional — omitted callers get the engine's '0' default.
+    gasExpenseToDateMinor?: string;
+  },
 ): RuleInput {
   const raw = JSON.parse(event.rawJson) as NormalizedEvent;
   // Human review decision (spec §6.9) overrides the raw event classification; the AI
@@ -23,6 +29,7 @@ export function buildRuleInput(
   const runContext: RunContext = {
     runId: `run-${event.id}`, entityId: event.entityId, bookId: ne.bookId,
     periodId: opts.periodId, mode: 'POST', asOf: ne.eventTime,
+    gasExpenseToDateMinor: opts.gasExpenseToDateMinor,
   };
   // periodOpen resolves from the period_lock store per call — never from the constant
   // (review C1: the hardcoded `periodOpen: true` made the engine's PERIOD_CLOSED gate dead code).

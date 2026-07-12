@@ -24,6 +24,11 @@ export const DEMO_COA_RULES: CoaRule[] = [
   { eventType: 'GAS_FEE', leg: 'DISPOSAL', account: 'DigitalAssets' },
   { eventType: 'GAS_FEE', leg: 'DISPOSAL_GAIN', account: 'DisposalGain' },
   { eventType: 'GAS_FEE', leg: 'DISPOSAL_LOSS', account: 'DisposalLoss' },
+  // §4.4.1: gas 淨額為負（rebate > 成本）——比照 §4.1 建新 lot，貸方 contra-expense（沖減
+  // 當期 GasFeeExpense，以其累計為限）+ 其他收入（GasRebateIncome）。
+  { eventType: 'GAS_FEE', leg: 'ACQUISITION', account: 'DigitalAssets' },
+  { eventType: 'GAS_FEE', leg: 'REBATE_CONTRA', account: 'GasFeeExpense' },
+  { eventType: 'GAS_FEE', leg: 'REBATE_INCOME', account: 'GasRebateIncome' },
   { eventType: 'OPENING_LOT', leg: 'ACQUISITION', account: 'DigitalAssets' },
   { eventType: 'OPENING_LOT', leg: 'OPENING_EQUITY', account: 'OpeningBalanceEquity' },
   { eventType: 'SPOT_TRADE_SWAP', leg: 'ACQUISITION', account: 'DigitalAssets' },

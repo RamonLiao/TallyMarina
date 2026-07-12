@@ -800,14 +800,37 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     const activeCoa = getActiveCoaMapping(db, req.params.id);
     const enginePolicy = toResolvedPolicySet(activePolicy.doc, periodOpen);
     const engineCoa = buildCoaMappingFromRules(activeCoa.rules);
+    // §4.4.1 (D9): negative-net GAS_FEE events cap their GasFeeExpense contra at the
+    // as-of-this-event cumulative balance, in event-time order (candidates are sorted
+    // chronologically above). Maintain that running total across the loop — it must be
+    // deterministic across replays of the same event set, so it is derived purely from
+    // this period's own GasFeeExpense account line, never from a DB read outside this loop.
+    const gasExpenseAcct = engineCoa.resolve({ eventType: 'GAS_FEE', leg: 'NETWORK_FEE', coinType: '' });
+    let gasExpenseToDateMinor = '0';
     let posted = 0, skipped = 0;
     for (const ev of candidates) {
-      const output = evaluate(buildRuleInput(ev, { periodId, periodOpen, lots: lotsForEvent(db, ev), policySet: enginePolicy, coaMapping: engineCoa }));
+      const output = evaluate(buildRuleInput(ev, {
+        periodId, periodOpen, lots: lotsForEvent(db, ev), policySet: enginePolicy, coaMapping: engineCoa,
+        gasExpenseToDateMinor,
+      }));
       // JE-less POSTABLE outputs still carry lot movements that must persist — the old
       // `journalEntries.length === 0 → skip` guard is gone. Non-zero OPENING_LOT now posts
       // a real JE (Dr ACQUISITION / Cr OPENING_EQUITY, Task 1+2); the JE-less branch now
       // applies only to zero-basis opening lots and same-wallet INTERNAL_TRANSFER legs.
       if (output.decision !== 'POSTABLE') { skipped++; continue; }
+      // Advance the accumulator with THIS event's own effect on the GasFeeExpense account
+      // (DEBIT recognizes fee expense; CREDIT is the §4.4.1 contra reducing it back) before
+      // moving to the next event — the "as-of, not-including" ordering the spec requires.
+      if (gasExpenseAcct) {
+        let delta = 0n;
+        for (const je of output.journalEntries) {
+          for (const line of je.lines) {
+            if (line.account !== gasExpenseAcct) continue;
+            delta += line.side === 'DEBIT' ? BigInt(line.amountMinor) : -BigInt(line.amountMinor);
+          }
+        }
+        if (delta !== 0n) gasExpenseToDateMinor = (BigInt(gasExpenseToDateMinor) + delta).toString();
+      }
       const acquireStamp = `${eventTimeOf(ev)}|${ev.id}`;
       // JE + movements are one atomic unit (spec §2): an injected movement failure must
       // roll the JE back too — no partial post. Counters mutate only after commit.
