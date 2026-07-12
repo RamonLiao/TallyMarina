@@ -18,6 +18,7 @@ import { loadConfig } from '../../src/config.js';
 import type { FixtureBundle } from '../../src/deps/ingestion.js';
 import { upsertReconDisposition } from '../../src/store/reconBreakStore.js';
 import { getPeriodLock } from '../../src/periodLock/store.js';
+import { makeRevaluationGreen } from '../helpers/revaluation.js';
 
 const RECON_BREAKS = [
   '0xacmeTreasury|0x2::sui::SUI',
@@ -64,6 +65,7 @@ async function makeAllGreen() {
   await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/ingest', payload: {} });
   await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/run-rules', payload: { periodId: '2026-Q2' } });
   dismissReconBreaks(db, 'acme:pilot-001', '2026-Q2');
+  await makeRevaluationGreen(app, 'acme:pilot-001', '2026-Q2'); // Task 7: revaluation light precondition
 }
 
 beforeEach(async () => {

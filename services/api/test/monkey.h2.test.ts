@@ -20,6 +20,7 @@ import { insertJournalRow } from './helpers/journal.js';
 import { seedAnchoredSnapshot } from './helpers/p1.js';
 import { buildTestApp, TEST_ENTITY_ID } from './helpers/app.js';
 import { registerAcmeFixtureAssets } from './helpers/registerTestAsset.js';
+import { makeRevaluationGreen } from './helpers/revaluation.js';
 import { upsertReconDisposition } from '../src/store/reconBreakStore.js';
 
 // ---------------------------------------------------------------------------
@@ -51,6 +52,7 @@ async function seedLockedPeriodWithJE(ctx: Ctx) {
   await app.inject({ method: 'POST', url: `/entities/${entityId}/run-rules`, payload: { periodId } });
   dismissReconBreaks(db, entityId, periodId);
   registerAcmeFixtureAssets(db, entityId); // registry close-gate precondition (assets have known scale)
+  await makeRevaluationGreen(app, entityId, periodId); // Task 7: revaluation light precondition
   const lockR = await app.inject({ method: 'POST', url: `/entities/${entityId}/period/lock`, payload: { periodId } });
   if (lockR.statusCode !== 200) throw new Error(`seedLockedPeriodWithJE: lock failed ${lockR.statusCode} ${lockR.body}`);
 }

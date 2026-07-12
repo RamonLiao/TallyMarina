@@ -21,6 +21,7 @@ const fixture = require('../../src/fixtures/acme-pilot-001.events.json') as unkn
 import { loadConfig } from '../../src/config.js';
 import type { FixtureBundle } from '../../src/deps/ingestion.js';
 import { upsertReconDisposition } from '../../src/store/reconBreakStore.js';
+import { makeRevaluationGreen } from '../helpers/revaluation.js';
 
 const RECON_BREAKS = [
   '0xacmeTreasury|0x2::sui::SUI',
@@ -67,6 +68,7 @@ async function makeAllGreen() {
   await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/ingest', payload: {} });
   await app.inject({ method: 'POST', url: '/entities/acme:pilot-001/run-rules', payload: { periodId: '2026-Q2' } });
   dismissReconBreaks(db, 'acme:pilot-001', '2026-Q2');
+  await makeRevaluationGreen(app, 'acme:pilot-001', '2026-Q2'); // Task 7: revaluation light precondition
 }
 
 beforeEach(async () => {
@@ -94,6 +96,7 @@ describe('Period Close Cockpit — integration', () => {
     // WHY: the cockpit is the single source of truth for close-readiness. A fresh entity
     // must show OPEN with all 7 light keys present so the UI can render complete status.
     // 'registry' joined the set when unregistered assets became a close-blocking control gap.
+    // Task 7: the mock 'pricing' light is gone, replaced by the real 'revaluation' light.
     const r = await app.inject({ method: 'GET', url: '/entities/acme:pilot-001/close-cockpit?periodId=2026-Q2' });
     expect(r.statusCode).toBe(200);
     const body = r.json() as { lights: Array<{ key: string; status: string }>; status: string };
@@ -105,8 +108,11 @@ describe('Period Close Cockpit — integration', () => {
     expect(keys).toContain('recon');
     expect(keys).toContain('registry');
     expect(keys).toContain('completeness');
-    expect(keys).toContain('pricing');
+    expect(keys).toContain('revaluation');
     expect(keys).toContain('export');
+    expect(keys).not.toContain('pricing');
+    const revaluation = body.lights.find((l) => l.key === 'revaluation')!;
+    expect(revaluation.status).toBe('red'); // fresh entity: no revaluation run yet
   });
 
   // Test 2
