@@ -72,6 +72,7 @@
 - 淨額 = computation + storage − rebate；可為負。
 - 為負時：① 先沖當期 `GasFeeExpense`（contra，上限 = **依事件時間序、截至本事件位置**的當期已認列 gas 費用累計餘額——D9，同一事件集重跑必得相同拆分）；② 超額入 `GasRebateIncome`（income 科目，不倒沖 expense）；③ 淨流入量建新 lot，basis = 取得日 FV——**取價走 `price_points`（D14），缺價 fail-closed 擋該事件**。
 - 兩軌一致（GAAP 以 FV 入帳、IFRS 以取得日 FV 為成本，數字相同）。
+- **實作慣例（v2.2 留痕）**：負淨額事件以 `economicPurpose === 'NETWORK_FEE_REBATE'` 標示（`quantityMinor` schema 鎖正數，無法帶符號）。已知耦合風險：`economicPurpose` 可被人工 `finalPurpose` 覆寫（§6.9 分類流程），reviewer 改 finalPurpose 會翻轉會計分支——**follow-up**：對 gas 事件的 finalPurpose 覆寫加守衛或警示（入 minor triage，restatement/UI 批次收）。
 
 ### 4.4 §7.3 ASU 過渡（一次性，雙向）
 - 觸發：entity 首次以 GAAP FV 軌 Run（該 entity 無任何 `basis='GAAP_FV'` 且 `seq=0` 的 valuation 記錄）。
@@ -133,7 +134,7 @@ lot_valuation(
 | Route | 行為 |
 |-------|------|
 | `GET /entities/:id/revaluation/preview?periodId=` | 試算：per-asset 彙總＋per-lot 明細＋擬出 JE lines＋`PRICE_MISSING` 清單。**不落庫** |
-| `POST /entities/:id/revaluation/run` | **重算為準**（不信 preview 快照）。缺價 → 400；period LOCKED → 400 `PERIOD_CLOSED`。已有前次 run → 同 transaction 內先 post 反向 JE（沖期末重估 JE，**過渡 JE 除外**）+ supersede 舊 valuation（seq-0 除外），再 post 新 JE。寫入 `revaluation_run` header |
+| `POST /entities/:id/revaluation/run` | **重算為準**（不信 preview 快照）。缺價 → 400；period LOCKED → **409 `PERIOD_LOCKED`**（v2.1 修訂：原定 400 `PERIOD_CLOSED` 與既有 locked-write 慣例——routes.ts 三處 409——衝突，向慣例收斂；`PERIOD_CLOSED` 字串保留給 rules-engine exception 域）。已有前次 run → 同 transaction 內先 post 反向 JE（沖期末重估 JE，**過渡 JE 除外**）+ supersede 舊 valuation（seq-0 除外），再 post 新 JE。寫入 `revaluation_run` header |
 | `GET/POST /entities/:id/prices` | 手動 PricePoint；POST 強制 `level='LEVEL_2'`、`source='manual'`、`quote_currency='USD'`；zod 驗界 |
 | cockpit DTO | 重估 light（`real:true`）：**綠** = 最新 run 存在、未被沖銷、`price_set_hash` 與 `lot_set_hash` 均與現況一致；**stale** = 任一指紋不符（run 後補價/改價/新 lot/處分）；**紅** = 未 run 或現有 `PRICE_MISSING`。blocking 單一權威 = `closeable`（D12），stale 與紅均使 `closeable=false` |
 
@@ -144,7 +145,7 @@ lot_valuation(
 
 **Pricing 對應與驗證（CPA S7）**：
 - run 由 `periodId` 推導目標 `as_of` = 該 period 期末日（entity 時區 23:59:59 → UTC，上游 §6.4 cut-off）。
-- 手動輸入的 `as_of` 必須等於某個已知 period 的 cut-off 日（或本 period 內取得日——負 gas 用），否則 400；期中價/錯期價不收。
+- 手動輸入的 `as_of` 必須**落在某個已知 period 的日期範圍內**（v2.3 放寬：原「僅 cut-off 日」會讓非期末日事件在 D14 fail-closed 下永遠無法過帳——假價 100 移除後暴露）。期末重估不受影響：orchestrate 只讀 `latestPricesAt(cutoff)` 精確日，期中價不會汙染重估基礎（CPA S7 的原始關切保留成立）。
 - §6.3 的 24h staleness 門檻**不適用**於手動期末價（月結價天生 >24h）：手動 LEVEL_2 價的有效性由「as_of 精確等於 cut-off」取代 staleness 檢查（本條為對 §6.3 在手動價情境的顯式釐清，留痕）。
 
 **編排（preview/run 共用一條）**：`getActivePolicy`（fail-loud）→ `foldRemainingLots` → 讀 period cut-off prices + prior valuations → `revalueLots()` → preview 回 DTO / run 開 transaction 落 run header + JE + valuation。重估 JE 走 journalStore 同店、**顯式帶 `periodId`**（SUI N1：不帶就不進當期 merkle root、不被 anchor staleness 偵測）；JE lines 保留 `currency`/`fx_rate` 欄（MVP 恆 USD/1.0 亦不省，§1.3，CPA N2）。
@@ -205,6 +206,12 @@ lot_valuation(
 - 完成制度：fresh-context verifier → dual-review（外部輪不給 spec）→ Ship as-is 才算完成。
 
 ## 11. Revision Log
+
+- 2026-07-12 v2.1：run 對 LOCKED period 的回應由 400 `PERIOD_CLOSED` 改 **409 `PERIOD_LOCKED`**（Task 6 review 發現與既有 locked-write 慣例衝突；Rule 11 conventions win，留痕）。
+- 2026-07-12 v2.2：§4.3 補負 gas 的 `NETWORK_FEE_REBATE` 標示慣例與 finalPurpose 翻轉風險（Task 8 review adjudication 2）；D9 累計器語意釘死為「含已 post JE 的 event-time 序 seed」（Task 8 review Critical 修復）。
+- 2026-07-12 v2.3：POST /prices 的 `as_of` 驗證由「僅 cut-off 日」放寬為「落在已知 period 範圍內」（Task 9 review Important：D14 後非期末日事件否則永久 PRICE_MISSING；重估讀價仍鎖 cut-off 精確日，不受期中價影響）。
+- 2026-07-12 v2.4（final whole-branch review C1，跨 task 縫隙）：**rerun × 處分語意釘死**——重估後發生處分再 rerun 時：① 對**仍有 remaining lots 的 coin 全額反向**舊重估 JE；**已完全出清的 coin 跳過反向**（fix-wave 代數證明：因 ② 使 release 列存活進新 baseline，守恆式 `(1−f)(O+R2) − X − fold = 0` 只在 X=R2 全額反向時成立；先前提案的「按釋放份額 netting」會在部分處分高估 `f·R2`，實測 90000≠80000，已推翻）；② `supersedeValuationsOfRun` **排除 `DISPOSAL_RELEASE` 列**（release 是已入帳的歷史事實，非估值快照，不可作廢）；③ 原 D6 只寫「seq-0 除外」，未覆蓋 release 列——全額反向＋作廢 release 會使 `DigitalAssets` 雙重扣減（出清後 rerun 轉負）。最終語意（兩輪複審收斂）：反向 **decision 為 lot 級**——舊 run 估值過的 lot 至少一個存活才反向，全出清（含同幣買回新 lot）則 skip；反向**金額為 per-lot 重建**——僅存活 lot 的估值列份額（從 lot_valuation 重建 lines，非幣級聚合 JE 全額 swap）。序列 A（部分處分）/B（出清）/C（買回）/D（混合一存一清）四條 GL 守恆測試全數釘死。
+- 2026-07-12 v2.5（dual-review 外部輪）：① **basis 欄位鎖**——entity 存在未 superseded 的 GAAP 軌 valuation 列時，PATCH 改 `accountingStandard`/`asu202308Applies` → 400 `POLICY_BASIS_LOCKED`（換軌 = restatement 流程；否則 posting 路徑會 500 誤標 VALUATION_CORRUPT）。等值重送與非 basis 欄位不受影響。② **季度 cutoff 改決定性運算**（`YYYY-Qn` 直接算，硬表移除）——否則非 2026-Q2 的期永久不可 close 且無解釋。
 
 - 2026-07-12 v1：初版（brainstorming 六裁決 + 三節逐節確認）。self-review 修 2 事實錯誤（GAAP 範圍外 = ASC 350-30 不可迴轉；GAAP 貶值走獨立科目）＋釘死 recoverable amount proxy。
 - 2026-07-12 v2：三路 review 整合（`tasks/review-remeasurement-{sui,cpa,frontend}.md`）。

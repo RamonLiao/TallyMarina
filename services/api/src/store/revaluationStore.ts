@@ -1,0 +1,323 @@
+// Task 5 (period-end revaluation persistence, spec §5): revaluation_run + lot_valuation
+// stores. Task 6 (run orchestration) and Task 10 (disposal release) import this module's
+// exports verbatim — signatures here are a cross-task contract, not free to reshape.
+//
+// GUARDRAIL: nothing under src/ai/ may import this module (same rule as journalStore /
+// lotMovementStore).
+import { createHash } from 'node:crypto';
+import type { Db } from './db.js';
+import type { PositionLot, ValuationBasis, ValuationState } from '../deps/rulesEngine.js';
+
+export interface RevaluationRunRow {
+  id: string; entityId: string; periodId: string; seq: number;
+  priceSetHash: string; lotSetHash: string; policySetVersion: string; accountingStandard: string;
+  reversalOfRunId: string | null; createdAt: string;
+}
+
+export interface LotValuationRow {
+  id: string; entityId: string; lotId: string; periodId: string; runId: string;
+  seq: number; basis: string; qtyMinor: string; priorCarryingMinor: string; currentValueMinor: string;
+  deltaMinor: string; pricePointId: string | null; jeId: string | null; reason: string;
+  policySetVersion: string; supersededBy: string | null; createdAt: string;
+}
+
+// D6: only these reasons may ever land in lot_valuation. Anything else is corruption
+// (a hand-crafted row, a bug elsewhere) — fold must fail loud rather than silently fold it in.
+// NOTE: DISPOSAL_RELEASE is deliberately wider than rules-engine's LotValuationDraft.reason
+// union — the engine never emits it; Task 10 (disposal carry-out) writes it directly via
+// insertValuation. Its (negative) delta folds into cumulativeDelta like any other row.
+const VALID_REASONS = new Set(['REVALUE', 'IMPAIR', 'REVERSE', 'OPENING_FV', 'DISPOSAL_RELEASE']);
+
+export class RevaluationDataError extends Error {
+  code: 'VALUATION_CORRUPT' = 'VALUATION_CORRUPT';
+  constructor(message: string) {
+    super(message);
+    this.name = 'RevaluationDataError';
+  }
+}
+
+function shortHash(s: string): string {
+  return createHash('sha256').update(s).digest('hex').slice(0, 8);
+}
+
+export function insertRun(db: Db, r: Omit<RevaluationRunRow, 'id' | 'seq' | 'createdAt'>): RevaluationRunRow {
+  // Monotonic per (entity, period): COUNT+1 inside this call. better-sqlite3 is synchronous
+  // (no interleaving within a process) so this mirrors the same COUNT+1-then-INSERT pattern
+  // pricePointStore uses for its ids — no separate sequence table needed (SUI S2).
+  const countRow = db.prepare(
+    'SELECT COUNT(*) AS n FROM revaluation_run WHERE entity_id = ? AND period_id = ?',
+  ).get(r.entityId, r.periodId) as { n: number };
+  const seq = countRow.n + 1;
+  const id = `rv-${r.entityId}-${shortHash(r.periodId)}-${seq}`;
+  const createdAt = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO revaluation_run
+       (id, entity_id, period_id, seq, price_set_hash, lot_set_hash, policy_set_version, accounting_standard, reversal_of_run_id, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(id, r.entityId, r.periodId, seq, r.priceSetHash, r.lotSetHash, r.policySetVersion, r.accountingStandard, r.reversalOfRunId, createdAt);
+  return { ...r, id, seq, createdAt };
+}
+
+export function latestRun(db: Db, entityId: string, periodId: string): RevaluationRunRow | null {
+  const row = db.prepare(
+    'SELECT * FROM revaluation_run WHERE entity_id = ? AND period_id = ? ORDER BY seq DESC LIMIT 1',
+  ).get(entityId, periodId) as Record<string, unknown> | undefined;
+  return row ? fromRunRow(row) : null;
+}
+
+// `idSuffix` (optional, additive): Task 6's per-run REVALUE/IMPAIR/REVERSE/OPENING_FV rows
+// are naturally unique per (entity, lot, run, seq, reason) — at most one row per lot per
+// reason per run. Task 10's DISPOSAL_RELEASE rows are NOT run-scoped that way: two separate
+// disposal events consuming the SAME lot while it's still under the SAME latest run/seq (no
+// intervening revaluation) would otherwise collide on the exact same id and the second
+// INSERT would throw a raw UNIQUE-constraint error instead of failing loud with context.
+// Pass the disposing event's own id as idSuffix to disambiguate; omitted, id generation is
+// BYTE-IDENTICAL to before this parameter existed (Task 6 call sites untouched).
+export function insertValuation(
+  db: Db, r: Omit<LotValuationRow, 'id' | 'createdAt'>, idSuffix?: string,
+): LotValuationRow {
+  const id = `lv-${r.entityId}-${shortHash(r.lotId)}-${r.runId}-${r.seq}-${r.reason}${idSuffix ? `-${idSuffix}` : ''}`;
+  const createdAt = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO lot_valuation
+       (id, entity_id, lot_id, period_id, run_id, seq, basis, qty_minor, prior_carrying_minor,
+        current_value_minor, delta_minor, price_point_id, je_id, reason, policy_set_version, superseded_by, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(id, r.entityId, r.lotId, r.periodId, r.runId, r.seq, r.basis, r.qtyMinor, r.priorCarryingMinor,
+    r.currentValueMinor, r.deltaMinor, r.pricePointId, r.jeId, r.reason, r.policySetVersion, r.supersededBy, createdAt);
+  return { ...r, id, createdAt };
+}
+
+// Task 10 (disposal release, spec §4.5): a DISPOSAL_RELEASE row is written OUTSIDE any
+// revaluation run (during run-rules disposal posting), so it has no run of its own — it must
+// borrow (run_id, seq, basis) from the lot's own latest unsuperseded valuation row, both so
+// foldValuationStates' run_id FK-existence check (line ~137) passes trivially (the run already
+// exists) and so the released delta is folded under the SAME basis the lot was revalued under
+// (CPA B2 mixed-basis guard). Returns null for a lot that was never revalued — callers must
+// skip writing a release row in that case (nothing to release).
+export function latestValuationForLot(db: Db, entityId: string, lotId: string): LotValuationRow | null {
+  const row = db.prepare(
+    `SELECT * FROM lot_valuation WHERE entity_id = ? AND lot_id = ? AND superseded_by IS NULL
+     ORDER BY seq DESC LIMIT 1`,
+  ).get(entityId, lotId) as Record<string, unknown> | undefined;
+  return row ? fromValuationRow(row) : null;
+}
+
+// External review (should-fix, basis-lock; generalized after round-1 dual-review): coin type
+// -> current live (unsuperseded) lot_valuation basis, restricted to the two GAAP bases
+// (GAAP_FV, GAAP_COST) — an IFRS_COST-live coin has never been through a GAAP election and
+// imposes no restriction. PATCH /policy/policy-set uses this to block accountingStandard /
+// asu202308Applies changes that would revert an already-GAAP-elected coin's basis in a way
+// foldValuationStates' mixed-basis guard (CPA B2) can't tolerate: it throws
+// RevaluationDataError on ANY basis mismatch between a persisted lot_valuation row and the
+// expectedBasis the next run-rules event computes — not just GAAP_FV mismatches — so a live
+// GAAP_COST coin reverting straight to IFRS_COST (accountingStandard flipped back to IFRS,
+// no asu202308Applies change at all) hits the exact same mislabeled-500 crash class as the
+// GAAP_FV case. Round-1 external review flagged the GAAP_FV-only version of this helper as
+// leaving that gap open.
+// Deliberately still allows the FORWARD direction — GAAP_COST -> GAAP_FV, and (for a coin
+// with no live valuation at all, i.e. absent from this map) any first-time IFRS_COST ->
+// GAAP_{FV,COST} adoption — since those are the one-directional, already-orchestrated
+// transition paths (orchestrate.ts transitionMode) with their own tests. Only "coin already
+// has a live GAAP_* row" x "proposed basis is not GAAP_FV, and if the live basis was
+// GAAP_COST the proposed basis is also not GAAP_COST" counts as a revert; see the two-arm
+// check at the PATCH call site.
+export function activeGaapCoinBasis(db: Db, entityId: string): Map<string, 'GAAP_FV' | 'GAAP_COST'> {
+  const rows = db.prepare(
+    `SELECT DISTINCT lm.coin_type AS coinType, lv.basis AS basis
+     FROM lot_valuation lv
+     JOIN lot_movement lm ON lm.entity_id = lv.entity_id AND lm.lot_id = lv.lot_id
+     WHERE lv.entity_id = ? AND lv.superseded_by IS NULL AND lv.basis IN ('GAAP_FV', 'GAAP_COST')`,
+  ).all(entityId) as Array<{ coinType: string; basis: 'GAAP_FV' | 'GAAP_COST' }>;
+  // A coin can only have ONE live basis at a time (foldValuationStates would already have
+  // thrown a mixed-basis error on a prior run if it didn't) — Map keyed by coinType is safe,
+  // last-write-wins is never actually exercised.
+  return new Map(rows.map((r) => [r.coinType, r.basis]));
+}
+
+// D6: seq=0 (opening/transition) rows are permanent — a later run recomputing the same lot
+// supersedes only its own >=1 run-seq predecessors, never the opening row. The WHERE seq > 0
+// guard is the entire enforcement of that invariant; removing it would let a routine
+// re-valuation run silently erase the ASU-2023-08 opening baseline.
+export function supersedeValuationsOfRun(db: Db, runId: string, byRunId: string): number {
+  const result = db.prepare(
+    "UPDATE lot_valuation SET superseded_by = ? WHERE run_id = ? AND seq > 0 AND reason != 'DISPOSAL_RELEASE'",
+  ).run(byRunId, runId);
+  return result.changes;
+}
+
+// Task 13 (rerun reversal decision, lot-level): the DISTINCT lotIds a run booked a PERIOD
+// valuation row for (REVALUE/IMPAIR/REVERSE, seq>0). Excludes seq-0 OPENING_FV (permanent,
+// never reversed — reval-open JEs are not reversed) and DISPOSAL_RELEASE (a borrowed-run
+// historical fact, not a valuation this run produced). The rerun reversal decision stays
+// per-coin, but is DRIVEN by these lotIds: a coin's old reval JE is reversed iff at least one
+// of ITS old-run-valued lots still survives in the current fold. A coin whose old-run lots
+// were all disposed (even if the coin is re-acquired as a fresh lot) must be skipped — the
+// fresh lot carries no old reval, and the disposed lots' gains were already realized.
+export function valuedLotIdsOfRun(db: Db, entityId: string, runId: string): string[] {
+  return (db.prepare(
+    `SELECT DISTINCT lot_id FROM lot_valuation
+     WHERE entity_id = ? AND run_id = ? AND seq > 0 AND reason IN ('REVALUE', 'IMPAIR', 'REVERSE')`,
+  ).all(entityId, runId) as Array<{ lot_id: string }>).map((r) => r.lot_id);
+}
+
+// Task 13 (rerun reversal AMOUNT, per-lot): the raw PERIOD valuation rows a run booked, one
+// per (lot, reason). Same domain as valuedLotIdsOfRun (seq>0, REVALUE/IMPAIR/REVERSE — excludes
+// seq-0 OPENING_FV and the borrowed DISPOSAL_RELEASE row), but returns per-lot delta + reason +
+// price ref so the reversal amount can be rebuilt from ONLY the surviving lots' shares rather
+// than swapping the old run's coin-aggregate JE (which over-reverses a lot disposed since — its
+// delta was already reclassified to realized). run_id-scoped, so it is order-independent w.r.t.
+// supersedeValuationsOfRun (the reversal is computed before supersede, but either order reads the
+// same rows).
+export interface PeriodValuationRow { lotId: string; reason: string; deltaMinor: string; pricePointId: string | null }
+export function periodValuationRowsOfRun(db: Db, entityId: string, runId: string): PeriodValuationRow[] {
+  return (db.prepare(
+    `SELECT lot_id, reason, delta_minor, price_point_id FROM lot_valuation
+     WHERE entity_id = ? AND run_id = ? AND seq > 0 AND reason IN ('REVALUE', 'IMPAIR', 'REVERSE')`,
+  ).all(entityId, runId) as Array<{ lot_id: string; reason: string; delta_minor: string; price_point_id: string | null }>)
+    .map((r) => ({ lotId: r.lot_id, reason: r.reason, deltaMinor: r.delta_minor, pricePointId: r.price_point_id ?? null }));
+}
+
+// SUI S3-style input domain hash: same set in, same hash out, independent of read order.
+export function lotSetHash(lots: PositionLot[]): string {
+  const entries = lots.map((l) => `${l.lotId}:${l.remainingQtyMinor}`).sort();
+  return createHash('sha256').update(entries.join('\n')).digest('hex');
+}
+
+// Fail-closed read-side fold: this is the sole path by which persisted lot_valuation rows
+// become a ValuationState fed back into the rules-engine (Task 6). A dirty row — unknown
+// basis, unknown reason, negative qty, an orphan run_id, or impairment reversed past zero —
+// must never silently flow into a revaluation input; throw RevaluationDataError instead.
+export function foldValuationStates(
+  db: Db, entityId: string, lotIds: string[], expectedBasis: ValuationBasis,
+): Record<string, ValuationState> {
+  if (lotIds.length === 0) return {};
+  const placeholders = lotIds.map(() => '?').join(',');
+  const rows = db.prepare(
+    `SELECT * FROM lot_valuation WHERE entity_id = ? AND lot_id IN (${placeholders}) AND superseded_by IS NULL
+     ORDER BY lot_id ASC, seq ASC, created_at ASC`,
+  ).all(entityId, ...lotIds) as Record<string, unknown>[];
+
+  const acc = new Map<string, { delta: bigint; impairment: bigint; latestQty: bigint; hasOpeningSeq0: boolean }>();
+  const verifiedRunIds = new Set<string>(); // avoid an N+1 SELECT per valuation row
+  for (const raw of rows) {
+    const row = fromValuationRow(raw);
+    if (row.basis !== expectedBasis) {
+      throw new RevaluationDataError(
+        `foldValuationStates: lot_valuation row ${row.id} (lot ${row.lotId}) has basis '${row.basis}', `
+        + `expected '${expectedBasis}' — mixed-basis read (CPA B2)`,
+      );
+    }
+    if (!VALID_REASONS.has(row.reason)) {
+      throw new RevaluationDataError(`foldValuationStates: lot_valuation row ${row.id} has unknown reason '${row.reason}'`);
+    }
+    let qty: bigint;
+    let delta: bigint;
+    try { qty = BigInt(row.qtyMinor); } catch {
+      throw new RevaluationDataError(`foldValuationStates: lot_valuation row ${row.id} has non-integer qty_minor '${row.qtyMinor}'`);
+    }
+    if (qty < 0n) {
+      throw new RevaluationDataError(`foldValuationStates: lot_valuation row ${row.id} has negative qty_minor '${row.qtyMinor}'`);
+    }
+    try { delta = BigInt(row.deltaMinor); } catch {
+      throw new RevaluationDataError(`foldValuationStates: lot_valuation row ${row.id} has non-integer delta_minor '${row.deltaMinor}'`);
+    }
+    if (row.runId && !verifiedRunIds.has(row.runId)) {
+      const runExists = db.prepare('SELECT 1 FROM revaluation_run WHERE id = ?').get(row.runId);
+      if (!runExists) {
+        throw new RevaluationDataError(`foldValuationStates: lot_valuation row ${row.id} references orphan run_id '${row.runId}'`);
+      }
+      verifiedRunIds.add(row.runId);
+    }
+    const cur = acc.get(row.lotId) ?? { delta: 0n, impairment: 0n, latestQty: 0n, hasOpeningSeq0: false };
+    cur.delta += delta;
+    if (row.reason === 'IMPAIR') cur.impairment += delta < 0n ? -delta : delta;
+    if (row.reason === 'REVERSE') cur.impairment -= delta;
+    // M1 (final-review): qtyAtLastValuationMinor is the denominator revalue.ts prorates
+    // cumulative impairment over (attributedImpairment), so it must track the qty AT THE LAST
+    // VALUATION, not the qty a disposal happened to consume. A DISPOSAL_RELEASE row's qty is
+    // the DISPOSED amount (borrowed run_id/seq), never a fresh valuation snapshot — letting it
+    // overwrite latestQty would shrink the denominator and inflate the attributed impairment
+    // on the next impairment-track revaluation. Skip it; keep the last real valuation's qty.
+    if (row.reason !== 'DISPOSAL_RELEASE') cur.latestQty = qty; // ascending seq order → last real valuation wins
+    if (row.seq === 0) cur.hasOpeningSeq0 = true;
+    acc.set(row.lotId, cur);
+  }
+
+  const result: Record<string, ValuationState> = {};
+  for (const [lotId, v] of acc) {
+    if (v.impairment < 0n) {
+      throw new RevaluationDataError(
+        `foldValuationStates: lot ${lotId} has negative cumulative impairment (${v.impairment}) — REVERSE exceeded IMPAIR`,
+      );
+    }
+    result[lotId] = {
+      lotId,
+      cumulativeDeltaMinor: v.delta.toString(),
+      cumulativeImpairmentMinor: v.impairment.toString(),
+      qtyAtLastValuationMinor: v.latestQty.toString(),
+      hasOpeningSeq0: v.hasOpeningSeq0,
+    };
+  }
+  return result;
+}
+
+// Task 10 (spec §4.5, CPA B1 — external-review fix): `cumulativeDeltaMinor` above sums BOTH
+// the period P&L-booked REVALUE delta AND the one-time ASU-transition (OPENING_FV) delta,
+// which is booked straight to RetainedEarnings/equity and explicitly never touches P&L (§4.4
+// "均不進當期P&L"). Reclassifying the WHOLE cumulative delta into UnrealizedGainCryptoPnL/
+// DisposalGain on disposal (the original Task 10 draft) would corrupt UnrealizedGainCryptoPnL's
+// balance and, for a disposal in a period AFTER the triggering reval, fabricate a current-period
+// P&L swing for a gain that account never recognized.
+//
+// Returns per-lot { rawPnl, rawOpening } — UNPRORATED raw sums (REVALUE-reason rows only, and
+// the single seq=0 OPENING_FV row if any). The caller derives how much of the P&L bucket
+// SURVIVES after any prior partial-disposal releases via the exact ratio
+// `rawPnl * cumulativeDeltaMinor / (rawPnl + rawOpening)` — valid because every release
+// (attributedTakenDelta in routes.ts) always shrinks the total by the SAME qty ratio, so by
+// linearity that ratio applies uniformly to every additive sub-component of the total,
+// including the P&L-only sub-component. This mirrors attributedImpairment's self-correcting
+// qty-ratio pattern (revalue.ts) rather than writing a separate release row per bucket — no
+// schema change, and correct across any number of sequential partial disposals.
+export function rawDeltaComponents(
+  db: Db, entityId: string, lotIds: string[],
+): Record<string, { rawPnl: string; rawOpening: string }> {
+  if (lotIds.length === 0) return {};
+  const placeholders = lotIds.map(() => '?').join(',');
+  const rows = db.prepare(
+    `SELECT lot_id, reason, delta_minor FROM lot_valuation
+     WHERE entity_id = ? AND lot_id IN (${placeholders}) AND superseded_by IS NULL
+       AND reason IN ('REVALUE', 'OPENING_FV')`,
+  ).all(entityId, ...lotIds) as Array<{ lot_id: string; reason: string; delta_minor: string }>;
+  const acc = new Map<string, { pnl: bigint; opening: bigint }>();
+  for (const r of rows) {
+    const cur = acc.get(r.lot_id) ?? { pnl: 0n, opening: 0n };
+    if (r.reason === 'REVALUE') cur.pnl += BigInt(r.delta_minor);
+    else cur.opening += BigInt(r.delta_minor); // at most one OPENING_FV row per lot (D6)
+    acc.set(r.lot_id, cur);
+  }
+  const result: Record<string, { rawPnl: string; rawOpening: string }> = {};
+  for (const [lotId, v] of acc) result[lotId] = { rawPnl: v.pnl.toString(), rawOpening: v.opening.toString() };
+  return result;
+}
+
+function fromRunRow(r: Record<string, unknown>): RevaluationRunRow {
+  return {
+    id: r.id as string, entityId: r.entity_id as string, periodId: r.period_id as string,
+    seq: r.seq as number, priceSetHash: r.price_set_hash as string, lotSetHash: r.lot_set_hash as string,
+    policySetVersion: r.policy_set_version as string, accountingStandard: r.accounting_standard as string,
+    reversalOfRunId: (r.reversal_of_run_id as string | null) ?? null, createdAt: r.created_at as string,
+  };
+}
+
+function fromValuationRow(r: Record<string, unknown>): LotValuationRow {
+  return {
+    id: r.id as string, entityId: r.entity_id as string, lotId: r.lot_id as string,
+    periodId: r.period_id as string, runId: r.run_id as string, seq: r.seq as number,
+    basis: r.basis as string, qtyMinor: r.qty_minor as string, priorCarryingMinor: r.prior_carrying_minor as string,
+    currentValueMinor: r.current_value_minor as string, deltaMinor: r.delta_minor as string,
+    pricePointId: (r.price_point_id as string | null) ?? null, jeId: (r.je_id as string | null) ?? null,
+    reason: r.reason as string, policySetVersion: r.policy_set_version as string,
+    supersededBy: (r.superseded_by as string | null) ?? null, createdAt: r.created_at as string,
+  };
+}

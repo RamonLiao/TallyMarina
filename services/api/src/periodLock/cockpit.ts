@@ -10,8 +10,9 @@ import { blocksClose } from '../exceptions/disposition.js';
 import { BLOCKING_CATEGORIES } from '../exceptions/types.js';
 import { openMaterialReconBlockers, unregisteredAssetBlockers } from '../reconciliation/collect.js';
 import { listByStatus, listEvents } from '../store/eventStore.js';
+import { loadRevaluationContext } from '../revaluation/orchestrate.js';
 
-export type LightStatus = 'green' | 'red' | 'mock';
+export type LightStatus = 'green' | 'red' | 'stale' | 'mock';
 export interface Light { key: string; status: LightStatus; label: string; real: boolean }
 export interface CockpitView {
   lights: Light[]; status: PeriodStatus; anchored: boolean; staleAnchor: boolean;
@@ -86,6 +87,34 @@ function completenessLight(db: Db, entityId: string): Light {
 
 const MOCK = (key: string, label: string): Light => ({ key, status: 'mock', label, real: false });
 
+// Revaluation light (Task 7, spec D12/D13): blocking-fact authority is the revaluation run
+// itself (dual fingerprints) — this light is a projection, never re-derives its own notion of
+// "current". Reuses loadRevaluationContext verbatim (same consumed-price-set / lot-set-hash
+// computation orchestrate.ts uses for the run) so the light can never drift from what a run
+// would actually persist.
+//   - no run yet, OR the current position has a blocking PRICE_MISSING (unpriced/unregistered
+//     held coin) → red.
+//   - a run exists but its priceSetHash/lotSetHash/policySetVersion no longer match the
+//     current position/prices/policy → stale (same predicate executeRun uses for the
+//     REVAL_ALREADY_CURRENT replay gate, inverted).
+//   - otherwise → green.
+// Wrapped fail-closed like reconLight/registryLight: an unknown periodId (periodCutoff throws)
+// or any other unexpected error must red the light, never 500 the whole cockpit.
+function revaluationLight(db: Db, entityId: string, periodId: string): Light {
+  try {
+    const ctx = loadRevaluationContext(db, entityId, periodId);
+    if (ctx.latest === null || ctx.priceMissing.length > 0) {
+      return { key: 'revaluation', status: 'red', label: 'Revaluation', real: true };
+    }
+    const current = ctx.latest.priceSetHash === ctx.priceSetHash
+      && ctx.latest.lotSetHash === ctx.lotSetHash
+      && ctx.latest.policySetVersion === ctx.doc.policySetVersion;
+    return { key: 'revaluation', status: current ? 'green' : 'stale', label: 'Revaluation', real: true };
+  } catch {
+    return { key: 'revaluation', status: 'red', label: 'Revaluation', real: true };
+  }
+}
+
 export function buildCockpit(db: Db, entityId: string, periodId: string, lowConf: number): CockpitView {
   const lights: Light[] = [
     classificationLight(db, entityId, periodId, lowConf),
@@ -93,7 +122,7 @@ export function buildCockpit(db: Db, entityId: string, periodId: string, lowConf
     reconLight(db, entityId, periodId),
     registryLight(db, entityId, periodId),
     completenessLight(db, entityId),
-    MOCK('pricing', 'Pricing coverage'),
+    revaluationLight(db, entityId, periodId),
     MOCK('export', 'ERP export'),
   ];
   const lock = getPeriodLock(db, entityId, periodId);

@@ -83,6 +83,13 @@
   color: var(--warn, #c28a1e);
 }
 
+/* Stale (Task 7/11, spec D12/D13): a revaluation light whose prior run no longer reflects
+   current prices/lots. Blocks close like red, rendered amber (⟳ Stale — rerun) so it reads
+   as "action needed" distinct from the hard-error red glyph. */
+.light--stale {
+  color: var(--warn, #c28a1e);
+}
+
 .light--mock {
   color: var(--ink-soft, #3e4a6b);
   border-style: dashed;
@@ -168,6 +175,30 @@
 }
 .lock-blockers__icon { line-height: 1; }
 .lock-err { color: var(--debit, #b5532e); margin: 0; font-size: var(--text-sm); }
+
+/* ── RevaluationCard (Task 12) ── */
+/* Missing-price row: same left inset-border severity cue as .light--red — legible without colour. */
+.reval-row--missing td:first-child { box-shadow: inset 3px 0 0 var(--debit, #b5532e); }
+.reval-missing-flag { color: var(--debit, #b5532e); font-weight: 700; font-size: var(--text-xs); }
+.reval-expand {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: var(--text-sm);
+  color: var(--ink-soft, #3e4a6b);
+  padding: 0 4px;
+}
+.reval-expand:focus-visible { outline: 2px solid var(--brass, #b68a2e); outline-offset: 2px; }
+.reval-lot-row td { color: var(--ink-soft, #3e4a6b); font-size: var(--text-sm); }
+.reval-actions { display: flex; flex-wrap: wrap; gap: var(--s-2, 16px); align-items: center; margin-top: var(--s-3, 24px); }
+.reval-price-form { margin-top: var(--s-3, 24px); border-top: 1px solid var(--paper-line, #e3d7bc); padding-top: var(--s-2, 16px); }
+/* The asset dropdown's intrinsic width is driven by the canonical (long-form) coinType option
+   text — without a cap it forces the whole page to scroll horizontally at 390px. */
+.reval-price-form .policy-field select { max-width: 100%; }
+.reval-superseded-chip { margin-left: 8px; }
+/* History lines carry the unbreakable canonical coinType token — without this the row forces
+   the whole page to scroll horizontally at 390px (same fix as .stale-anchor-chip). */
+.reval-price-history .policy-history-row { overflow-wrap: anywhere; }
 
 /* ── ReopenDialog ── */
 .reopen-ribbon { background: color-mix(in srgb, var(--warn, #c28a1e) 14%, transparent); color: var(--warn, #c28a1e); padding: var(--s-2, 8px) var(--s-3, 12px); border-radius: var(--r-md, 12px); margin-bottom: var(--s-3, 12px); }

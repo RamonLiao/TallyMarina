@@ -173,6 +173,10 @@ describe('monkey: triage', () => {
     });
     dismissReconBreaks(app._db, P);
     registerAcmeFixtureAssets(app._db); // registry close-gate precondition (assets have known scale)
+    // Task 7: revaluation light precondition — this entity holds zero lots (JE carries no
+    // origCoinType/origQtyMinor), so the run has nothing to price; it still must exist once.
+    const revalR = await app.inject({ method: 'POST', url: `/entities/${encodeURIComponent(TEST_ENTITY_ID)}/revaluation/run`, payload: { periodId: P } });
+    expect(revalR.statusCode).toBe(201);
     const lockRes = await app.inject({ method: 'POST', url: `/entities/${encodeURIComponent(TEST_ENTITY_ID)}/period/lock`, payload: { periodId: P } });
     expect(lockRes.statusCode).toBe(200);
     const acc = await app.inject({ method: 'POST', url: `/triage/proposals/${p.id}/accept` });

@@ -77,6 +77,17 @@ export function foldRemainingLots(db: Db, entityId: string, wallet: string, coin
   ));
 }
 
+// Task 6 (revaluation orchestration): entity-wide remaining lots. foldRemainingLots is
+// per (wallet, coinType) by design; the revaluation run needs EVERY open position, so
+// enumerate the distinct pairs from lot_movement and fold each. Deterministic order
+// (wallet, coin_type ASC) so lotSetHash inputs are read-order independent regardless.
+export function foldAllRemainingLots(db: Db, entityId: string): PositionLot[] {
+  const pairs = db.prepare(
+    'SELECT DISTINCT wallet, coin_type AS coinType FROM lot_movement WHERE entity_id = ? ORDER BY wallet, coin_type',
+  ).all(entityId) as Array<{ wallet: string; coinType: string }>;
+  return pairs.flatMap((p) => foldRemainingLots(db, entityId, p.wallet, p.coinType));
+}
+
 export function acquireLotSeq(db: Db, entityId: string, lotId: string): string {
   const r = db.prepare(
     `SELECT lot_seq FROM lot_movement WHERE entity_id = ? AND lot_id = ? AND delta_qty_minor NOT LIKE '-%' ORDER BY lot_seq LIMIT 1`,

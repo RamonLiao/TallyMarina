@@ -1,97 +1,146 @@
-# Task 2 Report: active loader（fail-loud 讀路徑）+ 髒資料 monkey tests
+# Task 2 Report: IFRS_COST 減損/迴轉（雙上限）+ GAAP_COST no-write-up
 
-## What was implemented
+## Status: DONE
 
-Appended to `services/api/src/store/policyStore.ts` (after `ensurePolicySeed`):
+## Commit
+`bdc022ebdcb1d3bf8d3359f763821235694aa02b` — feat(rules-engine): impairment tracks — IFRS dual-cap reversal, GAAP_COST no-write-up
 
-- `class PolicyPersistenceError extends Error` with `code: 'POLICY_MISSING' | 'POLICY_CORRUPT'`.
-- `export const CoaRulesSchema` (exported per controller resolution #3, for Task 5).
-- `getActivePolicy(db, entityId)` — SELECT max version from `policy_sets`, throws `POLICY_MISSING` if no row, `POLICY_CORRUPT` on non-JSON or zod-schema-invalid doc.
-- `getActiveCoaMapping(db, entityId)` — same pattern for `coa_mapping_sets`, validated against `CoaRulesSchema` (nonempty array of `{eventType, leg, account}`).
-- `toResolvedPolicySet(doc, periodOpen)` — projects `PolicyDoc` down to the engine's `ResolvedPolicySet` subset; throws `POLICY_CORRUPT` if `costBasisMethod !== 'FIFO'` (engine type pins FIFO; WAC docs are storable but not yet executable).
-- `buildCoaMappingFromRules(rules)` — wraps `resolveCoa` (from `policyConstants.js`) into a `CoaMapping`.
+## Files changed
+- Modified: `services/rules-engine/src/revaluation/revalue.ts`
+- Added: `services/rules-engine/test/revalue.impair.test.ts`
 
-Imports added: `resolveCoa` from `../http/policyConstants.js`, `type { ResolvedPolicySet, CoaMapping }` from `../deps/rulesEngine.js`. The previously-dead `type CoaRule` import is now live (used in loader return types), per controller resolution #2.
+## What was built
 
-New test file `services/api/test/policyStore.load.test.ts` — brief's test content verbatim, with controller resolution #1 applied: static ESM imports (`getActivePolicy, getActiveCoaMapping, toResolvedPolicySet, buildCoaMappingFromRules, PolicyPersistenceError, SEED_POLICY_DOC, ensurePolicySeed`) instead of inline `require(...)`; `dbWithEntity()` calls the statically-imported `ensurePolicySeed` directly.
+`revalueLots` now dispatches on `input.basis`:
+- `GAAP_FV` → existing per-lot net-delta track (unchanged, Task 1).
+- `IFRS_COST` / `GAAP_COST` → new `impairmentTrack(input, coinType, lots, px, decimals, out)`.
+
+### Formula (both IFRS_COST and GAAP_COST)
+- `attributedImpairment(lot, valuationState)` — the single source of truth for the impairment
+  attributed to the lot's *current remaining quantity*:
+  - `0` if no cumulative impairment.
+  - `cumulativeImpairmentMinor` unscaled if there's no valuation state, or
+    `qtyAtLastValuationMinor` is missing/`'0'` (spec: proportion = 1 in that case).
+  - Otherwise `floor(cumulativeImpairmentMinor × remainingQtyMinor / qtyAtLastValuationMinor)`.
+- `carrying = lot.costMinor − attributedImpairment(...)`.
+- `value = valueOfQty(remainingQtyMinor, unitPriceMinor, decimals)`.
+- `value < carrying` → **IMPAIR**, full amount `carrying − value` recognized (cost model never caps
+  impairment side), reason `IMPAIR`.
+- `value > carrying`:
+  - `GAAP_COST` → skip entirely (ASC 350-30, one-way, no JE, no valuation row).
+  - `IFRS_COST` → **REVERSE**, `reverseAmt = min(recovery, cap1, cap2)` where
+    `recovery = value − carrying`, `cap1 = lot.costMinor − carrying` (post-reversal carrying can't
+    exceed original cost), `cap2 = attributedImpairment(...)` (reversal can't exceed the
+    proportionally-attributed cumulative impairment). Both caps intentionally reuse
+    `attributedImpairment` so they stay internally consistent (see mutation-check #2 below).
+- Per-coin JE aggregation: all lots' IMPAIR amounts sum into one `Dr ImpairmentLoss / Cr
+  DigitalAssets` line pair; all lots' REVERSE amounts sum into one `Dr DigitalAssets / Cr
+  ImpairmentReversalGain` pair. Both pairs can coexist in the same JE (IMPAIR and REVERSE do not
+  net against each other), matching brief Step 3.
+- `draft()` helper (Task 1) extended with an optional `reason` param (default `'REVALUE'`) so both
+  tracks share it; `seq: 1` placeholder contract preserved per Task 1 review note (api overwrites).
 
 ## TDD evidence
 
-**RED** — `cd services/api && npx vitest run test/policyStore.load.test.ts`:
-```
-Test Files  1 failed (1)
-     Tests  5 failed | 1 passed (6)
-```
-(Failures: `getActivePolicy is not a function` / `toResolvedPolicySet is not a function` / `buildCoaMappingFromRules is not a function` / undefined `.code` on missing `PolicyPersistenceError` — as expected before implementation.)
+**Step 2 (red):** ran `npx vitest run test/revalue.impair.test.ts` against the four brief
+sequences before any implementation — all 4 failed (GAAP_FV fallback path produced wrong
+reason/`REVALUE` instead of `IMPAIR`/`REVERSE`, wrong deltas, non-empty valuations for
+GAAP_COST).
 
-**GREEN** — `cd services/api && npx vitest run test/policyStore.load.test.ts test/policyStore.test.ts`:
-```
-Test Files  2 passed (2)
-     Tests  10 passed (10)
-```
+**Step 4 (green):** after implementation, all 4 sequences pass; full suite `133/133` (Task 1's
+129 + 4 new, no regression); `npx tsc --noEmit` clean.
 
-## Files changed
+### Mutation check 1 — GAAP_COST no-write-up bypass
+Temporarily changed `if (basis === 'GAAP_COST') continue;` → `if (false) continue;`.
+Result: sequence C ("GAAP_COST：價回升不迴轉") went **red** — got a REVERSE valuation row +
+JE instead of the expected empty arrays. Reverted; suite back to green.
 
-- `services/api/src/store/policyStore.ts` (modified — loaders appended, 2 new imports)
-- `services/api/test/policyStore.load.test.ts` (new)
+### Mutation check 2 — cap2 proportion removed
+Temporarily changed `attributedImpairment` to always return raw `cumulativeImpairmentMinor`
+(no proportional scaling by `remainingQty/qtyAtLastValuation`).
+Result: sequence B ("IFRS 迴轉：部分處分後 cap 按比例下降") went **red** — got
+`deltaMinor: '30000'` / `priorCarryingMinor: '20000'` instead of expected `'15000'` /
+`'35000'`. This confirms `attributedImpairment` is genuinely load-bearing for both the carrying
+computation and cap2 (they intentionally share one function, so the mutation cascades through
+both — this is why cap1 and cap2 evaluate to the same number in exact-division test data, but
+both are still independently meaningful constraints per spec text). Reverted; suite back to
+green.
 
-## Full-suite + typecheck numbers
+Both mutations were applied via file edit, verified with `npx vitest run test/revalue.impair.test.ts`,
+then reverted (verified with `git diff` / `npx vitest run` showing clean state before commit).
 
-- `cd services/api && npx vitest run`: **605/605 passed** (96 test files), up from 599/599 at Task 1 (+6 new tests from this task, no regressions, no skips).
-- Root `npm run typecheck` (`npm exec --workspaces -- tsc --noEmit`): **clean, zero errors**.
+## Four test sequences (in `test/revalue.impair.test.ts`)
 
-## Self-review findings
+- **序列 A** — IFRS basic impairment: cost 100000, price drop to value 70000 (no prior
+  valuation) → `Dr ImpairmentLoss 30000 / Cr DigitalAssets 30000`, reason `IMPAIR`.
+- **序列 B** — IFRS dual-cap reversal after partial disposal: `qtyAtLastValuationMinor='100'`,
+  `cumulativeImpairmentMinor='30000'`, lot now `remainingQtyMinor='50'`, `costMinor='50000'`,
+  value recovers to `60000` (via decimals=0, unitPriceMinor=1200×50). cap2=15000,
+  carrying=35000, recovery=25000, cap1=15000 → reversal clamped to **15000**.
+  `Dr DigitalAssets 15000 / Cr ImpairmentReversalGain 15000`, reason `REVERSE`.
+- **序列 C** — same inputs as B but `basis: 'GAAP_COST'` → `journalEntries: []`,
+  `valuations: []` (no write-up).
+- **序列 D** — IFRS reversal clamped to original cost on a price spike (no disposal, full
+  cumulative impairment 30000 on cost 100000, carrying 70000, value 500000, recovery 430000,
+  cap1=cap2=30000) → reversal clamped to **30000**, new carrying = 100000 = original cost.
 
-- Linchpin test (`toResolvedPolicySet(SEED_POLICY_DOC, true)` vs `{...DEMO_POLICY_SET, periodOpen:true}`): verified genuine — `ResolvedPolicySet` has exactly 10 fields (`policySetVersion, assetPolicyVersion, eventPolicyVersion, ruleVersion, parserVersion, normalizationVersion, costBasisMethod, functionalCurrency, roundingThresholdMinor, periodOpen`), all 10 are explicitly assigned in `toResolvedPolicySet`'s return object from `SEED_POLICY_DOC`'s corresponding fields (which are themselves seeded verbatim from `DEMO_POLICY_SET` in Task 1). Vitest's `toEqual` performs recursive structural equality — no partial-match risk. Test passes both `periodOpen: true` and `false` branches.
-- Monkey tests use real `better-sqlite3` in-memory DB via `openDb(':memory:')` and raw `db.prepare(...).run(...)` inserts of dirty JSON payloads (bad enum, missing field, non-JSON string, non-array rules object) directly into `policy_sets`/`coa_mapping_sets` — no mocks. Each confirmed to throw `PolicyPersistenceError` with the correct `.code`, proving the read path never silently falls back to constants or swallows corrupt data.
-- Controller resolutions 1–3 all applied and verified: static imports work identically to the brief's `require`-based version; `CoaRule` import is now live (no unused-import warning); `CoaRulesSchema` is `export const`.
+## Verification numbers
+- `npx vitest run test/revalue.impair.test.ts`: 4/4 passed.
+- `npx vitest run` (full suite): 133/133 passed, 25 test files.
+- `npx tsc --noEmit`: 0 errors.
 
-## Concerns
+## Concerns / notes for reviewer
+- `attributedImpairment` is shared between the carrying computation and cap2 by design (see
+  mutation check 2 rationale above). Under the invariant used throughout `impairmentTrack`
+  (`carrying := cost − attributed`, assigned once per lot before either cap is computed),
+  `cap1 = cost − carrying = cost − (cost − attributed) = attributed = cap2` is an **algebraic
+  identity**, not a coincidence of exact-division test data — there is no input for which cap1
+  and cap2 diverge, because cap1 is definitionally a re-derivation of `attributed` through
+  `carrying`. Floor-division rounding inside `attributedImpairment` does not create a divergence
+  path either: `carrying` is computed once from the (possibly floor-rounded) `attributed`, and
+  `cap1` is then derived from that same `carrying`, so any rounding is baked into `attributed`
+  before `cap1` is derived from it — both caps see the identical rounded value. The two caps are
+  kept as separate expressions (`cap1 = cost - carrying`, `cap2 = attributed`) rather than one
+  shared variable purely as a defensive-coding choice: if `carrying` is ever refactored to be
+  tracked independently of `cost - attributed` (e.g. a future schema stores carrying directly),
+  the two clamps would then diverge and both are still independently correct constraints per
+  spec text — see the added code comment in `revalue.ts` for the same argument in situ.
+- Did not run dual-review (external/independent review round) — out of scope for this
+  implementer turn per the dispatch instructions (verifier and review are separate downstream
+  steps in the 13-task plan).
 
-None. Full suite green, typecheck clean, commit created with only the two explicit paths staged (`git add services/api/src/store/policyStore.ts services/api/test/policyStore.load.test.ts`).
+## Fix wave
 
-## Fix: WAC guard test
+Applied review findings from the original Task 2 report:
 
-Added test in `services/api/test/policyStore.load.test.ts` (line 66–73, inside `describe('policy loaders (Task 2)')` block):
+1. **Test gap — IMPAIR/REVERSE non-netting across lots in one coin.** Added 序列 E to
+   `test/revalue.impair.test.ts`: two lots on the same coin/price point, lot A triggers IMPAIR
+   30000 (no prior impairment, value drops below carrying), lot B triggers REVERSE 20000 (prior
+   `cumulativeImpairmentMinor=20000`, price recovers above carrying). Asserts a single JE with
+   exactly 4 lines — `ImpairmentLoss` DEBIT 30000 / `DigitalAssets` CREDIT 30000 (leg `IMPAIR`)
+   and `DigitalAssets` DEBIT 20000 / `ImpairmentReversalGain` CREDIT 20000 (leg `REVERSE`) — and
+   that the two pair totals (30000, 20000) are unequal, i.e. not netted into one pair.
 
-```ts
-it('POLICY_CORRUPT: a valid-but-non-FIFO doc (WAC) is storable but not executable', () => {
-  try {
-    toResolvedPolicySet({ ...SEED_POLICY_DOC, costBasisMethod: 'WAC' }, true);
-    expect.unreachable('should throw');
-  } catch (e) {
-    expect(e).toBeInstanceOf(PolicyPersistenceError);
-    expect((e as PolicyPersistenceError).code).toBe('POLICY_CORRUPT');
-  }
-});
-```
+   **Mutation evidence (red before fix):** temporarily changed `impairmentJe` in `revalue.ts` to
+   net `totalImpair`/`totalReverse` before building lines (`net = totalImpair - totalReverse`,
+   then only the surviving side emits a pair). Result:
+   `expected [ { …(8) }, …(1) ] to have a length of 4 but got 2` — 序列 E went red as required.
+   Reverted; `npx vitest run test/revalue.impair.test.ts` back to 5/5 green.
 
-**Mutation check (red confirmed → restored green):**
+2. **Cap1/cap2 equality comment.** Added an in-code comment in `revalue.ts` above the `cap1`/`cap2`
+   assignments explaining the algebraic identity (`cap1 = cost - carrying = attributed = cap2`
+   under the `carrying := cost - attributed` invariant) and why both clamps are kept as separate
+   expressions (defensive against a future refactor where carrying is tracked independently). No
+   logic changed.
 
-1. **RED** (guard commented out):
-   ```
-   ❯ test/policyStore.load.test.ts > policy loaders (Task 2) > POLICY_CORRUPT: a valid-but-non-FIFO doc (WAC) is storable but not executable
-     → expected AssertionError{ …(6) } to be an instance of PolicyPersistenceError
-   
-    Test Files  1 failed (1)
-         Tests  1 failed | 6 passed (7)
-   ```
+3. **Report correction.** The original Concerns section speculated that floor-division rounding
+   could make cap1 and cap2 "diverge in real data" — this was incorrect; per the reviewer's
+   algebraic argument above, no input causes divergence because cap1 is a re-derivation of
+   `attributed` via `carrying`, not an independently-rounded quantity. Rewritten above to state
+   the identity and the no-divergence conclusion directly.
 
-2. **GREEN** (guard restored):
-   ```
-   ✓ test/policyStore.load.test.ts  (7 tests) 10ms
-   
-    Test Files  1 passed (1)
-         Tests  7 passed (7)
-   ```
-
-**Both policy test files (4 + 7 = 11 tests):**
-```
-✓ test/policyStore.test.ts  (4 tests) 8ms
-✓ test/policyStore.load.test.ts  (7 tests) 10ms
-
-Test Files  2 passed (2)
-     Tests  11 passed (11)
-```
-
-**Commit:** `716ba58` — `test(policy): red-once coverage for WAC-not-executable guard in toResolvedPolicySet`
+### Verification (fix wave)
+- `npx vitest run test/revalue.impair.test.ts test/revalue.gaapfv.test.ts`: 10/10 passed
+  (5 impair incl. new 序列 E, 5 gaapfv).
+- `npx vitest run` (full suite): no regressions vs. prior 133/133 baseline + 1 new test.
+- `npx tsc --noEmit`: 0 errors.

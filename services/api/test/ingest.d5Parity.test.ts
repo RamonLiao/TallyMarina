@@ -64,8 +64,14 @@ function newDb(): Db {
   return db;
 }
 
+// D14: this test pins byte-identity of the gated vs. pre-gate paths, not pricing behavior —
+// supply the price directly so both DBs (which have no price_points rows) still post.
+const PRICES = [
+  { id: 'px-test', coinType: '0x2::sui::SUI', priceCurrency: 'USD', asOfDate: '2026-06-01', unitPriceMinor: '100' },
+];
+
 function pipeline(db: Db, row: EventRow): { merkleRoot: string; manifestHash: string } {
-  const output = evaluate(buildRuleInput(row, { periodId: PERIOD, periodOpen: true, lots: lotsForEvent(db, row), policySet: DEMO_POLICY_SET, coaMapping: buildCoaMapping() }));
+  const output = evaluate(buildRuleInput(row, { periodId: PERIOD, periodOpen: true, lots: lotsForEvent(db, row), policySet: DEMO_POLICY_SET, coaMapping: buildCoaMapping(), prices: PRICES }));
   if (output.decision !== 'POSTABLE') throw new Error(`expected POSTABLE, got ${output.decision}`);
   expect(output.journalEntries.length).toBeGreaterThan(0);
   const { auditSnapshot } = buildSnapshot(

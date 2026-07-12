@@ -32,6 +32,8 @@ import { classifyEvent } from '../ai/classify.js';
 import { reviewCopilot } from '../ai/copilot.js';
 import { buildRuleInput } from './buildRuleInput.js';
 import { lotsForEvent } from './lotsForEvent.js';
+import { pricesForEvent } from './pricesForEvent.js';
+import type { PricePoint } from '../deps/rulesEngine.js';
 import { buildLotsDTO } from '../lots/dto.js';
 import { evaluate, buildMerkle, leafHash, inclusionProof, eventTypeSchema, type JournalEntry } from '../deps/rulesEngine.js';
 import { buildSnapshot } from '../deps/snapshotSvc.js';
@@ -58,6 +60,12 @@ import type { SuiGrpcClient } from '@mysten/sui/grpc';
 import { registerAsset, correctAsset, RegisterError, makeGrpcCoinInfoFetcher } from '../assets/register.js';
 import { listAssets } from '../assets/store.js';
 import { getAssetDecimals } from '../assets/registry.js';
+import { canonicalCoinType, CoinTypeError } from '../assets/normalize.js';
+import {
+  insertPricePoint, latestPricesAt, listPriceHistory, periodOfDate,
+} from '../store/pricePointStore.js';
+import { previewRun, executeRun, basisOf } from '../revaluation/orchestrate.js';
+import { RevaluationDataError, insertValuation, latestValuationForLot, activeGaapCoinBasis } from '../store/revaluationStore.js';
 
 const ASSET_ACTOR = 'demo-controller';      // server-side constant, never a client value (D13)
 const COIN_INFO_TIMEOUT_MS = 5000;
@@ -122,6 +130,16 @@ function rawEventTypeOf(rawJson: string): string | null {
   return typeof t === 'string' ? t : null;
 }
 
+// §4.5 (CPA B1, Task 10): mirrors rules-engine's swapRules proration EXACTLY (full-take → take
+// the whole field, partial → BigInt trunc-division) so the DISPOSAL_RELEASE row's delta lines
+// up with the delta the engine actually reclassified into the posted JE. Do not re-derive this
+// with a different rounding rule — a drift here would silently desync the released amount from
+// what the JE recognized.
+function attributedTakenDelta(fieldMinor: string, takeQtyMinor: string, origQtyMinor: string): string {
+  if (takeQtyMinor === origQtyMinor) return fieldMinor;
+  return ((BigInt(fieldMinor) * BigInt(takeQtyMinor)) / BigInt(origQtyMinor)).toString();
+}
+
 function exceptionDTO(db: Db, entityId: string, periodId: string, lowConf: number) {
   const anchored = hasAnchoredSnapshot(db, entityId);
   return collectExceptions(db, entityId, periodId, lowConf).map((ex) => {
@@ -170,6 +188,22 @@ function requireEntity(db: Db, id: string) {
   const e = getEntity(db, id);
   if (!e) throw new ApiError(404, 'ENTITY_NOT_FOUND', `no entity ${id}`);
   return e;
+}
+
+// Manual price entry (Task 4, period-end revaluation MVP): server-side decimal-string ->
+// minor-unit conversion. NEVER parseFloat/Number — a float round-trip through IEEE-754 can
+// silently corrupt a price used to value real positions. Reject anything that isn't
+// `<digits>` or `<digits>.<1-2 digits>`: no sign (POST rejects price<=0 anyway), no
+// exponent notation, no thousands separators, at most 2 decimal places (fiat minor unit).
+const PRICE_RE = /^(\d+)(?:\.(\d{1,2}))?$/;
+
+function parsePriceToMinor(price: string): bigint {
+  const m = PRICE_RE.exec(price);
+  if (!m) throw new ApiError(400, 'VALIDATION', `price must be a plain decimal string with at most 2 decimal places: ${price}`);
+  const [, whole = '0', frac = ''] = m;
+  const minor = BigInt(whole) * 100n + BigInt(frac.padEnd(2, '0'));
+  if (minor <= 0n) throw new ApiError(400, 'VALIDATION', `price must be > 0: ${price}`);
+  return minor;
 }
 
 function requireEvent(db: Db, id: string): EventRow {
@@ -247,6 +281,11 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     if (err instanceof PolicyPersistenceError) {
       return reply.code(503).send(toEnvelope(err.code, err.message));
     }
+    // Corrupt lot_valuation rows detected by the fail-closed fold (Task 6) — a server-side
+    // data integrity fault, never a client error.
+    if (err instanceof RevaluationDataError) {
+      return reply.code(500).send(toEnvelope(err.code, err.message));
+    }
     if (err instanceof AnchorError) {
       const map: Record<string, number> = {
         ENTITY_REF_MISMATCH: 409, STALE_CAP: 409, BAD_HASH_LEN: 400, PERIOD_TOO_LONG: 400, SEQ_OUT_OF_RANGE: 400,
@@ -308,7 +347,32 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     }
     return deps.mutex.run('policy-write', async () => {
       const { doc: before } = getActivePolicy(db, entity);
+      // External review (should-fix, basis-lock; generalized after round-1 dual-review):
+      // accountingStandard / asu202308Applies pick the `expectedBasis` foldValuationStates
+      // folds existing lot_valuation rows against (Task 6/9). foldValuationStates throws
+      // RevaluationDataError on ANY basis mismatch — not just a GAAP_FV one — so reverting a
+      // coin's basis away from whatever it was last revalued under would make the next
+      // run-rules event touching it 500 (mislabeled VALUATION_CORRUPT; the entity actually
+      // needs a restatement flow, which doesn't exist yet). Reject at the write boundary,
+      // same shape as the WAC guard above.
+      // Deliberately allows the FORWARD adoption direction — a coin with no live valuation
+      // yet, or moving GAAP_COST -> GAAP_FV — since that's the one-directional,
+      // already-orchestrated transition (orchestrate.ts transitionMode) with its own tests.
+      // Only reverting an already-GAAP-elected coin (GAAP_FV, or GAAP_COST straight back to
+      // IFRS_COST) counts as a lock trip. Merge first so the check reads the PROPOSED doc's
+      // basis per coin (equal-value resends compute the same basis as before, so they never
+      // trip this).
       const merged: PolicyDoc = { ...before, ...changes };
+      if (changes.accountingStandard !== undefined || changes.asu202308Applies !== undefined) {
+        for (const [coinType, liveBasis] of activeGaapCoinBasis(db, entity)) {
+          const newBasis = basisOf(merged, coinType);
+          const reverted = liveBasis === 'GAAP_FV' ? newBasis !== 'GAAP_FV' : newBasis === 'IFRS_COST';
+          if (reverted) {
+            throw new ApiError(400, 'POLICY_BASIS_LOCKED',
+              `coin ${coinType} is already revalued under GAAP basis '${liveBasis}' — reverting to '${newBasis}' requires a restatement flow (not yet available)`);
+          }
+        }
+      }
       if (canonical(merged) === canonical(before)) {
         throw new ApiError(409, 'NO_CHANGE', 'no effective change to the active policy set');
       }
@@ -489,6 +553,94 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
       throw e;
     }
   });
+
+  // Manual price entry (Task 4; as-of gate relaxed per spec v2.3). MVP main path for
+  // period-end revaluation, fail-closed: unregistered coinType, malformed price, or an
+  // as-of date outside any known period's date range are all rejected at the write
+  // boundary, never silently coerced. as_of no longer needs to land exactly on a period
+  // cut-off date — this unbricks event-day pricing (e.g. a mid-period payment) that Task 9's
+  // fail-closed PRICE_MISSING gate would otherwise reject with no way to supply a price.
+  const priceBodySchema = z.object({
+    coinType: z.string().min(1),
+    asOf: z.string().min(1),
+    price: z.string().min(1),
+  });
+
+  app.post<{ Params: { id: string }; Body: unknown }>('/entities/:id/prices', async (req, reply) => {
+    requireEntity(db, req.params.id);
+    const parsed = priceBodySchema.safeParse(req.body);
+    if (!parsed.success) throw new ApiError(400, 'VALIDATION', parsed.error.issues.map((i) => i.message).join('; '));
+    const { coinType: rawCoinType, asOf, price } = parsed.data;
+
+    let coinType: string;
+    try {
+      coinType = canonicalCoinType(rawCoinType);
+    } catch (e) {
+      if (e instanceof CoinTypeError) throw new ApiError(400, e.code, e.message);
+      throw e;
+    }
+    if (getAssetDecimals(db, req.params.id, coinType) === null) {
+      throw new ApiError(400, 'ASSET_NOT_REGISTERED', `coinType ${coinType} is not registered for entity ${req.params.id}`);
+    }
+    try {
+      periodOfDate(asOf);
+    } catch {
+      throw new ApiError(400, 'VALIDATION', `asOf ${asOf} is not within any known period`);
+    }
+
+    const priceMinor = parsePriceToMinor(price);
+    const row = insertPricePoint(db, {
+      entityId: req.params.id, coinType, asOf,
+      priceMinor: priceMinor.toString(), quoteCurrency: 'USD', principalMarket: 'manual',
+      source: 'manual', level: 'LEVEL_2',
+    });
+    reply.code(201);
+    return row;
+  });
+
+  app.get<{ Params: { id: string }; Querystring: { coinType?: string } }>('/entities/:id/prices', async (req) => {
+    requireEntity(db, req.params.id);
+    // A malformed filter value can't match any stored (already-canonicalized) coinType —
+    // fall back to the raw string rather than 400ing a read-only query param; it simply
+    // yields an empty result set, which is the correct answer to "history for a coin that
+    // was never validly written."
+    let coinTypeFilter: string | undefined;
+    if (req.query.coinType) {
+      try { coinTypeFilter = canonicalCoinType(req.query.coinType); } catch { coinTypeFilter = req.query.coinType; }
+    }
+    const history = listPriceHistory(db, req.params.id, coinTypeFilter);
+    const currentIds = new Set<string>();
+    for (const asOf of new Set(history.map((r) => r.asOf))) {
+      for (const r of latestPricesAt(db, req.params.id, asOf)) currentIds.add(r.id);
+    }
+    return { prices: history.map((r) => ({ ...r, superseded: !currentIds.has(r.id) })) };
+  });
+
+  // Period-end revaluation (Task 6, spec §6). Preview is READ-ONLY (its sandbox transaction
+  // always rolls back) and never 400s on missing prices — it reports them. Run is the write
+  // path: all-or-nothing PRICE_MISSING, dual-fingerprint replay gate, reversal rerun.
+  app.get<{ Params: { id: string }; Querystring: { periodId?: string } }>(
+    '/entities/:id/revaluation/preview', async (req) => {
+      requireEntity(db, req.params.id);
+      const periodId = req.query.periodId;
+      if (!periodId) throw new ApiError(400, 'VALIDATION', 'periodId query param is required');
+      return previewRun(db, req.params.id, periodId);
+    });
+
+  app.post<{ Params: { id: string }; Body: { periodId?: string } }>(
+    '/entities/:id/revaluation/run', async (req, reply) => {
+      requireEntity(db, req.params.id);
+      const periodId = req.body?.periodId;
+      if (!periodId) throw new ApiError(400, 'VALIDATION', 'periodId is required');
+      // Spec §6 (v2.1): aligned with run-rules' 409 PERIOD_LOCKED — a locked period is a
+      // state conflict, not a malformed request (was 400 PERIOD_CLOSED pre-v2.1).
+      if (getPeriodLock(db, req.params.id, periodId).status === 'LOCKED') {
+        throw new ApiError(409, 'PERIOD_LOCKED', `period ${periodId} is locked; reopen it before revaluing`);
+      }
+      const result = executeRun(db, req.params.id, periodId);
+      reply.code(201);
+      return result;
+    });
 
   // 1. GET /entities
   app.get('/entities', async () => ({
@@ -688,14 +840,81 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     const activeCoa = getActiveCoaMapping(db, req.params.id);
     const enginePolicy = toResolvedPolicySet(activePolicy.doc, periodOpen);
     const engineCoa = buildCoaMappingFromRules(activeCoa.rules);
+    // §4.4.1 (D9): negative-net GAS_FEE events cap their GasFeeExpense contra at the
+    // as-of-this-event cumulative balance, in event-time order (candidates are sorted
+    // chronologically above). Maintain that running total across the loop.
+    //
+    // Task 8 review (Critical): the accumulator MUST also start from already-POSTED
+    // GasFeeExpense lines in this period, not '0' — otherwise staggered posting (batch 1
+    // posts a positive-gas event, batch 2 later posts a negative-net event over the SAME
+    // event set) drops the batch-1 contribution and produces a different contra/income
+    // split than a single-batch post would (D9 determinism violation). Seed from posted
+    // journal_entries here, then merge-advance it against the in-pass accumulation below
+    // using the SAME (eventTime, id) ordering key candidates are sorted by, so a posted
+    // event and an in-pass event with the same eventTime break ties identically regardless
+    // of which batch each landed in.
+    const gasExpenseAcct = engineCoa.resolve({ eventType: 'GAS_FEE', leg: 'NETWORK_FEE', coinType: '' });
+    const postedGasContrib: Array<{ eventTime: string; eventId: string; delta: bigint }> = [];
+    if (gasExpenseAcct) {
+      for (const row of listJournal(db, req.params.id, periodId)) {
+        const je = JSON.parse(row.jeJson) as { lines: Array<{ account: string; side: string; amountMinor: string }> };
+        let delta = 0n;
+        for (const line of je.lines) {
+          if (line.account !== gasExpenseAcct) continue;
+          delta += line.side === 'DEBIT' ? BigInt(line.amountMinor) : -BigInt(line.amountMinor);
+        }
+        if (delta === 0n) continue;
+        const srcEvent = getEvent(db, row.eventId);
+        if (!srcEvent) throw new ApiError(500, 'INTERNAL', `journal entry ${row.id} references missing event ${row.eventId}`);
+        postedGasContrib.push({ eventTime: eventTimeOf(srcEvent), eventId: row.eventId, delta });
+      }
+      postedGasContrib.sort((a, b) => a.eventTime.localeCompare(b.eventTime) || a.eventId.localeCompare(b.eventId));
+    }
+    let gasExpenseToDateMinor = '0';
+    let postedGasPtr = 0;
     let posted = 0, skipped = 0;
+    // D14: memoize prices by as-of date WITHIN this single run-rules pass. Safe because the
+    // whole loop is already scoped to one entityId (req.params.id) — never mix across
+    // entities/days. Avoids re-querying price_points once per event when many candidates
+    // share the same event date.
+    const priceCache = new Map<string, PricePoint[]>();
     for (const ev of candidates) {
-      const output = evaluate(buildRuleInput(ev, { periodId, periodOpen, lots: lotsForEvent(db, ev), policySet: enginePolicy, coaMapping: engineCoa }));
+      // Merge in any already-posted GasFeeExpense contribution that sorts strictly before
+      // this candidate under the (eventTime, id) key — same tiebreak as the candidates sort.
+      const evTime = eventTimeOf(ev);
+      for (let next = postedGasContrib[postedGasPtr]; next && (next.eventTime < evTime || (next.eventTime === evTime && next.eventId < ev.id)); next = postedGasContrib[postedGasPtr]) {
+        gasExpenseToDateMinor = (BigInt(gasExpenseToDateMinor) + next.delta).toString();
+        postedGasPtr++;
+      }
+      const asOf = evTime.slice(0, 10);
+      let prices = priceCache.get(asOf);
+      if (!prices) { prices = pricesForEvent(db, ev); priceCache.set(asOf, prices); }
+      // §4.5 (Task 10): keep the PRE-consumption lots around — buildRuleInput/evaluate only
+      // returns lotMovements (deltas), not each consumed lot's original valuationDeltaMinor.
+      // The DISPOSAL_RELEASE write below re-derives the attributed delta from these.
+      const preLots = lotsForEvent(db, ev, activePolicy.doc);
+      const output = evaluate(buildRuleInput(ev, {
+        periodId, periodOpen, lots: preLots, policySet: enginePolicy, coaMapping: engineCoa,
+        gasExpenseToDateMinor, prices,
+      }));
       // JE-less POSTABLE outputs still carry lot movements that must persist — the old
       // `journalEntries.length === 0 → skip` guard is gone. Non-zero OPENING_LOT now posts
       // a real JE (Dr ACQUISITION / Cr OPENING_EQUITY, Task 1+2); the JE-less branch now
       // applies only to zero-basis opening lots and same-wallet INTERNAL_TRANSFER legs.
       if (output.decision !== 'POSTABLE') { skipped++; continue; }
+      // Advance the accumulator with THIS event's own effect on the GasFeeExpense account
+      // (DEBIT recognizes fee expense; CREDIT is the §4.4.1 contra reducing it back) before
+      // moving to the next event — the "as-of, not-including" ordering the spec requires.
+      if (gasExpenseAcct) {
+        let delta = 0n;
+        for (const je of output.journalEntries) {
+          for (const line of je.lines) {
+            if (line.account !== gasExpenseAcct) continue;
+            delta += line.side === 'DEBIT' ? BigInt(line.amountMinor) : -BigInt(line.amountMinor);
+          }
+        }
+        if (delta !== 0n) gasExpenseToDateMinor = (BigInt(gasExpenseToDateMinor) + delta).toString();
+      }
       const acquireStamp = `${eventTimeOf(ev)}|${ev.id}`;
       // JE + movements are one atomic unit (spec §2): an injected movement failure must
       // roll the JE back too — no partial post. Counters mutate only after commit.
@@ -738,6 +957,49 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
             costBasisMethod: 'FIFO', policySetVersion: activePolicy.doc.policySetVersion,
             idempotencyKey: `${anchorKey}|${m.lotId}`,
           });
+        }
+        // §4.5 (CPA B1, Task 10): for each lot CONSUMED by this event (negative movement) that
+        // carried a revalued GAAP_FV delta, release the attributed portion of that delta so a
+        // future revaluation's `prior = cost + cumulativeDeltaMinor` baseline shrinks in lockstep
+        // with the lot's already-shrunk remaining cost (lot_movement is unchanged, D3). Skipped
+        // for lots with no valuationDeltaMinor (never revalued, or impair-track — the impair
+        // track self-corrects via qty-ratio at the next revaluation, no release row needed).
+        for (const m of output.lotMovements) {
+          if (!m.deltaQtyMinor.startsWith('-')) continue; // acquisition leg, not a disposal
+          const preLot = preLots.find((l) => l.lotId === m.lotId);
+          if (!preLot || preLot.valuationDeltaMinor === undefined) continue;
+          const takeQty = (-BigInt(m.deltaQtyMinor)).toString();
+          const takenDelta = attributedTakenDelta(preLot.valuationDeltaMinor, takeQty, preLot.remainingQtyMinor);
+          if (takenDelta === '0') continue;
+          const latestVal = latestValuationForLot(db, ev.entityId, m.lotId);
+          if (!latestVal) {
+            throw new Error(`run-rules: lot ${m.lotId} carries valuationDeltaMinor but has no lot_valuation row — fold/store desync`);
+          }
+          // Deviation from the brief's literal "seq 沿用該 lot 最新 seq" (documented per
+          // dev-rules.md's spec-deviation protocol): schema.sql's idx_lot_valuation_opening
+          // is a PARTIAL UNIQUE index — at most ONE seq=0 row per (entity, lot, basis), ever
+          // (D6 permanence). A lot whose only valuation row so far is the seq-0 ASU transition
+          // (real scenario: dispose right after the first GAAP_FV run, before any period
+          // reval creates a seq>=1 row for it) would otherwise try to insert a SECOND seq=0
+          // row here and hit that constraint. Every OTHER reason type stamps lot_valuation.seq
+          // from the run's OWN seq column (see executeRun's `d.seq === 0 ? 0 : run.seq`) — mint
+          // DISPOSAL_RELEASE the same way instead of trusting the lot's latest row's seq.
+          const runSeq = (db.prepare('SELECT seq FROM revaluation_run WHERE id = ?').get(latestVal.runId) as { seq: number } | undefined)?.seq;
+          if (runSeq === undefined) {
+            throw new Error(`run-rules: lot_valuation row ${latestVal.id} references orphan run_id ${latestVal.runId}`);
+          }
+          insertValuation(db, {
+            entityId: ev.entityId, lotId: m.lotId, periodId: ev.periodId!,
+            runId: latestVal.runId, seq: runSeq, basis: latestVal.basis,
+            qtyMinor: takeQty,
+            // Not a full FV snapshot (no new price observed) — prior/current bracket only the
+            // delta portion being released, so delta === current - prior stays true for anyone
+            // folding this row generically.
+            priorCarryingMinor: takenDelta, currentValueMinor: '0', deltaMinor: (-BigInt(takenDelta)).toString(),
+            pricePointId: null, jeId: anchorJeId, reason: 'DISPOSAL_RELEASE',
+            policySetVersion: activePolicy.doc.policySetVersion, supersededBy: null,
+          }, ev.id); // idSuffix: two separate disposal events draining the SAME lot under the
+          // SAME still-current run/seq (no intervening revaluation) must not collide on id.
         }
         // markPosted joins the SAME transaction (spec §6 #2): a crash between commit and the
         // status flip would leave the event AUTO with movements committed → next run folds the

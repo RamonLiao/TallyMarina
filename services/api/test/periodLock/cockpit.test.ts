@@ -13,13 +13,16 @@ beforeEach(() => {
   ensurePolicySeed(db);
 });
 
-it('pricing and export lights are mock and never green', () => {
+// WHY: Task 7 replaced the mock 'pricing' light with the real 'revaluation' light — the
+// mock light set shrinks to just 'export'. Confirms the swap didn't leave both around.
+it('export light is mock and never green; revaluation is real (no mock pricing light)', () => {
   const v = buildCockpit(db, 'e1', '2026-Q2', 0.7);
-  const pricing = v.lights.find((l) => l.key === 'pricing')!;
   const exp = v.lights.find((l) => l.key === 'export')!;
-  expect(pricing.status).toBe('mock');
+  const revaluation = v.lights.find((l) => l.key === 'revaluation')!;
   expect(exp.status).toBe('mock');
-  expect(pricing.real).toBe(false);
+  expect(v.lights.find((l) => l.key === 'pricing')).toBeUndefined();
+  expect(revaluation.real).toBe(true);
+  expect(revaluation.status).toBe('red'); // fresh entity: no revaluation run yet
 });
 
 // WHY: closeable must ignore mock lights (no signal) but require every real/derived

@@ -9,7 +9,19 @@ import type {
 
 export function buildRuleInput(
   event: EventRow,
-  opts: { periodId: string; periodOpen: boolean; lots: PositionLot[]; policySet: ResolvedPolicySet; coaMapping: CoaMapping },
+  opts: {
+    periodId: string; periodOpen: boolean; lots: PositionLot[]; policySet: ResolvedPolicySet; coaMapping: CoaMapping;
+    // §4.4.1 (D9): as-of-this-event cumulative GasFeeExpense, event-time ordered, NOT
+    // including this event. Caller (run-rules loop) maintains the running total across
+    // the sorted candidate list; optional — omitted callers get the engine's '0' default.
+    gasExpenseToDateMinor?: string;
+    // D14: event-time prices, queried and mapped by the caller (via pricesForEvent /
+    // latestPricesAt) BEFORE calling this function — buildRuleInput stays pure, no DB here.
+    // Omitted/empty → RuleInput.prices is empty, and the engine's own phase 6 gate
+    // (phasePriceFx) fails closed with PRICE_MISSING for any event that requires valuation.
+    // No hardcoded demo price and no separate guard needed here.
+    prices?: PricePoint[];
+  },
 ): RuleInput {
   const raw = JSON.parse(event.rawJson) as NormalizedEvent;
   // Human review decision (spec §6.9) overrides the raw event classification; the AI
@@ -23,6 +35,7 @@ export function buildRuleInput(
   const runContext: RunContext = {
     runId: `run-${event.id}`, entityId: event.entityId, bookId: ne.bookId,
     periodId: opts.periodId, mode: 'POST', asOf: ne.eventTime,
+    gasExpenseToDateMinor: opts.gasExpenseToDateMinor,
   };
   // periodOpen resolves from the period_lock store per call — never from the constant
   // (review C1: the hardcoded `periodOpen: true` made the engine's PERIOD_CLOSED gate dead code).
@@ -32,10 +45,10 @@ export function buildRuleInput(
     coinType: ne.coinType, status: 'APPROVED',
     accountingClass: 'INTANGIBLE_IAS38_COST', measurementModel: 'IAS38_COST',
   };
-  const prices: PricePoint[] = [{
-    id: 'px-1', coinType: ne.coinType, priceCurrency: 'USD',
-    asOfDate: ne.eventTime.slice(0, 10), unitPriceMinor: '100',
-  }];
+  // D14: no more fabricated demo price. Caller-supplied opts.prices flows through
+  // verbatim; an empty/omitted list legitimately fails-closed downstream (phase 6
+  // PRICE_MISSING) for any event whose strategy requires valuation.
+  const prices: PricePoint[] = opts.prices ?? [];
   const fxRates: FxRate[] = [];
   // Real lots fold from the persisted lot_movement ledger (spec §4, Task 4). The caller
   // supplies them via lotsForEvent — an empty pool now legitimately fails-closed with

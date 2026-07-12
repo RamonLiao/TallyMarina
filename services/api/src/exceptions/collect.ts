@@ -4,6 +4,7 @@ import { listEventsByPeriod } from '../store/eventStore.js';
 import type { EventRow } from '../store/eventStore.js';
 import { buildRuleInput } from '../http/buildRuleInput.js';
 import { lotsForEvent } from '../http/lotsForEvent.js';
+import { pricesForEvent } from '../http/pricesForEvent.js';
 import { evaluate } from '../deps/rulesEngine.js';
 import { getPeriodLock } from '../periodLock/store.js';
 import { getActivePolicy, getActiveCoaMapping, toResolvedPolicySet, buildCoaMappingFromRules } from '../store/policyStore.js';
@@ -48,6 +49,9 @@ export function collectExceptions(db: Db, entityId: string, periodId: string, lo
   const activeCoa = getActiveCoaMapping(db, entityId);
   const enginePolicy = toResolvedPolicySet(activePolicy.doc, periodOpen);
   const engineCoa = buildCoaMappingFromRules(activeCoa.rules);
+  // D14: memoize prices by as-of date WITHIN this single collectExceptions call — already
+  // scoped to one entityId, never mix across entities/days.
+  const priceCache = new Map<string, ReturnType<typeof pricesForEvent>>();
   for (const e of listEventsByPeriod(db, entityId, periodId)) {
     if (e.status === 'NEEDS_REVIEW') {
       out.push(mk('CLASSIFY_REVIEW', e, 'AI routed to human review (low classification confidence)'));
@@ -59,7 +63,11 @@ export function collectExceptions(db: Db, entityId: string, periodId: string, lo
     if (e.status === 'APPROVED' || e.status === 'AUTO') {
       let reason = '';
       try {
-        const o = evaluate(buildRuleInput(e, { periodId, periodOpen, lots: lotsForEvent(db, e), policySet: enginePolicy, coaMapping: engineCoa }));
+        const eventTime = (JSON.parse(e.rawJson) as { eventTime: string }).eventTime;
+        const asOf = eventTime.slice(0, 10);
+        let prices = priceCache.get(asOf);
+        if (!prices) { prices = pricesForEvent(db, e); priceCache.set(asOf, prices); }
+        const o = evaluate(buildRuleInput(e, { periodId, periodOpen, lots: lotsForEvent(db, e, activePolicy.doc), policySet: enginePolicy, coaMapping: engineCoa, prices }));
         if (o.decision !== 'POSTABLE' || o.journalEntries.length === 0) {
           reason = o.exceptions[0]?.code ?? (o.decision === 'POSTABLE' ? 'NO_JOURNAL_ENTRIES' : o.decision);
         }

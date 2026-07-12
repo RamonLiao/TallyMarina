@@ -272,6 +272,68 @@ CREATE TABLE IF NOT EXISTS accounts (
   status         TEXT NOT NULL CHECK (status IN ('active','reserved_p1')),
   PRIMARY KEY (entity_id, name)
 );
+-- Task 4 (period-end revaluation, MVP manual price path): append-only manual price entry.
+-- No UPDATE/DELETE path exists anywhere in code — a re-entered price for the same
+-- (coin_type, as_of) is a NEW row; "current" is resolved at read time (latest by
+-- created_at, rowid tiebreak), never by mutating a prior row (D19-style history).
+CREATE TABLE IF NOT EXISTS price_points (
+  id                TEXT PRIMARY KEY,
+  entity_id         TEXT NOT NULL REFERENCES entities(id),
+  coin_type         TEXT NOT NULL,
+  as_of             TEXT NOT NULL,
+  price_minor       TEXT NOT NULL,   -- fiat minor units (price * 100), BigInt string — never float
+  quote_currency    TEXT NOT NULL,
+  principal_market  TEXT NOT NULL,
+  source            TEXT NOT NULL,
+  level             TEXT NOT NULL,
+  created_at        TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_price_points_lookup ON price_points (entity_id, coin_type, as_of, created_at);
+-- Task 5 (period-end revaluation persistence, spec §5): append-only revaluation run headers
+-- and per-lot valuation rows. seq is monotonic per (entity_id, period_id), assigned by
+-- revaluationStore.insertRun (COUNT+1, same-tx — SUI S2). A run's valuations are superseded
+-- (superseded_by = the superseding run's id) when a later run in the same period recomputes
+-- the same lots; seq=0 opening/transition rows are NEVER superseded (D6).
+CREATE TABLE IF NOT EXISTS revaluation_run (
+  id                  TEXT PRIMARY KEY,
+  entity_id           TEXT NOT NULL REFERENCES entities(id),
+  period_id           TEXT NOT NULL,
+  seq                 INTEGER NOT NULL,
+  price_set_hash      TEXT NOT NULL,
+  lot_set_hash        TEXT NOT NULL,
+  policy_set_version  TEXT NOT NULL,
+  accounting_standard TEXT NOT NULL,
+  reversal_of_run_id  TEXT REFERENCES revaluation_run(id),
+  created_at          TEXT NOT NULL,
+  UNIQUE (entity_id, period_id, seq)
+);
+CREATE INDEX IF NOT EXISTS idx_revaluation_run_lookup ON revaluation_run (entity_id, period_id);
+CREATE TABLE IF NOT EXISTS lot_valuation (
+  id                  TEXT PRIMARY KEY,
+  entity_id           TEXT NOT NULL REFERENCES entities(id),
+  lot_id              TEXT NOT NULL,
+  period_id           TEXT NOT NULL,
+  run_id              TEXT NOT NULL REFERENCES revaluation_run(id),
+  seq                 INTEGER NOT NULL,          -- 0 = opening/transition row (never superseded); >=1 = run seq
+  basis               TEXT NOT NULL,             -- ValuationBasis: GAAP_FV | GAAP_COST | IFRS_COST
+  qty_minor           TEXT NOT NULL,
+  prior_carrying_minor TEXT NOT NULL,
+  current_value_minor TEXT NOT NULL,
+  delta_minor         TEXT NOT NULL,
+  price_point_id      TEXT REFERENCES price_points(id),
+  je_id               TEXT REFERENCES journal_entries(id),
+  reason              TEXT NOT NULL,             -- REVALUE | IMPAIR | REVERSE | OPENING_FV | DISPOSAL_RELEASE
+  policy_set_version  TEXT NOT NULL,
+  superseded_by        TEXT REFERENCES revaluation_run(id),
+  created_at          TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_lot_valuation_lookup ON lot_valuation (entity_id, lot_id, basis);
+CREATE INDEX IF NOT EXISTS idx_lot_valuation_run ON lot_valuation (run_id);
+-- D6: at most one seq=0 (opening/transition) row per (entity, lot, basis) — partial unique
+-- index so later run-seq rows (seq>0, many per lot over time) are unconstrained.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_lot_valuation_opening
+  ON lot_valuation (entity_id, lot_id, basis) WHERE seq = 0;
+
 CREATE TABLE IF NOT EXISTS change_log (
   seq         INTEGER PRIMARY KEY AUTOINCREMENT,
   entity_id   TEXT NOT NULL REFERENCES entities(id),

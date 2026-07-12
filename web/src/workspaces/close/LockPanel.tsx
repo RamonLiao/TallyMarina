@@ -2,12 +2,14 @@
 import { useState } from 'react';
 import type { CloseCockpitResponse } from '../../api/types';
 import { API_BASE } from '../../api/client';
+import { isBlocking } from './lightMeta';
 import './close.css';
 
 export function LockPanel({ data, entityId, periodId, onChanged }: { data: CloseCockpitResponse; entityId: string; periodId: string; onChanged: () => void }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string>();
-  const blockers = data.lights.filter((l) => l.status === 'red').map((l) => l.key);
+  // red OR stale blocks close (spec D12/D13) — semantics live in lightMeta.isBlocking.
+  const blockers = data.lights.filter((l) => isBlocking(l.status)).map((l) => l.key);
   const canLock = data.closeable && data.status === 'OPEN';
 
   const lock = async () => {

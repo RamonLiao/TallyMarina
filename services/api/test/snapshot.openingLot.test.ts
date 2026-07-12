@@ -27,6 +27,7 @@ import type { Db } from '../src/store/db.js';
 import { insertEntity } from '../src/store/entityStore.js';
 import { insertEvent, setAiSuggestion } from '../src/store/eventStore.js';
 import { lockPeriod } from '../src/periodLock/store.js';
+import { registerTestAsset } from './helpers/registerTestAsset.js';
 
 const E = 'e1';
 const P = '2026-Q2';
@@ -67,6 +68,15 @@ describe('snapshot inclusion of the opening-equity JE (Task 5, spec §3.4/D2)', 
     const rr = await app.inject({ method: 'POST', url: `/entities/${E}/run-rules`, payload: { periodId: P } });
     expect(rr.statusCode).toBe(200);
     expect((rr.json() as { posted: number }).posted).toBe(1); // the opening equity JE actually posted
+
+    // Task 7: revaluation light precondition — register the held asset, price it as of the
+    // period cut-off, and run the revaluation so the new cockpit light goes green too.
+    // Price == the opening cost basis ($5,000.00 for 1 SUI) so the run posts zero delta,
+    // no JE — this test's leafCount pin (exactly the ONE opening-equity JE) must stay exact.
+    registerTestAsset(db, E, SUI, 9);
+    await app.inject({ method: 'POST', url: `/entities/${E}/prices`, payload: { coinType: SUI, asOf: '2026-06-30', price: '5000.00' } });
+    const revalR = await app.inject({ method: 'POST', url: `/entities/${E}/revaluation/run`, payload: { periodId: P } });
+    expect(revalR.statusCode).toBe(201);
 
     const lockR = await app.inject({ method: 'POST', url: `/entities/${E}/period/lock`, payload: { periodId: P } });
     expect(lockR.statusCode, JSON.stringify(lockR.json())).toBe(200);

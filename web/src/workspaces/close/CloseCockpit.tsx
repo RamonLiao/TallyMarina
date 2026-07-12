@@ -5,8 +5,9 @@ import { useWorkspace } from '../../app/WorkspaceContext';
 import { useEntityCtx } from '../../app/EntityContext';
 import { isWorkspaceId } from '../../app/workspaces';
 import { LightCard } from './LightCard';
-import { sortLights, dispatchTarget } from './lightMeta';
+import { sortLights, dispatchTarget, isBlocking } from './lightMeta';
 import { LockPanel } from './LockPanel';
+import { RevaluationCard } from './RevaluationCard';
 import { ReopenDialog } from './ReopenDialog';
 import './close.css';
 
@@ -19,12 +20,20 @@ export function CloseCockpit({ entityId }: { entityId: string }) {
   if (loading && !data) return <p>Loading close cockpit…</p>;
   if (!data) return <p>No cockpit data.</p>;
 
-  const blockingReds = data.lights.filter((l) => l.status === 'red').length;
+  // red OR stale blocks close (spec D12/D13) — semantics live in lightMeta.isBlocking,
+  // shared with LockPanel's blockers filter so the two can't drift.
+  const blocking = data.lights.filter((l) => isBlocking(l.status)).length;
   const verdict = data.closeable
     ? 'All controls ready to lock.'
-    : `${blockingReds} light${blockingReds === 1 ? '' : 's'} blocking close.`;
+    : `${blocking} light${blocking === 1 ? '' : 's'} blocking close.`;
 
   const onDispatch = (key: string) => {
+    // The revaluation light's target is IN this workspace: scroll to the card instead of
+    // switching workspace/step (dispatchTarget returns 'close' only as the actionable marker).
+    if (key === 'revaluation') {
+      document.getElementById('revaluation-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
     const target = dispatchTarget(key);
     if (!target) return;
     if (isWorkspaceId(target)) setWorkspace(target);
@@ -48,6 +57,7 @@ export function CloseCockpit({ entityId }: { entityId: string }) {
           <LightCard key={l.key} light={l} onDispatch={onDispatch} />
         ))}
       </div>
+      <RevaluationCard entityId={entityId} periodId={periodId} periodStatus={data.status} onCockpitRefetch={refetch} />
       <LockPanel data={data} entityId={entityId} periodId={periodId} onChanged={refetch} />
       {data.status === 'LOCKED' && (
         <button type="button" onClick={() => setReopenOpen(true)}>Reopen…</button>

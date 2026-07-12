@@ -197,10 +197,13 @@ export type ReopenReasonCode = (typeof REOPEN_REASON_CODES)[number];
 
 // ---- Close Cockpit types ----
 
-// Wire/API LightStatus from the backend is 'green' | 'red' | 'mock'.
+// Wire/API LightStatus from the backend is 'green' | 'red' | 'stale' | 'mock'.
 // 'derived' is a FRONTEND-ONLY display state computed by effectiveStatus() in lightMeta.ts
 // (green + real:false → rendered as derived/≈). The backend never returns 'derived'.
-export type LightStatus = 'green' | 'red' | 'derived' | 'mock';
+// 'stale' (Task 7/11, spec D12/D13): the revaluation light — a prior run exists but prices
+// or lots have moved since, so the last run no longer reflects the books. Blocks close
+// exactly like 'red' (see LockPanel/CloseCockpit blockers).
+export type LightStatus = 'green' | 'red' | 'stale' | 'derived' | 'mock';
 export interface CockpitLight {
   key: string;
   status: LightStatus;
@@ -339,4 +342,64 @@ export interface ProposalDTO {
 
 export interface ProposalsResponse {
   proposals: ProposalDTO[];
+}
+
+// ---- Period-end revaluation types (Task 6/11) ----
+// Mirrors services/api/src/revaluation/orchestrate.ts PreviewDTO / ExecuteRunResult and
+// services/api/src/store/pricePointStore.ts PricePointRow — kept in sync with the backend,
+// not with the Task 6 brief (which predates the `superseded` read-time field on prices).
+
+export interface PricePointDTO {
+  id: string;
+  entityId: string;
+  coinType: string;
+  asOf: string;
+  priceMinor: string;
+  quoteCurrency: string;
+  principalMarket: string;
+  source: string;
+  level: string;
+  createdAt: string;
+  superseded: boolean;
+}
+
+export interface RevaluationLotRowDTO {
+  lotId: string;
+  qtyMinor: string;
+  priorCarryingMinor: string;
+  currentValueMinor: string;
+  deltaMinor: string;
+}
+
+export interface RevaluationRowDTO {
+  coinType: string;
+  basis: 'GAAP_FV' | 'GAAP_COST' | 'IFRS_COST';
+  priorCarryingMinor: string;
+  currentValueMinor: string;
+  deltaMinor: string;
+  missingPrice: boolean;
+  lots: RevaluationLotRowDTO[];
+}
+
+export interface RevaluationPreviewDTO {
+  rows: RevaluationRowDTO[];
+  journalDraft: Array<{ account: string; side: Side; amountMinor: string }>;
+  priceMissing: string[]; // coinTypes
+}
+
+// Minimal read view of GET /entities/:id/assets rows — only what the revaluation UI needs
+// (coin dropdown limited to the registry + lot-quantity scale). The full AssetRow mirror
+// stays local to AssetRegistryPanel on purpose (see its header comment); the wire sends
+// extra fields, which structural typing ignores.
+export interface EntityAssetDTO {
+  coinType: string;
+  decimals: number;
+  symbol: string;
+  source: 'chain' | 'manual';
+}
+
+export interface RevaluationRunResultDTO {
+  runId: string;
+  jeIds: string[];
+  reversedRunId: string | null;
 }
