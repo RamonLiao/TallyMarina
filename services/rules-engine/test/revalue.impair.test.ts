@@ -91,4 +91,46 @@ describe('revalueLots impairment tracks (IFRS_COST / GAAP_COST)', () => {
       expect.objectContaining({ account: 'ImpairmentReversalGain', side: 'CREDIT', amountMinor: '30000' }),
     ]);
   });
+
+  // 序列 E（IMPAIR 與 REVERSE 不互抵）：同一 coin 兩個 lot，同一價格點。
+  // Lot A：無 prior impairment，cost=100000，value=100×700=70000 < carrying(100000) → IMPAIR 30000。
+  // Lot B：有 prior cumulativeImpairment=20000（qtyAtLast=100，未處分）→ attributed=20000，
+  //        cost=50000 → carrying=30000；value=100×700=70000 > carrying → recovery=40000，
+  //        cap1=cost-carrying=20000，cap2=attributed=20000 → reversal=min(40000,20000,20000)=20000。
+  // 若實作誤將 totalImpair 與 totalReverse 相抵（net），這裡的兩對金額（30000 與 20000，不相等）
+  // 會被合併成一對，測試必須能抓到。
+  it('IFRS：同 coin 內 IMPAIR 與 REVERSE 不互抵，各自成對出現在同一張 JE', () => {
+    const px = { id: 'px-mixed-sui', coinType: SUI, priceCurrency: 'USD', asOfDate: '2026-09-30', unitPriceMinor: '700' };
+    const out = revalueLots(base({
+      lots: [
+        { lotId: 'LA', seq: 1, coinType: SUI, wallet: 'w1', remainingQtyMinor: '100', costMinor: '100000' },
+        { lotId: 'LB', seq: 1, coinType: SUI, wallet: 'w1', remainingQtyMinor: '100', costMinor: '50000' },
+      ],
+      valuations: {
+        LB: { lotId: 'LB', cumulativeDeltaMinor: '0', cumulativeImpairmentMinor: '20000', qtyAtLastValuationMinor: '100', hasOpeningSeq0: false },
+      },
+      prices: [px],
+      decimalsByCoin: { [SUI]: 0 },
+    }));
+    expect(out.exceptions).toEqual([]);
+    expect(out.valuations).toEqual([
+      expect.objectContaining({ lotId: 'LA', reason: 'IMPAIR', priorCarryingMinor: '100000', currentValueMinor: '70000', deltaMinor: '-30000' }),
+      expect.objectContaining({ lotId: 'LB', reason: 'REVERSE', priorCarryingMinor: '30000', currentValueMinor: '50000', deltaMinor: '20000' }),
+    ]);
+    expect(out.journalEntries).toHaveLength(1);
+    const je = out.journalEntries[0];
+    expect(je.lines).toHaveLength(4);
+    expect(je.lines).toEqual([
+      expect.objectContaining({ account: 'ImpairmentLoss', side: 'DEBIT', amountMinor: '30000', leg: 'IMPAIR' }),
+      expect.objectContaining({ account: 'DigitalAssets', side: 'CREDIT', amountMinor: '30000', leg: 'IMPAIR' }),
+      expect.objectContaining({ account: 'DigitalAssets', side: 'DEBIT', amountMinor: '20000', leg: 'REVERSE' }),
+      expect.objectContaining({ account: 'ImpairmentReversalGain', side: 'CREDIT', amountMinor: '20000', leg: 'REVERSE' }),
+    ]);
+    // 不互抵：兩對金額各自等於各 lot 的 delta 絕對值，總和不會被壓成單一淨額 pair
+    const impairAmt = je.lines.filter((l) => l.leg === 'IMPAIR').reduce((s, l) => s + (l.side === 'DEBIT' ? BigInt(l.amountMinor) : 0n), 0n);
+    const reverseAmt = je.lines.filter((l) => l.leg === 'REVERSE').reduce((s, l) => s + (l.side === 'DEBIT' ? BigInt(l.amountMinor) : 0n), 0n);
+    expect(impairAmt).toBe(30000n);
+    expect(reverseAmt).toBe(20000n);
+    expect(impairAmt).not.toBe(reverseAmt);
+  });
 });

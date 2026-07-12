@@ -90,6 +90,11 @@ function impairmentTrack(
     } else if (value > carrying) {
       if (basis === 'GAAP_COST') continue; // ASC 350-30: 一律不迴轉，無 JE、無 valuation 列
       const recovery = value - carrying;
+      // cap1 與 cap2 在本函式的不變量下恆等：carrying := cost − attributed（見上方賦值），
+      // 故 cap1 = cost − carrying = cost − (cost − attributed) = attributed = cap2，代數上必為同一值，
+      // 並非巧合或未涵蓋的邊界情況。仍保留兩個獨立 clamp（而非合併成一個變數），是防禦性寫法：
+      // 若未來 carrying 改為獨立追蹤（不再由 cost − attributed 推導），兩者才可能分歧，屆時兩個
+      // clamp 仍會各自正確生效，不需重寫這段邏輯。
       const cap1 = cost - carrying;        // 迴轉後 carrying 不得超過原成本
       const cap2 = attributed;             // 迴轉總額不得超過按比例攤的已認列減損
       let reverseAmt = recovery;
