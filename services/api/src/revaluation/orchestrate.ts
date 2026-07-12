@@ -68,7 +68,10 @@ export interface RevaluationContext {
 // can only run INSIDE the run transaction, after supersedeValuationsOfRun. transitionMode is
 // likewise decided in-transaction (it reads seq-0 existence, which supersede never changes).
 
-function basisOf(doc: PolicyDoc, coinType: string): ValuationBasis {
+// Exported for Task 10 (disposal release, spec §4.5): lotsForEvent needs the SAME per-coin
+// basis dispatch a revaluation run used, so foldValuationStates' expectedBasis guard (CPA B2)
+// reads the same rows a run wrote. Do not fork a second copy of this dispatch rule.
+export function basisOf(doc: PolicyDoc, coinType: string): ValuationBasis {
   if (doc.accountingStandard === 'IFRS') return 'IFRS_COST';
   return doc.asu202308Applies[coinType] === true ? 'GAAP_FV' : 'GAAP_COST';
 }

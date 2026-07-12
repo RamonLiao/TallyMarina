@@ -65,7 +65,7 @@ import {
   insertPricePoint, latestPricesAt, listPriceHistory, periodCutoff, periodOfDate,
 } from '../store/pricePointStore.js';
 import { previewRun, executeRun } from '../revaluation/orchestrate.js';
-import { RevaluationDataError } from '../store/revaluationStore.js';
+import { RevaluationDataError, insertValuation, latestValuationForLot } from '../store/revaluationStore.js';
 
 const ASSET_ACTOR = 'demo-controller';      // server-side constant, never a client value (D13)
 const COIN_INFO_TIMEOUT_MS = 5000;
@@ -128,6 +128,16 @@ function eventTimeOf(ev: EventRow): string {
 function rawEventTypeOf(rawJson: string): string | null {
   const t = (JSON.parse(rawJson) as { eventType?: unknown }).eventType;
   return typeof t === 'string' ? t : null;
+}
+
+// §4.5 (CPA B1, Task 10): mirrors rules-engine's swapRules proration EXACTLY (full-take → take
+// the whole field, partial → BigInt trunc-division) so the DISPOSAL_RELEASE row's delta lines
+// up with the delta the engine actually reclassified into the posted JE. Do not re-derive this
+// with a different rounding rule — a drift here would silently desync the released amount from
+// what the JE recognized.
+function attributedTakenDelta(fieldMinor: string, takeQtyMinor: string, origQtyMinor: string): string {
+  if (takeQtyMinor === origQtyMinor) return fieldMinor;
+  return ((BigInt(fieldMinor) * BigInt(takeQtyMinor)) / BigInt(origQtyMinor)).toString();
 }
 
 function exceptionDTO(db: Db, entityId: string, periodId: string, lowConf: number) {
@@ -854,8 +864,12 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
       const asOf = evTime.slice(0, 10);
       let prices = priceCache.get(asOf);
       if (!prices) { prices = pricesForEvent(db, ev); priceCache.set(asOf, prices); }
+      // §4.5 (Task 10): keep the PRE-consumption lots around — buildRuleInput/evaluate only
+      // returns lotMovements (deltas), not each consumed lot's original valuationDeltaMinor.
+      // The DISPOSAL_RELEASE write below re-derives the attributed delta from these.
+      const preLots = lotsForEvent(db, ev);
       const output = evaluate(buildRuleInput(ev, {
-        periodId, periodOpen, lots: lotsForEvent(db, ev), policySet: enginePolicy, coaMapping: engineCoa,
+        periodId, periodOpen, lots: preLots, policySet: enginePolicy, coaMapping: engineCoa,
         gasExpenseToDateMinor, prices,
       }));
       // JE-less POSTABLE outputs still carry lot movements that must persist — the old
@@ -918,6 +932,49 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
             costBasisMethod: 'FIFO', policySetVersion: activePolicy.doc.policySetVersion,
             idempotencyKey: `${anchorKey}|${m.lotId}`,
           });
+        }
+        // §4.5 (CPA B1, Task 10): for each lot CONSUMED by this event (negative movement) that
+        // carried a revalued GAAP_FV delta, release the attributed portion of that delta so a
+        // future revaluation's `prior = cost + cumulativeDeltaMinor` baseline shrinks in lockstep
+        // with the lot's already-shrunk remaining cost (lot_movement is unchanged, D3). Skipped
+        // for lots with no valuationDeltaMinor (never revalued, or impair-track — the impair
+        // track self-corrects via qty-ratio at the next revaluation, no release row needed).
+        for (const m of output.lotMovements) {
+          if (!m.deltaQtyMinor.startsWith('-')) continue; // acquisition leg, not a disposal
+          const preLot = preLots.find((l) => l.lotId === m.lotId);
+          if (!preLot || preLot.valuationDeltaMinor === undefined) continue;
+          const takeQty = (-BigInt(m.deltaQtyMinor)).toString();
+          const takenDelta = attributedTakenDelta(preLot.valuationDeltaMinor, takeQty, preLot.remainingQtyMinor);
+          if (takenDelta === '0') continue;
+          const latestVal = latestValuationForLot(db, ev.entityId, m.lotId);
+          if (!latestVal) {
+            throw new Error(`run-rules: lot ${m.lotId} carries valuationDeltaMinor but has no lot_valuation row — fold/store desync`);
+          }
+          // Deviation from the brief's literal "seq 沿用該 lot 最新 seq" (documented per
+          // dev-rules.md's spec-deviation protocol): schema.sql's idx_lot_valuation_opening
+          // is a PARTIAL UNIQUE index — at most ONE seq=0 row per (entity, lot, basis), ever
+          // (D6 permanence). A lot whose only valuation row so far is the seq-0 ASU transition
+          // (real scenario: dispose right after the first GAAP_FV run, before any period
+          // reval creates a seq>=1 row for it) would otherwise try to insert a SECOND seq=0
+          // row here and hit that constraint. Every OTHER reason type stamps lot_valuation.seq
+          // from the run's OWN seq column (see executeRun's `d.seq === 0 ? 0 : run.seq`) — mint
+          // DISPOSAL_RELEASE the same way instead of trusting the lot's latest row's seq.
+          const runSeq = (db.prepare('SELECT seq FROM revaluation_run WHERE id = ?').get(latestVal.runId) as { seq: number } | undefined)?.seq;
+          if (runSeq === undefined) {
+            throw new Error(`run-rules: lot_valuation row ${latestVal.id} references orphan run_id ${latestVal.runId}`);
+          }
+          insertValuation(db, {
+            entityId: ev.entityId, lotId: m.lotId, periodId: ev.periodId!,
+            runId: latestVal.runId, seq: runSeq, basis: latestVal.basis,
+            qtyMinor: takeQty,
+            // Not a full FV snapshot (no new price observed) — prior/current bracket only the
+            // delta portion being released, so delta === current - prior stays true for anyone
+            // folding this row generically.
+            priorCarryingMinor: takenDelta, currentValueMinor: '0', deltaMinor: (-BigInt(takenDelta)).toString(),
+            pricePointId: null, jeId: anchorJeId, reason: 'DISPOSAL_RELEASE',
+            policySetVersion: activePolicy.doc.policySetVersion, supersededBy: null,
+          }, ev.id); // idSuffix: two separate disposal events draining the SAME lot under the
+          // SAME still-current run/seq (no intervening revaluation) must not collide on id.
         }
         // markPosted joins the SAME transaction (spec §6 #2): a crash between commit and the
         // status flip would leave the event AUTO with movements committed → next run folds the

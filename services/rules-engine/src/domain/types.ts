@@ -84,6 +84,15 @@ export interface PositionLot {
   wallet: string;
   remainingQtyMinor: string;
   costMinor: string;                    // functional ccy
+  // §4.5 處分吃重估後 carrying（CPA B1）：api 端 fold 後按剩餘量比例攤好餵入，缺省 = 未曾重估／減損（現狀行為）。
+  // 兩欄互斥（GAAP_FV lot 帶 delta；GAAP_COST/IFRS_COST lot 帶 impair），由上游 basis 分派保證。
+  valuationDeltaMinor?: string;         // 該 lot 累計重估 delta（可為負；含 ASU 過渡的權益分量，用於 carrying 計算）
+  valuationImpairMinor?: string;        // 該 lot 累計減損（正數）
+  // external review fix（§4.5 CPA B1）：valuationDeltaMinor 的子集，僅 P&L 認列的期間重估份額
+  // （UnrealizedGainCryptoPnL/Loss），排除 ASU 過渡（OPENING_FV，記入 RetainedEarnings 權益，
+  // 永不進 P&L）。處分重分類 line 必須只吃這個子集，不能吃整個 valuationDeltaMinor——否則會把
+  // 從未入 P&L 的權益金額誤轉進 UnrealizedGainCryptoPnL/DisposalGain。缺省 = 0（無 P&L 份額可轉）。
+  valuationPnlDeltaMinor?: string;
 }
 
 export interface Measurement {

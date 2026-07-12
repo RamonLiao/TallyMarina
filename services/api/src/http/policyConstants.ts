@@ -35,6 +35,13 @@ export const DEMO_COA_RULES: CoaRule[] = [
   { eventType: 'SPOT_TRADE_SWAP', leg: 'DISPOSAL', account: 'DigitalAssets' },
   { eventType: 'SPOT_TRADE_SWAP', leg: 'DISPOSAL_GAIN', account: 'DisposalGain' },
   { eventType: 'SPOT_TRADE_SWAP', leg: 'DISPOSAL_LOSS', account: 'DisposalLoss' },
+  // §4.5 (CPA B1, Task 10): reclassification legs for disposing a GAAP_FV-revalued lot —
+  // previously recognized unrealized gain/loss moves out of the Unrealized* P&L account into
+  // Disposal* on the SAME swap eventType (swapRules emits these legs; without a mapping the
+  // reclass lines 400 as MAPPING_MISSING and the whole disposal event is skipped, never a
+  // partial post — spec §6.5, A.2).
+  { eventType: 'SPOT_TRADE_SWAP', leg: 'UNREALIZED_GAIN_RECLASS', account: 'UnrealizedGainCryptoPnL' },
+  { eventType: 'SPOT_TRADE_SWAP', leg: 'UNREALIZED_LOSS_RECLASS', account: 'UnrealizedLossCryptoPnL' },
   // INTERNAL_TRANSFER legs are dynamic (WALLET:<addr>) — the catch-all is intentional.
   { eventType: 'INTERNAL_TRANSFER', leg: '*', account: 'DigitalAssets' },
 ];

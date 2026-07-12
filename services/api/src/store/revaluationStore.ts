@@ -65,8 +65,18 @@ export function latestRun(db: Db, entityId: string, periodId: string): Revaluati
   return row ? fromRunRow(row) : null;
 }
 
-export function insertValuation(db: Db, r: Omit<LotValuationRow, 'id' | 'createdAt'>): LotValuationRow {
-  const id = `lv-${r.entityId}-${shortHash(r.lotId)}-${r.runId}-${r.seq}-${r.reason}`;
+// `idSuffix` (optional, additive): Task 6's per-run REVALUE/IMPAIR/REVERSE/OPENING_FV rows
+// are naturally unique per (entity, lot, run, seq, reason) — at most one row per lot per
+// reason per run. Task 10's DISPOSAL_RELEASE rows are NOT run-scoped that way: two separate
+// disposal events consuming the SAME lot while it's still under the SAME latest run/seq (no
+// intervening revaluation) would otherwise collide on the exact same id and the second
+// INSERT would throw a raw UNIQUE-constraint error instead of failing loud with context.
+// Pass the disposing event's own id as idSuffix to disambiguate; omitted, id generation is
+// BYTE-IDENTICAL to before this parameter existed (Task 6 call sites untouched).
+export function insertValuation(
+  db: Db, r: Omit<LotValuationRow, 'id' | 'createdAt'>, idSuffix?: string,
+): LotValuationRow {
+  const id = `lv-${r.entityId}-${shortHash(r.lotId)}-${r.runId}-${r.seq}-${r.reason}${idSuffix ? `-${idSuffix}` : ''}`;
   const createdAt = new Date().toISOString();
   db.prepare(
     `INSERT INTO lot_valuation
@@ -76,6 +86,21 @@ export function insertValuation(db: Db, r: Omit<LotValuationRow, 'id' | 'created
   ).run(id, r.entityId, r.lotId, r.periodId, r.runId, r.seq, r.basis, r.qtyMinor, r.priorCarryingMinor,
     r.currentValueMinor, r.deltaMinor, r.pricePointId, r.jeId, r.reason, r.policySetVersion, r.supersededBy, createdAt);
   return { ...r, id, createdAt };
+}
+
+// Task 10 (disposal release, spec §4.5): a DISPOSAL_RELEASE row is written OUTSIDE any
+// revaluation run (during run-rules disposal posting), so it has no run of its own — it must
+// borrow (run_id, seq, basis) from the lot's own latest unsuperseded valuation row, both so
+// foldValuationStates' run_id FK-existence check (line ~137) passes trivially (the run already
+// exists) and so the released delta is folded under the SAME basis the lot was revalued under
+// (CPA B2 mixed-basis guard). Returns null for a lot that was never revalued — callers must
+// skip writing a release row in that case (nothing to release).
+export function latestValuationForLot(db: Db, entityId: string, lotId: string): LotValuationRow | null {
+  const row = db.prepare(
+    `SELECT * FROM lot_valuation WHERE entity_id = ? AND lot_id = ? AND superseded_by IS NULL
+     ORDER BY seq DESC LIMIT 1`,
+  ).get(entityId, lotId) as Record<string, unknown> | undefined;
+  return row ? fromValuationRow(row) : null;
 }
 
 // D6: seq=0 (opening/transition) rows are permanent — a later run recomputing the same lot
@@ -106,7 +131,7 @@ export function foldValuationStates(
   const placeholders = lotIds.map(() => '?').join(',');
   const rows = db.prepare(
     `SELECT * FROM lot_valuation WHERE entity_id = ? AND lot_id IN (${placeholders}) AND superseded_by IS NULL
-     ORDER BY lot_id ASC, seq ASC`,
+     ORDER BY lot_id ASC, seq ASC, created_at ASC`,
   ).all(entityId, ...lotIds) as Record<string, unknown>[];
 
   const acc = new Map<string, { delta: bigint; impairment: bigint; latestQty: bigint; hasOpeningSeq0: boolean }>();
@@ -164,6 +189,45 @@ export function foldValuationStates(
       hasOpeningSeq0: v.hasOpeningSeq0,
     };
   }
+  return result;
+}
+
+// Task 10 (spec §4.5, CPA B1 — external-review fix): `cumulativeDeltaMinor` above sums BOTH
+// the period P&L-booked REVALUE delta AND the one-time ASU-transition (OPENING_FV) delta,
+// which is booked straight to RetainedEarnings/equity and explicitly never touches P&L (§4.4
+// "均不進當期P&L"). Reclassifying the WHOLE cumulative delta into UnrealizedGainCryptoPnL/
+// DisposalGain on disposal (the original Task 10 draft) would corrupt UnrealizedGainCryptoPnL's
+// balance and, for a disposal in a period AFTER the triggering reval, fabricate a current-period
+// P&L swing for a gain that account never recognized.
+//
+// Returns per-lot { rawPnl, rawOpening } — UNPRORATED raw sums (REVALUE-reason rows only, and
+// the single seq=0 OPENING_FV row if any). The caller derives how much of the P&L bucket
+// SURVIVES after any prior partial-disposal releases via the exact ratio
+// `rawPnl * cumulativeDeltaMinor / (rawPnl + rawOpening)` — valid because every release
+// (attributedTakenDelta in routes.ts) always shrinks the total by the SAME qty ratio, so by
+// linearity that ratio applies uniformly to every additive sub-component of the total,
+// including the P&L-only sub-component. This mirrors attributedImpairment's self-correcting
+// qty-ratio pattern (revalue.ts) rather than writing a separate release row per bucket — no
+// schema change, and correct across any number of sequential partial disposals.
+export function rawDeltaComponents(
+  db: Db, entityId: string, lotIds: string[],
+): Record<string, { rawPnl: string; rawOpening: string }> {
+  if (lotIds.length === 0) return {};
+  const placeholders = lotIds.map(() => '?').join(',');
+  const rows = db.prepare(
+    `SELECT lot_id, reason, delta_minor FROM lot_valuation
+     WHERE entity_id = ? AND lot_id IN (${placeholders}) AND superseded_by IS NULL
+       AND reason IN ('REVALUE', 'OPENING_FV')`,
+  ).all(entityId, ...lotIds) as Array<{ lot_id: string; reason: string; delta_minor: string }>;
+  const acc = new Map<string, { pnl: bigint; opening: bigint }>();
+  for (const r of rows) {
+    const cur = acc.get(r.lot_id) ?? { pnl: 0n, opening: 0n };
+    if (r.reason === 'REVALUE') cur.pnl += BigInt(r.delta_minor);
+    else cur.opening += BigInt(r.delta_minor); // at most one OPENING_FV row per lot (D6)
+    acc.set(r.lot_id, cur);
+  }
+  const result: Record<string, { rawPnl: string; rawOpening: string }> = {};
+  for (const [lotId, v] of acc) result[lotId] = { rawPnl: v.pnl.toString(), rawOpening: v.opening.toString() };
   return result;
 }
 
