@@ -17,7 +17,8 @@ export interface RevaluationRunRow {
 export interface LotValuationRow {
   id: string; entityId: string; lotId: string; periodId: string; runId: string;
   seq: number; basis: string; qtyMinor: string; priorCarryingMinor: string; currentValueMinor: string;
-  deltaMinor: string; pricePointId: string | null; jeId: string | null; reason: string;
+  deltaMinor: string; pnlDeltaMinor: string | null;
+  pricePointId: string | null; jeId: string | null; reason: string;
   policySetVersion: string; supersededBy: string | null; createdAt: string;
 }
 
@@ -74,18 +75,22 @@ export function latestRun(db: Db, entityId: string, periodId: string): Revaluati
 // Pass the disposing event's own id as idSuffix to disambiguate; omitted, id generation is
 // BYTE-IDENTICAL to before this parameter existed (Task 6 call sites untouched).
 export function insertValuation(
-  db: Db, r: Omit<LotValuationRow, 'id' | 'createdAt'>, idSuffix?: string,
+  db: Db,
+  // pnlDeltaMinor is optional (defaults to NULL): only routes.ts' DISPOSAL_RELEASE writer sets
+  // it; every run-scoped reason leaves it NULL and pre-existing call sites stay source-compatible.
+  r: Omit<LotValuationRow, 'id' | 'createdAt' | 'pnlDeltaMinor'> & { pnlDeltaMinor?: string | null },
+  idSuffix?: string,
 ): LotValuationRow {
   const id = `lv-${r.entityId}-${shortHash(r.lotId)}-${r.runId}-${r.seq}-${r.reason}${idSuffix ? `-${idSuffix}` : ''}`;
   const createdAt = new Date().toISOString();
   db.prepare(
     `INSERT INTO lot_valuation
        (id, entity_id, lot_id, period_id, run_id, seq, basis, qty_minor, prior_carrying_minor,
-        current_value_minor, delta_minor, price_point_id, je_id, reason, policy_set_version, superseded_by, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        current_value_minor, delta_minor, pnl_delta_minor, price_point_id, je_id, reason, policy_set_version, superseded_by, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(id, r.entityId, r.lotId, r.periodId, r.runId, r.seq, r.basis, r.qtyMinor, r.priorCarryingMinor,
-    r.currentValueMinor, r.deltaMinor, r.pricePointId, r.jeId, r.reason, r.policySetVersion, r.supersededBy, createdAt);
-  return { ...r, id, createdAt };
+    r.currentValueMinor, r.deltaMinor, r.pnlDeltaMinor ?? null, r.pricePointId, r.jeId, r.reason, r.policySetVersion, r.supersededBy, createdAt);
+  return { ...r, pnlDeltaMinor: r.pnlDeltaMinor ?? null, id, createdAt };
 }
 
 // Task 10 (disposal release, spec §4.5): a DISPOSAL_RELEASE row is written OUTSIDE any
@@ -262,42 +267,65 @@ export function foldValuationStates(
   return result;
 }
 
-// Task 10 (spec §4.5, CPA B1 — external-review fix): `cumulativeDeltaMinor` above sums BOTH
-// the period P&L-booked REVALUE delta AND the one-time ASU-transition (OPENING_FV) delta,
-// which is booked straight to RetainedEarnings/equity and explicitly never touches P&L (§4.4
+// Task 10 (spec §4.5, CPA B1 — external-review fix): a lot's cumulative delta sums BOTH the
+// period P&L-booked REVALUE delta AND the one-time ASU-transition (OPENING_FV) delta, which is
+// booked straight to RetainedEarnings/equity and explicitly never touches P&L (§4.4
 // "均不進當期P&L"). Reclassifying the WHOLE cumulative delta into UnrealizedGainCryptoPnL/
 // DisposalGain on disposal (the original Task 10 draft) would corrupt UnrealizedGainCryptoPnL's
 // balance and, for a disposal in a period AFTER the triggering reval, fabricate a current-period
 // P&L swing for a gain that account never recognized.
 //
-// Returns per-lot { rawPnl, rawOpening } — UNPRORATED raw sums (REVALUE-reason rows only, and
-// the single seq=0 OPENING_FV row if any). The caller derives how much of the P&L bucket
-// SURVIVES after any prior partial-disposal releases via the exact ratio
-// `rawPnl * cumulativeDeltaMinor / (rawPnl + rawOpening)` — valid because every release
-// (attributedTakenDelta in routes.ts) always shrinks the total by the SAME qty ratio, so by
-// linearity that ratio applies uniformly to every additive sub-component of the total,
-// including the P&L-only sub-component. This mirrors attributedImpairment's self-correcting
-// qty-ratio pattern (revalue.ts) rather than writing a separate release row per bucket — no
-// schema change, and correct across any number of sequential partial disposals.
-export function rawDeltaComponents(
+// Returns per-lot P&L bucket (minor, signed) — the share of the lot's live cumulative delta that
+// was recognized in P&L and not yet reclassified to realized. Computed as an EXACT sum:
+//   Σ live REVALUE deltas  +  Σ live DISPOSAL_RELEASE pnl_delta_minor
+// Each release row's pnl_delta_minor is written (routes.ts disposal loop) with the same
+// trunc-division and the same inputs as the engine's UNREALIZED_*_RECLASS JE line, so this sum
+// is identically the per-lot UnrealizedGain/Loss GL balance — no proration at read time.
+//
+// (The pre-C1 version prorated `rawPnl * cumulativeDelta / (rawPnl + rawOpening)`, assuming each
+// release shrinks both buckets by the same qty ratio. A RERUN after a partial disposal breaks
+// that: supersedeValuationsOfRun removes the old REVALUE rows the release was attributed
+// against while the release row survives — the live components become {opening, NEW reval} but
+// the release still embeds the OLD mix, and the ratio misattributes it by a PROPORTIONAL amount
+// (test revaluation.splitAfterRerun.test.ts pins the 9000-vs-10000 case).)
+//
+// Legacy fallback: release rows written before pnl_delta_minor existed carry NULL — attribute
+// each proportionally against the live raw sums (delta * rawPnl / (rawPnl + rawOpening)). This
+// is best-effort, NOT byte-equivalent to the pre-fix proration (per-row truncation vs one
+// truncation on the aggregate can differ by ±1 minor per legacy row; a rawTotal of exactly 0
+// skips the release where the old code zeroed the whole bucket), and the exact-equals-GL
+// invariant this function otherwise guarantees does NOT hold for such rows. Acceptable only
+// because dev/demo DBs are reseeded; a production migration would have to backfill the column.
+export function pnlBuckets(
   db: Db, entityId: string, lotIds: string[],
-): Record<string, { rawPnl: string; rawOpening: string }> {
+): Record<string, string> {
   if (lotIds.length === 0) return {};
   const placeholders = lotIds.map(() => '?').join(',');
   const rows = db.prepare(
-    `SELECT lot_id, reason, delta_minor FROM lot_valuation
+    `SELECT lot_id, reason, delta_minor, pnl_delta_minor FROM lot_valuation
      WHERE entity_id = ? AND lot_id IN (${placeholders}) AND superseded_by IS NULL
-       AND reason IN ('REVALUE', 'OPENING_FV')`,
-  ).all(entityId, ...lotIds) as Array<{ lot_id: string; reason: string; delta_minor: string }>;
-  const acc = new Map<string, { pnl: bigint; opening: bigint }>();
+       AND reason IN ('REVALUE', 'OPENING_FV', 'DISPOSAL_RELEASE')`,
+  ).all(entityId, ...lotIds) as Array<{ lot_id: string; reason: string; delta_minor: string; pnl_delta_minor: string | null }>;
+  const acc = new Map<string, { revalue: bigint; opening: bigint; releasePnl: bigint; legacyReleases: bigint[] }>();
   for (const r of rows) {
-    const cur = acc.get(r.lot_id) ?? { pnl: 0n, opening: 0n };
-    if (r.reason === 'REVALUE') cur.pnl += BigInt(r.delta_minor);
-    else cur.opening += BigInt(r.delta_minor); // at most one OPENING_FV row per lot (D6)
+    const cur = acc.get(r.lot_id) ?? { revalue: 0n, opening: 0n, releasePnl: 0n, legacyReleases: [] };
+    if (r.reason === 'REVALUE') cur.revalue += BigInt(r.delta_minor);
+    else if (r.reason === 'OPENING_FV') cur.opening += BigInt(r.delta_minor); // at most one per lot (D6)
+    else if (r.pnl_delta_minor !== null) cur.releasePnl += BigInt(r.pnl_delta_minor);
+    else cur.legacyReleases.push(BigInt(r.delta_minor));
     acc.set(r.lot_id, cur);
   }
-  const result: Record<string, { rawPnl: string; rawOpening: string }> = {};
-  for (const [lotId, v] of acc) result[lotId] = { rawPnl: v.pnl.toString(), rawOpening: v.opening.toString() };
+  const result: Record<string, string> = {};
+  for (const [lotId, v] of acc) {
+    // Legacy proration keeps the OLD numerator/denominator (live REVALUE vs REVALUE+OPENING raw
+    // sums) — new-style release shares must not leak into the ratio.
+    let pnl = v.revalue + v.releasePnl;
+    const rawTotal = v.revalue + v.opening;
+    for (const rel of v.legacyReleases) {
+      if (rawTotal !== 0n) pnl += (rel * v.revalue) / rawTotal;
+    }
+    result[lotId] = pnl.toString();
+  }
   return result;
 }
 
@@ -316,6 +344,7 @@ function fromValuationRow(r: Record<string, unknown>): LotValuationRow {
     periodId: r.period_id as string, runId: r.run_id as string, seq: r.seq as number,
     basis: r.basis as string, qtyMinor: r.qty_minor as string, priorCarryingMinor: r.prior_carrying_minor as string,
     currentValueMinor: r.current_value_minor as string, deltaMinor: r.delta_minor as string,
+    pnlDeltaMinor: (r.pnl_delta_minor as string | null) ?? null,
     pricePointId: (r.price_point_id as string | null) ?? null, jeId: (r.je_id as string | null) ?? null,
     reason: r.reason as string, policySetVersion: r.policy_set_version as string,
     supersededBy: (r.superseded_by as string | null) ?? null, createdAt: r.created_at as string,

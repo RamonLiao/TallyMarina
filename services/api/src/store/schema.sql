@@ -320,6 +320,11 @@ CREATE TABLE IF NOT EXISTS lot_valuation (
   prior_carrying_minor TEXT NOT NULL,
   current_value_minor TEXT NOT NULL,
   delta_minor         TEXT NOT NULL,
+  -- DISPOSAL_RELEASE only: the P&L-booked share of delta_minor being released (negative,
+  -- equals the JE's UNREALIZED_*_RECLASS amount negated). NULL on every other reason, and on
+  -- legacy release rows written before this column existed (read path falls back to a
+  -- proportional attribution for those).
+  pnl_delta_minor     TEXT,
   price_point_id      TEXT REFERENCES price_points(id),
   je_id               TEXT REFERENCES journal_entries(id),
   reason              TEXT NOT NULL,             -- REVALUE | IMPAIR | REVERSE | OPENING_FV | DISPOSAL_RELEASE

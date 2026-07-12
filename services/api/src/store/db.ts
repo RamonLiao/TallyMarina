@@ -43,6 +43,7 @@ export function openDb(path: string): Db {
     'ALTER TABLE asset_registry ADD COLUMN metadata_cap_state TEXT',
     'ALTER TABLE journal_entries ADD COLUMN policy_set_version TEXT',
     'ALTER TABLE journal_entries ADD COLUMN rule_version TEXT',
+    'ALTER TABLE lot_valuation ADD COLUMN pnl_delta_minor TEXT',
   ];
   for (const m of MIGRATIONS) {
     try { db.exec(m); } catch (err) {

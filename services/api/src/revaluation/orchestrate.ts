@@ -357,7 +357,8 @@ export function executeRun(db: Db, entityId: string, periodId: string): ExecuteR
           seq: d.seq === 0 ? 0 : run.seq,           // contract #3: overwrite placeholder with run seq
           basis: d.basis, qtyMinor: d.qtyMinor,
           priorCarryingMinor: d.priorCarryingMinor, currentValueMinor: d.currentValueMinor,
-          deltaMinor: d.deltaMinor, pricePointId: d.pricePointId,
+          deltaMinor: d.deltaMinor, pnlDeltaMinor: null, // DISPOSAL_RELEASE-only field (routes.ts)
+          pricePointId: d.pricePointId,
           jeId: jeIdByKey.get(jeKey) ?? null, reason: d.reason,
           policySetVersion: ctx.doc.policySetVersion, supersededBy: null,
         });

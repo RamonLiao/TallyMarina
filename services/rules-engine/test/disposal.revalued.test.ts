@@ -207,3 +207,53 @@ describe('§4.5 處分吃重估後 carrying（CPA B1）', () => {
     expect(je.lines).toHaveLength(3);
   });
 });
+
+// External review (2026-07-12 follow-up round): non-swap disposals lack the §4.5 revalued-
+// carrying + reclass treatment — they derecognize at RAW FIFO cost. Consuming a lot that holds
+// a valuation state through that path would ignore the booked delta in the JE while the api
+// layer still drains the lot's valuation rows (GL/lot-detail desync). fifoOrEx fails closed.
+describe('fail-closed: non-swap disposal of a valued lot (REVALUED_LOT_NON_SWAP_DISPOSAL)', () => {
+  function paymentInput(lot: PositionLot): RuleInput {
+    const base = makeInput(lot, '0', '50');
+    return {
+      ...base,
+      event: {
+        ...base.event, eventType: 'DIGITAL_ASSET_PAYMENT', economicPurpose: 'VENDOR_PAYMENT',
+        considerationAsset: null, considerationQtyMinor: null, considerationDecimals: null,
+      },
+      prices: [{ id: 'PX-SUI', coinType: lot.coinType, priceCurrency: 'USD', asOfDate: '2026-06-30', unitPriceMinor: '1' }],
+      coaMapping: { resolve: ({ leg }) => ({ EXPENSE: 'Expense', DISPOSAL: 'ASSET-SUI', DISPOSAL_GAIN: 'DisposalGain', DISPOSAL_LOSS: 'DisposalLoss' }[leg] ?? null) },
+    };
+  }
+
+  it('payment consuming a GAAP_FV-revalued lot -> exception, not a raw-cost JE', () => {
+    const lot: PositionLot = {
+      lotId: 'LOT1', seq: 1, coinType: '0x2::sui::SUI', wallet: '0xA',
+      remainingQtyMinor: '100', costMinor: '100000',
+      valuationDeltaMinor: '40000', valuationPnlDeltaMinor: '40000',
+    };
+    const out = evaluate(paymentInput(lot));
+    expect(out.decision).not.toBe('POSTABLE');
+    expect(out.exceptions.some((e) => e.code === 'REVALUED_LOT_NON_SWAP_DISPOSAL')).toBe(true);
+    expect(out.journalEntries).toHaveLength(0);
+  });
+
+  it('payment consuming an impaired (cost-track) lot -> same exception (carrying would ignore the impairment)', () => {
+    const lot: PositionLot = {
+      lotId: 'LOT1', seq: 1, coinType: '0x2::sui::SUI', wallet: '0xA',
+      remainingQtyMinor: '100', costMinor: '100000', valuationImpairMinor: '5000',
+    };
+    const out = evaluate(paymentInput(lot));
+    expect(out.exceptions.some((e) => e.code === 'REVALUED_LOT_NON_SWAP_DISPOSAL')).toBe(true);
+  });
+
+  it('payment consuming a never-valued lot still posts (regression lock: guard is presence-scoped)', () => {
+    const lot: PositionLot = {
+      lotId: 'LOT1', seq: 1, coinType: '0x2::sui::SUI', wallet: '0xA',
+      remainingQtyMinor: '100', costMinor: '100000',
+    };
+    const out = evaluate(paymentInput(lot));
+    expect(out.decision).toBe('POSTABLE');
+    expect(out.exceptions).toHaveLength(0);
+  });
+});

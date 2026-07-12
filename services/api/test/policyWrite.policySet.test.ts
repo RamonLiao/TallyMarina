@@ -117,3 +117,29 @@ describe('PATCH /policy/policy-set (Task 4)', () => {
     expect((db.prepare('SELECT COUNT(*) AS n FROM change_log').get() as { n: number }).n).toBe(0);
   });
 });
+
+// F2 (dual-review minor): asu202308Applies is merged PER KEY — a PATCH electing one coin must
+// not silently wipe every other coin's election (replace semantics made partial updates lossy;
+// un-electing is an explicit `false`, never an omission).
+describe('PATCH /policy/policy-set: asu202308Applies merges per key (F2)', () => {
+  const url = '/policy/policy-set';
+  const base = { entity: 'acme:pilot-001', actor: 'controller-a', reason: 'per-coin ASU election' };
+
+  it('electing coin B keeps coin A\'s earlier election', async () => {
+    const r1 = await app.inject({ method: 'PATCH', url, payload: { ...base, changes: { asu202308Applies: { '0xa::a::A': true } } } });
+    expect(r1.statusCode).toBe(200);
+    const r2 = await app.inject({ method: 'PATCH', url, payload: { ...base, changes: { asu202308Applies: { '0xb::b::B': true } } } });
+    expect(r2.statusCode).toBe(200);
+    expect(r2.json().policyDoc.asu202308Applies).toEqual({ '0xa::a::A': true, '0xb::b::B': true });
+  });
+
+  it('un-electing is explicit false, and a same-subset resend is still 409 NO_CHANGE', async () => {
+    await app.inject({ method: 'PATCH', url, payload: { ...base, changes: { asu202308Applies: { '0xa::a::A': true, '0xb::b::B': true } } } });
+    const r2 = await app.inject({ method: 'PATCH', url, payload: { ...base, changes: { asu202308Applies: { '0xa::a::A': false } } } });
+    expect(r2.statusCode).toBe(200);
+    expect(r2.json().policyDoc.asu202308Applies).toEqual({ '0xa::a::A': false, '0xb::b::B': true });
+    const r3 = await app.inject({ method: 'PATCH', url, payload: { ...base, changes: { asu202308Applies: { '0xa::a::A': false } } } });
+    expect(r3.statusCode).toBe(409);
+    expect(r3.json().error.code).toBe('NO_CHANGE');
+  });
+});

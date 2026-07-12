@@ -2,7 +2,7 @@ import type { Db } from '../store/db.js';
 import type { EventRow } from '../store/eventStore.js';
 import type { PositionLot, NormalizedEvent } from '../deps/rulesEngine.js';
 import { foldRemainingLots } from '../store/lotMovementStore.js';
-import { foldValuationStates, rawDeltaComponents } from '../store/revaluationStore.js';
+import { foldValuationStates, pnlBuckets } from '../store/revaluationStore.js';
 import { getActivePolicy, type PolicyDoc } from '../store/policyStore.js';
 import { basisOf } from '../revaluation/orchestrate.js';
 
@@ -31,23 +31,22 @@ export function lotsForEvent(db: Db, event: EventRow, doc?: PolicyDoc): Position
   const valuations = foldValuationStates(db, event.entityId, lots.map((l) => l.lotId), basis);
   // External-review fix: valuationDeltaMinor (used for carrying) mixes the P&L-booked period
   // reval delta with the equity-booked ASU-transition delta. Only the P&L share may ever be
-  // reclassified into UnrealizedGainCryptoPnL/DisposalGain on disposal — compute it separately
-  // (see rawDeltaComponents for the exact-ratio derivation) and hand it over as
-  // valuationPnlDeltaMinor, distinct from the carrying-facing valuationDeltaMinor.
-  const rawComponents = basis === 'GAAP_FV'
-    ? rawDeltaComponents(db, event.entityId, lots.map((l) => l.lotId))
+  // reclassified into UnrealizedGainCryptoPnL/DisposalGain on disposal — hand it over as
+  // valuationPnlDeltaMinor, distinct from the carrying-facing valuationDeltaMinor. pnlBuckets
+  // sums it exactly from the persisted rows (see its doc comment for why proration broke
+  // after C1's rerun-after-disposal supersede semantics).
+  const buckets = basis === 'GAAP_FV'
+    ? pnlBuckets(db, event.entityId, lots.map((l) => l.lotId))
     : {};
   return lots.map((l) => {
     const v = valuations[l.lotId];
     if (!v) return l;
     if (basis === 'GAAP_FV') {
-      if (v.cumulativeDeltaMinor === '0') return l;
-      const comp = rawComponents[l.lotId];
-      const rawTotal = comp ? BigInt(comp.rawPnl) + BigInt(comp.rawOpening) : 0n;
-      const pnlRemaining = comp && rawTotal !== 0n
-        ? (BigInt(comp.rawPnl) * BigInt(v.cumulativeDeltaMinor)) / rawTotal
-        : 0n;
-      return { ...l, valuationDeltaMinor: v.cumulativeDeltaMinor, valuationPnlDeltaMinor: pnlRemaining.toString() };
+      const pnlRemaining = buckets[l.lotId] ?? '0';
+      // Untouched-lot fast path needs BOTH buckets empty: a lot whose opening and P&L deltas
+      // offset to a zero cumulative delta still carries a reclassifiable P&L share.
+      if (v.cumulativeDeltaMinor === '0' && pnlRemaining === '0') return l;
+      return { ...l, valuationDeltaMinor: v.cumulativeDeltaMinor, valuationPnlDeltaMinor: pnlRemaining };
     }
     return v.cumulativeImpairmentMinor === '0' ? l : { ...l, valuationImpairMinor: v.cumulativeImpairmentMinor };
   });

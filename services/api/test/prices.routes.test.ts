@@ -107,6 +107,15 @@ describe('/entities/:id/prices', () => {
       });
       expect(res.statusCode).toBe(400);
     });
+
+    it("400s a well-formed but non-existent calendar day (F3: '2026-04-31' must not persist)", async () => {
+      const res = await app.inject({
+        method: 'POST', url: `/entities/${TEST_ENTITY_ID}/prices`,
+        payload: { coinType: SUI, asOf: '2026-04-31', price: '1400.00' },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error.code).toBe('VALIDATION');
+    });
   });
 
   describe('GET', () => {

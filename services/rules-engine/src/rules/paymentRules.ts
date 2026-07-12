@@ -11,6 +11,23 @@ function fifoOrEx(ctx: PipelineCtx): FifoOk | RuleException {
   const { event } = ctx.input;
   const r = allocateFifo(ctx.input.lots, event.coinType, event.wallet, event.quantityMinor);
   if (!r.ok) return { phase: 7, code: 'INSUFFICIENT_LOT', detail: { available: r.availableQtyMinor, needed: event.quantityMinor } };
+  // Fail-closed (external review): only swapRules carries the §4.5 revalued-carrying + reclass
+  // treatment. This path derecognizes at RAW FIFO cost, so letting it consume a lot that holds
+  // a valuation state would post a JE that ignores the booked delta/impairment while the
+  // api-side DISPOSAL_RELEASE writer still drains the lot's valuation — GL and lot detail
+  // desync in one step. Until payments/gas get the swap treatment, surface an exception
+  // instead of silently corrupting the books.
+  const valued = r.consumed.filter((c) => {
+    const lot = ctx.input.lots.find((l) => l.lotId === c.lotId);
+    return lot !== undefined && (lot.valuationDeltaMinor !== undefined
+      || lot.valuationPnlDeltaMinor !== undefined || lot.valuationImpairMinor !== undefined);
+  });
+  if (valued.length > 0) {
+    return {
+      phase: 7, code: 'REVALUED_LOT_NON_SWAP_DISPOSAL',
+      detail: { lotIds: valued.map((c) => c.lotId), reason: 'revalued/impaired lots can only be disposed via SPOT_TRADE_SWAP (§4.5 reclass treatment) in this slice' },
+    };
+  }
   const movements: LotMovement[] = r.consumed.map((c) => ({
     lotId: c.lotId,
     coinType: event.coinType,

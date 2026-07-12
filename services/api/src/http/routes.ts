@@ -363,6 +363,14 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
       // basis per coin (equal-value resends compute the same basis as before, so they never
       // trip this).
       const merged: PolicyDoc = { ...before, ...changes };
+      // F2 (dual-review minor): asu202308Applies is a per-coin map — a top-level shallow merge
+      // would let a PATCH targeting one coin silently WIPE every other coin's flag (the
+      // basis-lock below catches the wipe only for already-revalued coins). Merge per key
+      // instead; booleans keep full expressiveness — un-electing a coin is an explicit `false`,
+      // never an omission.
+      if (changes.asu202308Applies !== undefined) {
+        merged.asu202308Applies = { ...before.asu202308Applies, ...changes.asu202308Applies };
+      }
       if (changes.accountingStandard !== undefined || changes.asu202308Applies !== undefined) {
         for (const [coinType, liveBasis] of activeGaapCoinBasis(db, entity)) {
           const newBasis = basisOf(merged, coinType);
@@ -805,6 +813,21 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     if (!eventTypeSchema.safeParse(b.finalEventType).success) {
       throw new ApiError(400, 'VALIDATION', `unknown finalEventType ${b.finalEventType}; must be one of ${eventTypeSchema.options.join(', ')}`);
     }
+    // Spec §4.3 (v2.2 follow-up): NETWORK_FEE_REBATE is NOT a classification judgment — it is
+    // normalization's SIGN marker for a negative-net gas event (quantityMinor's schema forces a
+    // positive integer, so direction travels in economicPurpose; gasRules branches on it into
+    // contra-expense + income + new-lot accounting). A human decision cannot flip the sign of
+    // what happened on chain: dropping the marker would book a net INFLOW as a fee spend
+    // (FIFO-consuming lots that were never spent), and minting it would fabricate rebate income
+    // and a lot from a genuine outflow. Symmetric, event-type-agnostic guard: a decide may
+    // never add or remove the marker relative to the normalized payload.
+    const rawPurpose = (JSON.parse(ev.rawJson) as { economicPurpose?: unknown }).economicPurpose;
+    if ((rawPurpose === 'NETWORK_FEE_REBATE') !== (b.finalPurpose === 'NETWORK_FEE_REBATE')) {
+      throw new ApiError(400, 'REBATE_MARKER_IMMUTABLE',
+        rawPurpose === 'NETWORK_FEE_REBATE'
+          ? 'this event is a negative-net gas rebate (sign encoded by economicPurpose); finalPurpose must keep NETWORK_FEE_REBATE'
+          : 'NETWORK_FEE_REBATE encodes a normalization-derived negative net amount and cannot be assigned by a human decision');
+    }
     setDecision(db, ev.id, { finalEventType: b.finalEventType, finalPurpose: b.finalPurpose });
     return { event: eventDTO(getEvent(db, ev.id)!) };
   });
@@ -881,8 +904,14 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     for (const ev of candidates) {
       // Merge in any already-posted GasFeeExpense contribution that sorts strictly before
       // this candidate under the (eventTime, id) key — same tiebreak as the candidates sort.
+      // Task 8 minor: the comparator must BE the sort's comparator (localeCompare), not raw
+      // `<` — the two disagree on mixed-case ids, and a merge key that diverges from the sort
+      // key mis-seeds the accumulator for same-timestamp events.
       const evTime = eventTimeOf(ev);
-      for (let next = postedGasContrib[postedGasPtr]; next && (next.eventTime < evTime || (next.eventTime === evTime && next.eventId < ev.id)); next = postedGasContrib[postedGasPtr]) {
+      for (let next = postedGasContrib[postedGasPtr];
+        next && (next.eventTime.localeCompare(evTime) < 0
+          || (next.eventTime.localeCompare(evTime) === 0 && next.eventId.localeCompare(ev.id) < 0));
+        next = postedGasContrib[postedGasPtr]) {
         gasExpenseToDateMinor = (BigInt(gasExpenseToDateMinor) + next.delta).toString();
         postedGasPtr++;
       }
@@ -970,7 +999,15 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
           if (!preLot || preLot.valuationDeltaMinor === undefined) continue;
           const takeQty = (-BigInt(m.deltaQtyMinor)).toString();
           const takenDelta = attributedTakenDelta(preLot.valuationDeltaMinor, takeQty, preLot.remainingQtyMinor);
-          if (takenDelta === '0') continue;
+          // Same trunc-division, same inputs as the engine's revaluedCarrying takenPnlDelta —
+          // the release row's pnl share must equal the JE's UNREALIZED_*_RECLASS amount exactly,
+          // so pnlBuckets' sum stays identical to the per-lot unrealized GL balance.
+          const takenPnl = attributedTakenDelta(preLot.valuationPnlDeltaMinor ?? '0', takeQty, preLot.remainingQtyMinor);
+          // Skip only when NOTHING was released. delta and pnl can differ in reachability: an
+          // opening delta and a P&L delta that offset each other fold to a zero total (takenDelta
+          // '0') while the engine still reclassifies the nonzero P&L share — dropping the row
+          // would silently desync the bucket from the GL.
+          if (takenDelta === '0' && takenPnl === '0') continue;
           const latestVal = latestValuationForLot(db, ev.entityId, m.lotId);
           if (!latestVal) {
             throw new Error(`run-rules: lot ${m.lotId} carries valuationDeltaMinor but has no lot_valuation row — fold/store desync`);
@@ -996,6 +1033,7 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
             // delta portion being released, so delta === current - prior stays true for anyone
             // folding this row generically.
             priorCarryingMinor: takenDelta, currentValueMinor: '0', deltaMinor: (-BigInt(takenDelta)).toString(),
+            pnlDeltaMinor: (-BigInt(takenPnl)).toString(),
             pricePointId: null, jeId: anchorJeId, reason: 'DISPOSAL_RELEASE',
             policySetVersion: activePolicy.doc.policySetVersion, supersededBy: null,
           }, ev.id); // idSuffix: two separate disposal events draining the SAME lot under the

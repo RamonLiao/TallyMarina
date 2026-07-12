@@ -68,7 +68,14 @@ function periodStart(periodId: string): string {
 export function periodOfDate(asOf: string): string {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(asOf);
   if (!match) throw new Error(`periodOfDate: ${asOf} is not within any known period`);
-  const [, year, month] = match as unknown as [string, string, string, string];
+  const [, year, month, day] = match as unknown as [string, string, string, string];
+  // F3 (dual-review minor): the regex accepts shape, not calendar — '2026-02-31' would land in
+  // Q1 and persist a price no cut-off can ever reference. Round-trip through Date (UTC) to
+  // reject non-existent days (Date normalizes 02-31 to 03-03, so the components won't match).
+  const dt = new Date(`${asOf}T00:00:00Z`);
+  if (dt.getUTCFullYear() !== Number(year) || dt.getUTCMonth() + 1 !== Number(month) || dt.getUTCDate() !== Number(day)) {
+    throw new Error(`periodOfDate: ${asOf} is not a real calendar date`);
+  }
   const quarter = Math.floor((Number(month) - 1) / 3) + 1;
   const periodId = `${year}-Q${quarter}`;
   const start = periodStart(periodId);

@@ -3,7 +3,7 @@ import { openDb, type Db } from '../src/store/db.js';
 import { insertEntity } from '../src/store/entityStore.js';
 import {
   insertRun, latestRun, insertValuation, supersedeValuationsOfRun,
-  foldValuationStates, lotSetHash, RevaluationDataError,
+  foldValuationStates, lotSetHash, pnlBuckets, RevaluationDataError,
 } from '../src/store/revaluationStore.js';
 
 function mkDb(): Db {
@@ -208,5 +208,47 @@ describe('lotSetHash', () => {
       { lotId: 'a', seq: 1, coinType: '0x2::sui::SUI', wallet: '0xw', remainingQtyMinor: '999', costMinor: '50' },
     ];
     expect(lotSetHash(lots1)).not.toBe(lotSetHash(lots2));
+  });
+});
+
+// Ledger follow-up (pre-TB): pnlBuckets is the single source for the realized/unrealized
+// presentation split. Two semantics must hold (see revaluation.splitAfterRerun.test.ts for the
+// end-to-end sequence that broke the old proration):
+//   1. EXACT SUM — live REVALUE deltas plus DISPOSAL_RELEASE rows' stored pnl_delta_minor,
+//      immune to which OTHER rows (opening, superseded revals) surround them.
+//   2. LEGACY FALLBACK — a release row with NULL pnl_delta_minor (written before the column
+//      existed) is attributed by the old proportional ratio against live REVALUE/OPENING sums.
+describe('pnlBuckets: exact P&L bucket per lot', () => {
+  let db: Db;
+  beforeEach(() => { db = mkDb(); });
+
+  it('sums live REVALUE deltas and stored release pnl shares; opening delta excluded; superseded REVALUE excluded', () => {
+    const run1 = insertRun(db, runRow());
+    const run2 = insertRun(db, runRow());
+    insertValuation(db, valRow(run1.id, { seq: 0, reason: 'OPENING_FV', deltaMinor: '20000' }));
+    insertValuation(db, valRow(run1.id, { seq: 1, reason: 'REVALUE', deltaMinor: '20000' }));
+    // Disposal released -20000 total, of which -10000 was the P&L share (stored).
+    insertValuation(db, valRow(run1.id, { seq: 1, reason: 'DISPOSAL_RELEASE', deltaMinor: '-20000', pnlDeltaMinor: '-10000' }), 'evt-1');
+    // Rerun: old REVALUE superseded (release survives), fresh REVALUE +30000 under run2.
+    supersedeValuationsOfRun(db, run1.id, run2.id);
+    insertValuation(db, valRow(run2.id, { seq: 2, reason: 'REVALUE', deltaMinor: '30000' }));
+
+    // Live rows: opening +20000 (not P&L), release pnl −10000, new REVALUE +30000 → bucket 20000.
+    // The broken proration read 18000 here (30000 * 30000 / 50000).
+    expect(pnlBuckets(db, 'e1', ['lot-1'])).toEqual({ 'lot-1': '20000' });
+  });
+
+  it('legacy release row (NULL pnl_delta_minor) falls back to proportional attribution against live raw sums', () => {
+    const run1 = insertRun(db, runRow());
+    insertValuation(db, valRow(run1.id, { seq: 0, reason: 'OPENING_FV', deltaMinor: '20000' }));
+    insertValuation(db, valRow(run1.id, { seq: 1, reason: 'REVALUE', deltaMinor: '20000' }));
+    insertValuation(db, valRow(run1.id, { seq: 1, reason: 'DISPOSAL_RELEASE', deltaMinor: '-20000' }), 'evt-1'); // pnlDeltaMinor omitted -> NULL
+
+    // Old-formula equivalence: pnl 20000 + (-20000 * 20000 / 40000) = 10000.
+    expect(pnlBuckets(db, 'e1', ['lot-1'])).toEqual({ 'lot-1': '10000' });
+  });
+
+  it('lot with no valuation rows is simply absent from the result', () => {
+    expect(pnlBuckets(db, 'e1', ['lot-none'])).toEqual({});
   });
 });
