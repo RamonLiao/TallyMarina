@@ -157,6 +157,25 @@ describe('revaluation preview/run orchestration (Task 6)', () => {
     expect(body.rows.find((r) => r.coinType === SUI)!.deltaMinor).toBe('-200000');
   });
 
+  it('regression (v2.3 as_of gate relaxation): a mid-period price does NOT satisfy revaluation — priceMissing still keys off the exact cut-off date', async () => {
+    // The relaxed POST /prices gate (periodOfDate) now legally accepts a mid-period as_of,
+    // but revaluation's own asOf comes from periodCutoff (unchanged) and latestPricesAt does
+    // an EXACT date match — a price entered for any day other than the cut-off must still
+    // leave the coin priceMissing, exactly as before this fix.
+    const app = await freshApp();
+    await seedLots(app);
+    await postPrice(app, SUI, '3000.00');
+    const midPeriod = await app.inject({
+      method: 'POST', url: `/entities/${E}/prices`, payload: { coinType: USDC, asOf: '2026-05-15', price: '1.00' },
+    });
+    expect(midPeriod.statusCode).toBe(201); // legal under the relaxed gate...
+
+    const { statusCode, body } = await preview(app);
+    expect(statusCode).toBe(200);
+    expect(body.priceMissing).toEqual([USDC]); // ...but does not satisfy the cut-off-day reval read.
+    expect(body.rows.find((r) => r.coinType === USDC)!.missingPrice).toBe(true);
+  });
+
   it('run: 201 with runId/jeIds; reval: JE, lot_valuation rows, dual fingerprints persisted', async () => {
     const app = await freshApp();
     await seedLots(app);

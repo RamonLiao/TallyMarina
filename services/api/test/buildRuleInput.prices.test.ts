@@ -16,6 +16,7 @@ import type { EventRow } from '../src/store/eventStore.js';
 import { DEMO_POLICY_SET, buildCoaMapping } from '../src/http/policyConstants.js';
 import { buildTestApp, TEST_ENTITY_ID } from './helpers/app.js';
 import { insertEvent, setAiSuggestion } from '../src/store/eventStore.js';
+import { canonicalCoinType } from '../src/assets/normalize.js';
 
 const E = 'acme:pilot-001';
 const WALLET = '0xacmeTreasury';
@@ -97,5 +98,44 @@ describe('route-level: run-rules fails closed on an unseeded event date (D14 wir
     const exBody = exR.json() as { exceptions: Array<{ eventId: string; reason: string }> };
     const mine = exBody.exceptions.find((e) => e.eventId === 'no-price-1');
     expect(mine?.reason).toBe('PRICE_MISSING');
+  });
+
+  it('spec v2.3: posting a price for the exact (non-cut-off) event date via POST /prices unblocks that event', async () => {
+    // Same PRICE_MISSING setup as above (2026-05-15 event, mid-period, no seeded price) — but
+    // this time we supply the missing price through the public API using an event-day (not
+    // period-cut-off) as_of, which the relaxed gate (periodOfDate) now accepts. The event must
+    // post instead of landing in PRICE_MISSING — this is the fix's reason to exist. Uses a
+    // RECEIPT (acquire), not a PAYMENT (disposal), so there's no separate INSUFFICIENT_LOT gate
+    // to satisfy — the only thing standing between this event and posting is the price.
+    const app = await buildTestApp(true);
+    // buildRuleInput/pricesForEvent match price_points.coin_type against the event's raw
+    // coinType by exact string equality (no canonicalization at engine level) — use the
+    // CANONICAL form here so it lines up with what POST /prices stores (that route
+    // canonicalizes coinType before persisting).
+    const raw = paymentRaw({
+      eventId: 'evtNoPrice2', eventType: 'DIGITAL_ASSET_RECEIPT', economicPurpose: 'RECEIVABLE_SETTLEMENT',
+      txDigest: 'DIGnoprice2', eventTime: '2026-05-15T00:00:00Z',
+      coinType: canonicalCoinType(COIN),
+    });
+    insertEvent(app._db, { id: 'no-price-2', entityId: TEST_ENTITY_ID, rawJson: raw });
+    setAiSuggestion(app._db, 'no-price-2', {
+      aiEventType: 'DIGITAL_ASSET_RECEIPT', aiPurpose: 'RECEIVABLE_SETTLEMENT', aiCounterparty: null,
+      aiConfidence: 0.9, aiReasoning: 'seed', nextStatus: 'AUTO',
+    });
+
+    const priceRes = await app.inject({
+      method: 'POST', url: `/entities/${TEST_ENTITY_ID}/prices`,
+      payload: { coinType: COIN, asOf: '2026-05-15', price: '1.00' },
+    });
+    expect(priceRes.statusCode).toBe(201);
+
+    const r = await app.inject({ method: 'POST', url: `/entities/${TEST_ENTITY_ID}/run-rules`, payload: { periodId: '2026-Q2' } });
+    expect(r.statusCode).toBe(200);
+    const body = r.json() as { posted: number; skipped: number };
+    expect(body.posted).toBeGreaterThanOrEqual(1);
+
+    const exR = await app.inject({ method: 'GET', url: `/entities/${TEST_ENTITY_ID}/exceptions?periodId=2026-Q2` });
+    const exBody = exR.json() as { exceptions: Array<{ eventId: string; reason: string }> };
+    expect(exBody.exceptions.find((e) => e.eventId === 'no-price-2')).toBeUndefined();
   });
 });

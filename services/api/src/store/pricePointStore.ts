@@ -42,6 +42,29 @@ export function cutoffPeriod(asOf: string): string {
   throw new Error(`cutoffPeriod: ${asOf} is not a known period cut-off date`);
 }
 
+// Quarter start date for a "YYYY-Qn" period id, derived from its cut-off (end) date rather
+// than a second hard-coded table — one source of truth (PERIOD_CUTOFFS) for period bounds.
+function periodStart(periodId: string, cutoff: string): string {
+  const match = /^(\d{4})-Q([1-4])$/.exec(periodId);
+  if (!match) throw new Error(`periodStart: unsupported period id format ${periodId}`);
+  const year = match[1];
+  const quarter = Number(match[2]);
+  const startMonth = (quarter - 1) * 3 + 1;
+  void cutoff; // cutoff (end date) validated by caller via PERIOD_CUTOFFS lookup
+  return `${year}-${String(startMonth).padStart(2, '0')}-01`;
+}
+
+// spec v2.3: as_of no longer needs to land exactly on a period cut-off date — any date
+// within a known period's [start, cutoff] range resolves to that period. Unbricks event-day
+// pricing (e.g. a mid-period payment) while still rejecting dates outside any known period.
+export function periodOfDate(asOf: string): string {
+  for (const [periodId, cutoff] of Object.entries(PERIOD_CUTOFFS)) {
+    const start = periodStart(periodId, cutoff);
+    if (asOf >= start && asOf <= cutoff) return periodId;
+  }
+  throw new Error(`periodOfDate: ${asOf} is not within any known period`);
+}
+
 function shortHash(coinType: string): string {
   return createHash('sha256').update(coinType).digest('hex').slice(0, 8);
 }

@@ -62,7 +62,7 @@ import { listAssets } from '../assets/store.js';
 import { getAssetDecimals } from '../assets/registry.js';
 import { canonicalCoinType, CoinTypeError } from '../assets/normalize.js';
 import {
-  insertPricePoint, latestPricesAt, listPriceHistory, periodCutoff, cutoffPeriod,
+  insertPricePoint, latestPricesAt, listPriceHistory, periodCutoff, periodOfDate,
 } from '../store/pricePointStore.js';
 import { previewRun, executeRun } from '../revaluation/orchestrate.js';
 import { RevaluationDataError } from '../store/revaluationStore.js';
@@ -519,9 +519,12 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     }
   });
 
-  // Manual price entry (Task 4). MVP main path for period-end revaluation, fail-closed:
-  // unregistered coinType, malformed price, or an as-of date that isn't a known period
-  // cut-off are all rejected at the write boundary, never silently coerced.
+  // Manual price entry (Task 4; as-of gate relaxed per spec v2.3). MVP main path for
+  // period-end revaluation, fail-closed: unregistered coinType, malformed price, or an
+  // as-of date outside any known period's date range are all rejected at the write
+  // boundary, never silently coerced. as_of no longer needs to land exactly on a period
+  // cut-off date — this unbricks event-day pricing (e.g. a mid-period payment) that Task 9's
+  // fail-closed PRICE_MISSING gate would otherwise reject with no way to supply a price.
   const priceBodySchema = z.object({
     coinType: z.string().min(1),
     asOf: z.string().min(1),
@@ -545,9 +548,9 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
       throw new ApiError(400, 'ASSET_NOT_REGISTERED', `coinType ${coinType} is not registered for entity ${req.params.id}`);
     }
     try {
-      cutoffPeriod(asOf);
+      periodOfDate(asOf);
     } catch {
-      throw new ApiError(400, 'VALIDATION', `asOf ${asOf} is not a known period cut-off date`);
+      throw new ApiError(400, 'VALIDATION', `asOf ${asOf} is not within any known period`);
     }
 
     const priceMinor = parsePriceToMinor(price);

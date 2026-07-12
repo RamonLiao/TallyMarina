@@ -78,10 +78,19 @@ describe('/entities/:id/prices', () => {
       expect(res.statusCode).toBe(400);
     });
 
-    it('400s an asOf that is not a period cut-off date', async () => {
+    it('201s an asOf that falls mid-period, not just the cut-off date (spec v2.3 relaxed gate)', async () => {
       const res = await app.inject({
         method: 'POST', url: `/entities/${TEST_ENTITY_ID}/prices`,
         payload: { coinType: SUI, asOf: '2026-06-29', price: '1400.00' },
+      });
+      expect(res.statusCode).toBe(201);
+      expect(res.json().asOf).toBe('2026-06-29');
+    });
+
+    it('400s an asOf outside any known period date range', async () => {
+      const res = await app.inject({
+        method: 'POST', url: `/entities/${TEST_ENTITY_ID}/prices`,
+        payload: { coinType: SUI, asOf: '2025-01-01', price: '1400.00' },
       });
       expect(res.statusCode).toBe(400);
     });
