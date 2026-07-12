@@ -67,7 +67,7 @@ export function collectExceptions(db: Db, entityId: string, periodId: string, lo
         const asOf = eventTime.slice(0, 10);
         let prices = priceCache.get(asOf);
         if (!prices) { prices = pricesForEvent(db, e); priceCache.set(asOf, prices); }
-        const o = evaluate(buildRuleInput(e, { periodId, periodOpen, lots: lotsForEvent(db, e), policySet: enginePolicy, coaMapping: engineCoa, prices }));
+        const o = evaluate(buildRuleInput(e, { periodId, periodOpen, lots: lotsForEvent(db, e, activePolicy.doc), policySet: enginePolicy, coaMapping: engineCoa, prices }));
         if (o.decision !== 'POSTABLE' || o.journalEntries.length === 0) {
           reason = o.exceptions[0]?.code ?? (o.decision === 'POSTABLE' ? 'NO_JOURNAL_ENTRIES' : o.decision);
         }

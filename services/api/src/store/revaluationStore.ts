@@ -169,7 +169,13 @@ export function foldValuationStates(
     cur.delta += delta;
     if (row.reason === 'IMPAIR') cur.impairment += delta < 0n ? -delta : delta;
     if (row.reason === 'REVERSE') cur.impairment -= delta;
-    cur.latestQty = qty; // ascending seq order within a lot → last write is the highest seq
+    // M1 (final-review): qtyAtLastValuationMinor is the denominator revalue.ts prorates
+    // cumulative impairment over (attributedImpairment), so it must track the qty AT THE LAST
+    // VALUATION, not the qty a disposal happened to consume. A DISPOSAL_RELEASE row's qty is
+    // the DISPOSED amount (borrowed run_id/seq), never a fresh valuation snapshot — letting it
+    // overwrite latestQty would shrink the denominator and inflate the attributed impairment
+    // on the next impairment-track revaluation. Skip it; keep the last real valuation's qty.
+    if (row.reason !== 'DISPOSAL_RELEASE') cur.latestQty = qty; // ascending seq order → last real valuation wins
     if (row.seq === 0) cur.hasOpeningSeq0 = true;
     acc.set(row.lotId, cur);
   }

@@ -62,7 +62,7 @@ import { listAssets } from '../assets/store.js';
 import { getAssetDecimals } from '../assets/registry.js';
 import { canonicalCoinType, CoinTypeError } from '../assets/normalize.js';
 import {
-  insertPricePoint, latestPricesAt, listPriceHistory, periodCutoff, periodOfDate,
+  insertPricePoint, latestPricesAt, listPriceHistory, periodOfDate,
 } from '../store/pricePointStore.js';
 import { previewRun, executeRun } from '../revaluation/orchestrate.js';
 import { RevaluationDataError, insertValuation, latestValuationForLot } from '../store/revaluationStore.js';
@@ -867,7 +867,7 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
       // §4.5 (Task 10): keep the PRE-consumption lots around — buildRuleInput/evaluate only
       // returns lotMovements (deltas), not each consumed lot's original valuationDeltaMinor.
       // The DISPOSAL_RELEASE write below re-derives the attributed delta from these.
-      const preLots = lotsForEvent(db, ev);
+      const preLots = lotsForEvent(db, ev, activePolicy.doc);
       const output = evaluate(buildRuleInput(ev, {
         periodId, periodOpen, lots: preLots, policySet: enginePolicy, coaMapping: engineCoa,
         gasExpenseToDateMinor, prices,

@@ -24,11 +24,13 @@ import { insertEntity } from '../src/store/entityStore.js';
 import { insertEvent, setAiSuggestion } from '../src/store/eventStore.js';
 import { registerTestAsset } from './helpers/registerTestAsset.js';
 import { buildCockpit, type Light } from '../src/periodLock/cockpit.js';
+import { canonicalCoinType } from '../src/assets/normalize.js';
 
 const E = 'e1';
 const P = '2026-Q2';
 const ASOF = '2026-06-30';
 const SUI = '0x2::sui::SUI';
+const USDC = canonicalCoinType('0xbeef::usdc::USDC');
 
 interface RawOver { [k: string]: unknown }
 function opening(over: RawOver = {}): RawOver {
@@ -65,6 +67,22 @@ async function runRules(app: FastifyInstance): Promise<void> {
 async function postPrice(app: FastifyInstance, price: string): Promise<void> {
   const r = await app.inject({ method: 'POST', url: `/entities/${E}/prices`, payload: { coinType: SUI, asOf: ASOF, price } });
   expect(r.statusCode).toBe(201);
+}
+
+async function postPriceAt(app: FastifyInstance, coinType: string, asOf: string, price: string): Promise<void> {
+  const r = await app.inject({ method: 'POST', url: `/entities/${E}/prices`, payload: { coinType, asOf, price } });
+  expect(r.statusCode).toBe(201);
+}
+
+function swap(over: RawOver = {}): RawOver {
+  return {
+    schemaVersion: 'v1', eventId: 'swp1', eventType: 'SPOT_TRADE_SWAP', eventGroupId: null,
+    entityId: E, bookId: 'main', wallet: '0xacme', counterparty: null, coinType: SUI,
+    assetDecimals: 9, quantityMinor: '500000000', eventTime: '2026-06-15T00:00:00Z',
+    economicPurpose: 'SPOT_TRADE_SWAP', ownershipChange: true,
+    considerationAsset: USDC, considerationQtyMinor: '2500', considerationDecimals: 0,
+    rawPayloadHash: 'swphash', txDigest: 'DIGSWP', eventIndex: 0, ...over,
+  };
 }
 
 async function runReval(app: FastifyInstance): Promise<{ statusCode: number; body: { runId?: string } }> {
@@ -159,6 +177,30 @@ describe('cockpit revaluation light (Task 7)', () => {
       eventId: 'open-sui-2', quantityMinor: '2000000000', openingCostMinor: '1000000',
       txDigest: 'DIG2', eventTime: '2026-04-03T00:00:00Z',
     }));
+    await runRules(app);
+
+    expect(revaluationLightOf(app._db).status).toBe('stale');
+  });
+
+  // I1 (final-review): a disposal shrinks a held lot's remaining qty → lotSetHash changes with
+  // no price/policy change at all → the run on record no longer reflects the current position →
+  // stale. This is the same linchpin as "new lot, same price" but via the OTHER direction of a
+  // lot-set mutation (consumption, not accretion), which is the common real-world trigger.
+  it('post a disposal after a green run (lot qty shrinks) → stale', async () => {
+    const app = await freshApp();
+    registerTestAsset(app._db, E, USDC, 0);
+    seedAuto(app._db, 'open-sui', opening());
+    await runRules(app);
+    await postPrice(app, '5000.00');
+    expect((await runReval(app)).statusCode).toBe(201);
+    expect(revaluationLightOf(app._db).status).toBe('green');
+
+    // Dispose HALF the SUI for USDC. Price USDC at BOTH the swap date (consideration FV) and the
+    // period cut-off (so the newly-held USDC is not itself PRICE_MISSING — that would red the
+    // light for a different reason and mask the lotSetHash-stale signal under test).
+    await postPriceAt(app, USDC, '2026-06-15', '0.01');
+    await postPriceAt(app, USDC, ASOF, '0.01');
+    seedAuto(app._db, 'swp1', swap());
     await runRules(app);
 
     expect(revaluationLightOf(app._db).status).toBe('stale');

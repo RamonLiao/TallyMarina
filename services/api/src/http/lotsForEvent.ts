@@ -3,7 +3,7 @@ import type { EventRow } from '../store/eventStore.js';
 import type { PositionLot, NormalizedEvent } from '../deps/rulesEngine.js';
 import { foldRemainingLots } from '../store/lotMovementStore.js';
 import { foldValuationStates, rawDeltaComponents } from '../store/revaluationStore.js';
-import { getActivePolicy } from '../store/policyStore.js';
+import { getActivePolicy, type PolicyDoc } from '../store/policyStore.js';
 import { basisOf } from '../revaluation/orchestrate.js';
 
 // Derived-ledger read (spec §4): remaining lots for the event's (wallet, coinType) pool,
@@ -16,12 +16,18 @@ import { basisOf } from '../revaluation/orchestrate.js';
 // revaluation run used (basisOf), so foldValuationStates' mixed-basis guard (CPA B2) reads
 // consistently with what a run wrote. Lots with no lot_valuation rows (never revalued) are
 // returned untouched — byte-identical to pre-Task-10 behavior (regression lock).
-export function lotsForEvent(db: Db, event: EventRow): PositionLot[] {
+//
+// `doc` (I2 final-review): the two hot callers — run-rules' posting loop and collectExceptions —
+// iterate many events while the entity's active policy is FIXED for the whole pass, so they load
+// it ONCE and pass it here rather than paying a getActivePolicy read per event. It is optional
+// only so the handful of one-shot callers (scripts, isolated tests) need not thread it; when
+// omitted, the same active policy is loaded — behavior is identical either way.
+export function lotsForEvent(db: Db, event: EventRow, doc?: PolicyDoc): PositionLot[] {
   const raw = JSON.parse(event.rawJson) as NormalizedEvent;
   const lots = foldRemainingLots(db, event.entityId, raw.wallet, raw.coinType);
   if (lots.length === 0) return lots;
-  const { doc } = getActivePolicy(db, event.entityId);
-  const basis = basisOf(doc, raw.coinType);
+  const policyDoc = doc ?? getActivePolicy(db, event.entityId).doc;
+  const basis = basisOf(policyDoc, raw.coinType);
   const valuations = foldValuationStates(db, event.entityId, lots.map((l) => l.lotId), basis);
   // External-review fix: valuationDeltaMinor (used for carrying) mixes the P&L-booked period
   // reval delta with the equity-booked ASU-transition delta. Only the P&L share may ever be
