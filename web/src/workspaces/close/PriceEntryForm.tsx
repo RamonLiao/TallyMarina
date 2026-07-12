@@ -9,11 +9,25 @@ import { postPrice } from '../../api/endpoints';
 import '../policy/policy.css';
 import './close.css';
 
-// Mirror of services/api PERIOD_CUTOFFS / periodStart (spec §5) — MVP knows one period.
-// The date input is bounded to [start, cut-off]; the server re-validates (periodOfDate).
-const PERIOD_BOUNDS: Readonly<Record<string, { start: string; cutoff: string }>> = {
-  '2026-Q2': { start: '2026-04-01', cutoff: '2026-06-30' },
+// UX mirror of services/api/src/store/pricePointStore.ts's periodStart/periodCutoff
+// (external review: server switched from a hard-coded period table to a pure quarter
+// computation so any "YYYY-Qn" period works, not just the ones someone remembered to list —
+// this must stay in lockstep or the date input silently reverts to being table-bound again).
+// The date input is bounded to [start, cutoff]; the server re-validates (periodOfDate).
+const QUARTER_END_DAY: Readonly<Record<'1' | '2' | '3' | '4', string>> = {
+  '1': '03-31', '2': '06-30', '3': '09-30', '4': '12-31',
 };
+
+function periodBounds(periodId: string): { start: string; cutoff: string } | undefined {
+  const match = /^(\d{4})-Q([1-4])$/.exec(periodId);
+  if (!match) return undefined;
+  const [, year, quarter] = match as unknown as [string, string, '1' | '2' | '3' | '4'];
+  const startMonth = (Number(quarter) - 1) * 3 + 1;
+  return {
+    start: `${year}-${String(startMonth).padStart(2, '0')}-01`,
+    cutoff: `${year}-${QUARTER_END_DAY[quarter]}`,
+  };
+}
 
 // Mirror of the server's PRICE_RE: plain decimal, at most 2 decimal places, no sign/exponent.
 const PRICE_RE = /^(\d+)(?:\.(\d{1,2}))?$/;
@@ -31,7 +45,7 @@ export function PriceEntryForm({
   assetsError?: string;
   onSaved: () => void;
 }) {
-  const bounds = PERIOD_BOUNDS[periodId];
+  const bounds = periodBounds(periodId);
   const [coinType, setCoinType] = useState('');
   const [asOf, setAsOf] = useState(bounds?.cutoff ?? '');
   const [price, setPrice] = useState('');

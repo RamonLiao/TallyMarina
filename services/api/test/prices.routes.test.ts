@@ -87,10 +87,23 @@ describe('/entities/:id/prices', () => {
       expect(res.json().asOf).toBe('2026-06-29');
     });
 
-    it('400s an asOf outside any known period date range', async () => {
+    // External review (should-fix): period cutoffs are now a pure quarter computation, not a
+    // hard-coded table, so a well-formed date in ANY quarter (e.g. 2025-01-01, in 2025-Q1) now
+    // legitimately resolves instead of 400ing — that's the intended fix (an entity is no
+    // longer permanently uncloseable for any period someone forgot to add to a table). Only a
+    // malformed asOf string still 400s.
+    it('201s a well-formed asOf in a period outside the old hard-coded table (now computable)', async () => {
       const res = await app.inject({
         method: 'POST', url: `/entities/${TEST_ENTITY_ID}/prices`,
         payload: { coinType: SUI, asOf: '2025-01-01', price: '1400.00' },
+      });
+      expect(res.statusCode).toBe(201);
+    });
+
+    it('400s a malformed asOf string', async () => {
+      const res = await app.inject({
+        method: 'POST', url: `/entities/${TEST_ENTITY_ID}/prices`,
+        payload: { coinType: SUI, asOf: 'not-a-date', price: '1400.00' },
       });
       expect(res.statusCode).toBe(400);
     });

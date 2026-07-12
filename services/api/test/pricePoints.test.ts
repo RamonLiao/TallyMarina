@@ -64,8 +64,18 @@ describe('price_points store', () => {
     expect(cutoffPeriod('2026-06-30')).toBe('2026-Q2');
   });
 
-  it('periodCutoff throws for an unknown period', () => {
-    expect(() => periodCutoff('2099-Q1')).toThrow();
+  // External review (should-fix): period cutoffs are now a pure quarter computation, not a
+  // hard-coded table — any well-formed "YYYY-Qn" period computes, not just 2026-Q2. Only a
+  // malformed period id (fails the ^YYYY-Qn$ shape) still throws (fail-closed preserved).
+  it('periodCutoff computes for any well-formed period, not just the ones in an old table', () => {
+    expect(periodCutoff('2026-Q3')).toBe('2026-09-30');
+    expect(periodCutoff('2027-Q1')).toBe('2027-03-31');
+    expect(periodCutoff('2027-Q4')).toBe('2027-12-31');
+  });
+
+  it('periodCutoff throws for a malformed period id (fail-closed preserved)', () => {
+    expect(() => periodCutoff('2026-Q5')).toThrow();
+    expect(() => periodCutoff('bad')).toThrow();
   });
 
   it('cutoffPeriod throws for a date that is not a known cut-off', () => {

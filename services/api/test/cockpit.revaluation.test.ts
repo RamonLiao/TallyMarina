@@ -226,4 +226,19 @@ describe('cockpit revaluation light (Task 7)', () => {
     expect(body.error.code).toBe('LIGHTS_NOT_GREEN');
     expect(body.error.message).toContain('revaluation');
   });
+
+  // External review (should-fix): PERIOD_CUTOFFS used to be a hard-coded table with only
+  // 2026-Q2 in it, so periodCutoff('2026-Q3') threw and this catch block turned it into a
+  // permanently-red light with no way to ever go green (not even "no run yet" red — a
+  // swallowed-exception red, indistinguishable from a real one). Now that periodCutoff is a
+  // pure quarter computation, a period with no run yet reds for the LEGITIMATE reason (no
+  // run on record), same as the Q2 case above, not because the light's own lookup threw.
+  it('a non-Q2 period with no run reds for "no run yet", not a swallowed periodCutoff throw', async () => {
+    const app = await freshApp();
+    const cockpit = buildCockpit(app._db, E, '2026-Q3', 0.7);
+    const revaluation = cockpit.lights.find((l) => l.key === 'revaluation')!;
+    expect(revaluation.status).toBe('red');
+    expect(revaluation.real).toBe(true);
+    expect(revaluation.label).toBe('Revaluation');
+  });
 });

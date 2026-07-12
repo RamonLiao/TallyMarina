@@ -19,49 +19,61 @@ export interface PricePointRow {
   createdAt: string;
 }
 
-// MVP hard-coded period ↔ cut-off-date table (spec §5). Deliberately a plain Record so a
-// later period is a one-line addition, not a schema change. An unknown period/date is a
-// caller bug (or an attempt to enter a price for a period this deployment doesn't know
-// about) — fail loud rather than silently accepting an unbounded as-of date.
-const PERIOD_CUTOFFS: Readonly<Record<string, string>> = {
-  '2026-Q2': '2026-06-30',
+// External review (should-fix): period <-> cut-off-date is a pure calendar computation
+// (a "YYYY-Qn" id has exactly one start date and one end date), so it must never live in a
+// hard-coded table — a table only covers the periods someone remembered to add a row for,
+// and every other period throws, permanently blocking close/cockpit for it with no fix but a
+// code change. Quarter-end day counts are fixed regardless of leap year (quarter-end months
+// are always 3/6/9/12, none of which is February), so no leap-year handling is needed.
+// Format is still validated and fails loud (`^YYYY-Qn$` only) — this only replaces the TABLE
+// LOOKUP, not the fail-closed behavior for a malformed/unknown-shaped period id.
+const QUARTER_END_DAY: Readonly<Record<'1' | '2' | '3' | '4', string>> = {
+  '1': '03-31', '2': '06-30', '3': '09-30', '4': '12-31',
 };
 
+function parsePeriodId(periodId: string): { year: string; quarter: '1' | '2' | '3' | '4' } {
+  const match = /^(\d{4})-Q([1-4])$/.exec(periodId);
+  if (!match) throw new Error(`periodCutoff: unknown period ${periodId}`);
+  return { year: match[1]!, quarter: match[2] as '1' | '2' | '3' | '4' };
+}
+
 export function periodCutoff(periodId: string): string {
-  const cutoff = PERIOD_CUTOFFS[periodId];
-  if (cutoff === undefined) {
-    throw new Error(`periodCutoff: unknown period ${periodId}`);
-  }
-  return cutoff;
+  const { year, quarter } = parsePeriodId(periodId);
+  return `${year}-${QUARTER_END_DAY[quarter]}`;
 }
 
 export function cutoffPeriod(asOf: string): string {
-  for (const [periodId, cutoff] of Object.entries(PERIOD_CUTOFFS)) {
-    if (cutoff === asOf) return periodId;
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(asOf);
+  if (match) {
+    const [, year, month, day] = match as unknown as [string, string, string, string];
+    const quarter = (Object.entries(QUARTER_END_DAY) as Array<['1' | '2' | '3' | '4', string]>)
+      .find(([, md]) => md === `${month}-${day}`)?.[0];
+    if (quarter) return `${year}-Q${quarter}`;
   }
   throw new Error(`cutoffPeriod: ${asOf} is not a known period cut-off date`);
 }
 
-// Quarter start date for a "YYYY-Qn" period id, derived from its cut-off (end) date rather
-// than a second hard-coded table — one source of truth (PERIOD_CUTOFFS) for period bounds.
-function periodStart(periodId: string, cutoff: string): string {
-  const match = /^(\d{4})-Q([1-4])$/.exec(periodId);
-  if (!match) throw new Error(`periodStart: unsupported period id format ${periodId}`);
-  const year = match[1];
-  const quarter = Number(match[2]);
-  const startMonth = (quarter - 1) * 3 + 1;
-  void cutoff; // cutoff (end date) validated by caller via PERIOD_CUTOFFS lookup
+// Quarter start date for a "YYYY-Qn" period id — the first day of the quarter's first month.
+function periodStart(periodId: string): string {
+  const { year, quarter } = parsePeriodId(periodId);
+  const startMonth = (Number(quarter) - 1) * 3 + 1;
   return `${year}-${String(startMonth).padStart(2, '0')}-01`;
 }
 
 // spec v2.3: as_of no longer needs to land exactly on a period cut-off date — any date
-// within a known period's [start, cutoff] range resolves to that period. Unbricks event-day
-// pricing (e.g. a mid-period payment) while still rejecting dates outside any known period.
+// within the period's [start, cutoff] range resolves to that period. Unbricks event-day
+// pricing (e.g. a mid-period payment) while still rejecting dates that don't parse or fall
+// within a supported year range... actually: any well-formed date resolves to its calendar
+// quarter (computation, not a lookup table), so this only throws on a malformed date string.
 export function periodOfDate(asOf: string): string {
-  for (const [periodId, cutoff] of Object.entries(PERIOD_CUTOFFS)) {
-    const start = periodStart(periodId, cutoff);
-    if (asOf >= start && asOf <= cutoff) return periodId;
-  }
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(asOf);
+  if (!match) throw new Error(`periodOfDate: ${asOf} is not within any known period`);
+  const [, year, month] = match as unknown as [string, string, string, string];
+  const quarter = Math.floor((Number(month) - 1) / 3) + 1;
+  const periodId = `${year}-Q${quarter}`;
+  const start = periodStart(periodId);
+  const cutoff = periodCutoff(periodId);
+  if (asOf >= start && asOf <= cutoff) return periodId;
   throw new Error(`periodOfDate: ${asOf} is not within any known period`);
 }
 
