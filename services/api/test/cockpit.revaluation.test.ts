@@ -233,12 +233,39 @@ describe('cockpit revaluation light (Task 7)', () => {
   // swallowed-exception red, indistinguishable from a real one). Now that periodCutoff is a
   // pure quarter computation, a period with no run yet reds for the LEGITIMATE reason (no
   // run on record), same as the Q2 case above, not because the light's own lookup threw.
-  it('a non-Q2 period with no run reds for "no run yet", not a swallowed periodCutoff throw', async () => {
+  //
+  // External re-review (F1): the version of this test that only checked the "no run yet" red
+  // was tautological — a swallowed periodCutoff throw ALSO reds (same status/real/label), so
+  // old and new code were indistinguishable here and this test could never catch a regression
+  // back to the hard-coded table. It is strengthened below to actually drive a full 2026-Q3
+  // revaluation run (seed a Q3-dated lot, run-rules, post a Q3 cut-off price, run revaluation)
+  // and assert the light reaches green. That is only reachable if periodCutoff('2026-Q3')
+  // resolves to a real date instead of throwing — under the old hard-coded table this run would
+  // 500 out of run-rules/revaluation-run (or the light's own catch would swallow it back to a
+  // throw-red), so the light could never leave red. See the mutation-test note in the PR/commit
+  // for direct before/after evidence of this test actually going red on the old code.
+  it('a non-Q2 period with no run reds for "no run yet", then a real Q3 run drives it to green', async () => {
     const app = await freshApp();
-    const cockpit = buildCockpit(app._db, E, '2026-Q3', 0.7);
-    const revaluation = cockpit.lights.find((l) => l.key === 'revaluation')!;
-    expect(revaluation.status).toBe('red');
-    expect(revaluation.real).toBe(true);
-    expect(revaluation.label).toBe('Revaluation');
+    const Q3 = '2026-Q3';
+
+    const before = buildCockpit(app._db, E, Q3, 0.7).lights.find((l) => l.key === 'revaluation')!;
+    expect(before.status).toBe('red');
+    expect(before.real).toBe(true);
+    expect(before.label).toBe('Revaluation');
+
+    // Seed a lot dated inside Q3 (not Q2) so run-rules attributes it to periodId '2026-Q3' via
+    // deriveEventPeriod/periodOf — a pure calendar computation independent of the price-point
+    // cutoff table under test.
+    seedAuto(app._db, 'open-sui-q3', opening({
+      eventId: 'open-sui-q3', txDigest: 'DIGQ3', eventTime: '2026-07-01T00:00:00Z',
+    }));
+    const rulesR = await app.inject({ method: 'POST', url: `/entities/${E}/run-rules`, payload: { periodId: Q3 } });
+    expect(rulesR.statusCode).toBe(200);
+    await postPriceAt(app, SUI, '2026-09-30', '5000.00'); // Q3 cut-off date
+    const revalR = await app.inject({ method: 'POST', url: `/entities/${E}/revaluation/run`, payload: { periodId: Q3 } });
+    expect(revalR.statusCode).toBe(201);
+
+    const after = buildCockpit(app._db, E, Q3, 0.7).lights.find((l) => l.key === 'revaluation')!;
+    expect(after.status).toBe('green');
   });
 });
