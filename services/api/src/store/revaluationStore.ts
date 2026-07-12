@@ -129,6 +129,23 @@ export function valuedLotIdsOfRun(db: Db, entityId: string, runId: string): stri
   ).all(entityId, runId) as Array<{ lot_id: string }>).map((r) => r.lot_id);
 }
 
+// Task 13 (rerun reversal AMOUNT, per-lot): the raw PERIOD valuation rows a run booked, one
+// per (lot, reason). Same domain as valuedLotIdsOfRun (seq>0, REVALUE/IMPAIR/REVERSE — excludes
+// seq-0 OPENING_FV and the borrowed DISPOSAL_RELEASE row), but returns per-lot delta + reason +
+// price ref so the reversal amount can be rebuilt from ONLY the surviving lots' shares rather
+// than swapping the old run's coin-aggregate JE (which over-reverses a lot disposed since — its
+// delta was already reclassified to realized). run_id-scoped, so it is order-independent w.r.t.
+// supersedeValuationsOfRun (the reversal is computed before supersede, but either order reads the
+// same rows).
+export interface PeriodValuationRow { lotId: string; reason: string; deltaMinor: string; pricePointId: string | null }
+export function periodValuationRowsOfRun(db: Db, entityId: string, runId: string): PeriodValuationRow[] {
+  return (db.prepare(
+    `SELECT lot_id, reason, delta_minor, price_point_id FROM lot_valuation
+     WHERE entity_id = ? AND run_id = ? AND seq > 0 AND reason IN ('REVALUE', 'IMPAIR', 'REVERSE')`,
+  ).all(entityId, runId) as Array<{ lot_id: string; reason: string; delta_minor: string; price_point_id: string | null }>)
+    .map((r) => ({ lotId: r.lot_id, reason: r.reason, deltaMinor: r.delta_minor, pricePointId: r.price_point_id ?? null }));
+}
+
 // SUI S3-style input domain hash: same set in, same hash out, independent of read order.
 export function lotSetHash(lots: PositionLot[]): string {
   const entries = lots.map((l) => `${l.lotId}:${l.remainingQtyMinor}`).sort();

@@ -277,8 +277,8 @@ describe('C1 (final review): revaluation rerun after an intervening disposal', (
   it('series D (decision regression guard) — two old lots of the same coin, one FULLY disposed: the SURVIVING sibling keeps the coin in the reversal set (reversal fires; disposed lot superseded; its release survives)', async () => {
     // This is the mutation guard for the lot-level DECISION: a naive "skip if any lot of this
     // coin was disposed" would wrongly drop lot B's reversal → reversalJe null here. It asserts
-    // ONLY the decision + supersession bookkeeping, NOT the coin-aggregate reversal AMOUNT (see
-    // the it.fails below — the amount is a separate, pre-existing defect out of this fix's scope).
+    // ONLY the decision + supersession bookkeeping; the reversal AMOUNT invariant is pinned
+    // separately by "series D (amount)" below.
     const app = await freshApp();
     const { run2, run3 } = await seedTwoLotsDisposeOneThenRerun(app);
 
@@ -293,20 +293,36 @@ describe('C1 (final review): revaluation rerun after an intervening disposal', (
     expect(bRows.find((r) => r.reason === 'REVALUE' && r.run_id === run3)).toBeTruthy();
   });
 
-  // KNOWN GAP (surfaced by this fix, NOT closed by it — see task-13-fixwave.md §"series D finding").
-  // The lot-level DECISION is correct (coin reversed because lot B survives), but the reversal
-  // AMOUNT is the OLD run's COIN-AGGREGATE reval JE (both lots, 40000). Reversing lot A's 20000
-  // share double-counts: the disposal already reclassified lot A's unrealized gain to realized.
-  // Unlike series A (single lot, partial disposal — the release row lives on the SAME surviving
-  // lot and compensates in-fold), lot A's release lives on the disposed lot and never enters lot
-  // B's fold, so nothing compensates. Result: DA(SUI)=140000, understating the true fair value of
-  // the surviving lot B (160000) by lot A's over-reversed 20000. The correct fix needs a per-LOT
-  // reversal amount (reverse only surviving lots' shares), which requires re-deriving the JE from
-  // per-lot deltas at the engine level — beyond this task's surgical scope. Encoded as an
-  // expected-fail so the TRUE invariant is on record and the suite stays honestly green.
-  it.fails('series D (amount) — DA must equal the surviving lot fair value (160000); currently 140000 due to coin-aggregate over-reversal [KNOWN GAP, expected-fail]', async () => {
+  // PER-LOT reversal AMOUNT (Task 13 final, see task-13-fixwave.md §"C1-final — per-lot reversal
+  // amount"). The lot-level DECISION (coin reversed because lot B survives) was already correct;
+  // this pins the AMOUNT. The OLD run's COIN-AGGREGATE reval JE spans both lots (40000). Reversing
+  // lot A's 20000 share double-counts — the disposal already reclassified lot A's unrealized gain
+  // to realized (UNREALIZED_GAIN_RECLASS). Unlike series A (single lot, partial disposal — the
+  // release row lives on the SAME surviving lot and compensates in-fold), lot A's release lives on
+  // the disposed lot and never enters lot B's fold, so nothing compensates. reversalDrafts now
+  // rebuilds the reversal from ONLY the surviving lots' per-reason valuation shares (lot B's 20000),
+  // so DA(SUI) settles to the true fair value of the surviving lot B (160000), not 140000.
+  it('series D (amount) — DA equals the surviving lot fair value (160000): the rerun reverses ONLY the surviving lot B\'s reval share, not lot A\'s already-realized share', async () => {
     const app = await freshApp();
-    await seedTwoLotsDisposeOneThenRerun(app);
-    expect(glBalance(app._db, 'DigitalAssets', SUI)).toBe(160000n); // TRUE invariant; currently 140000
+    const { run2, run3 } = await seedTwoLotsDisposeOneThenRerun(app);
+    // THE invariant: reversal reverses only surviving lot B's 20000 REVALUE share (not the
+    // coin-aggregate 40000). GL: 100000(openA)+100000(openB)+40000(transition)+40000(run2 reval)
+    // −140000(disposeA) −20000(reversal, lot B share) +40000(fresh reval lot B @16) = 160000.
+    expect(glBalance(app._db, 'DigitalAssets', SUI)).toBe(160000n);
+
+    // The reversal JE debits DigitalAssets by exactly lot B's 20000 share (a gain reversal:
+    // original Dr DA / Cr UnrealizedGain → reversal Cr DA / Dr UnrealizedGain). Coin-aggregate
+    // over-reversal would credit DA by 40000 here.
+    const rev = reversalJe(app._db)!;
+    const revDa = rev.lines.find((l) => l.account === 'DigitalAssets')!;
+    expect(revDa).toMatchObject({ side: 'CREDIT', amountMinor: '20000' });
+
+    // Bookkeeping unchanged by the amount fix: lot A's run2 REVALUE superseded by run3, its
+    // release survives; lot B gets a fresh run3 reval row.
+    const aRows = db_lvRows(app._db, 'OPEN-open-sui');
+    expect(aRows.find((r) => r.reason === 'REVALUE' && r.run_id === run2)!.superseded_by).toBe(run3);
+    expect(aRows.find((r) => r.reason === 'DISPOSAL_RELEASE')!.superseded_by).toBeNull();
+    const bRows = db_lvRows(app._db, 'OPEN-open-sui-b');
+    expect(bRows.find((r) => r.reason === 'REVALUE' && r.run_id === run3)).toBeTruthy();
   });
 });
