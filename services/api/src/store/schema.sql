@@ -272,6 +272,23 @@ CREATE TABLE IF NOT EXISTS accounts (
   status         TEXT NOT NULL CHECK (status IN ('active','reserved_p1')),
   PRIMARY KEY (entity_id, name)
 );
+-- Task 4 (period-end revaluation, MVP manual price path): append-only manual price entry.
+-- No UPDATE/DELETE path exists anywhere in code — a re-entered price for the same
+-- (coin_type, as_of) is a NEW row; "current" is resolved at read time (latest by
+-- created_at, rowid tiebreak), never by mutating a prior row (D19-style history).
+CREATE TABLE IF NOT EXISTS price_points (
+  id                TEXT PRIMARY KEY,
+  entity_id         TEXT NOT NULL REFERENCES entities(id),
+  coin_type         TEXT NOT NULL,
+  as_of             TEXT NOT NULL,
+  price_minor       TEXT NOT NULL,   -- fiat minor units (price * 100), BigInt string — never float
+  quote_currency    TEXT NOT NULL,
+  principal_market  TEXT NOT NULL,
+  source            TEXT NOT NULL,
+  level             TEXT NOT NULL,
+  created_at        TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_price_points_lookup ON price_points (entity_id, coin_type, as_of, created_at);
 CREATE TABLE IF NOT EXISTS change_log (
   seq         INTEGER PRIMARY KEY AUTOINCREMENT,
   entity_id   TEXT NOT NULL REFERENCES entities(id),

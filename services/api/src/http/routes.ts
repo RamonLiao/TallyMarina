@@ -58,6 +58,10 @@ import type { SuiGrpcClient } from '@mysten/sui/grpc';
 import { registerAsset, correctAsset, RegisterError, makeGrpcCoinInfoFetcher } from '../assets/register.js';
 import { listAssets } from '../assets/store.js';
 import { getAssetDecimals } from '../assets/registry.js';
+import { canonicalCoinType, CoinTypeError } from '../assets/normalize.js';
+import {
+  insertPricePoint, latestPricesAt, listPriceHistory, periodCutoff, cutoffPeriod,
+} from '../store/pricePointStore.js';
 
 const ASSET_ACTOR = 'demo-controller';      // server-side constant, never a client value (D13)
 const COIN_INFO_TIMEOUT_MS = 5000;
@@ -170,6 +174,22 @@ function requireEntity(db: Db, id: string) {
   const e = getEntity(db, id);
   if (!e) throw new ApiError(404, 'ENTITY_NOT_FOUND', `no entity ${id}`);
   return e;
+}
+
+// Manual price entry (Task 4, period-end revaluation MVP): server-side decimal-string ->
+// minor-unit conversion. NEVER parseFloat/Number — a float round-trip through IEEE-754 can
+// silently corrupt a price used to value real positions. Reject anything that isn't
+// `<digits>` or `<digits>.<1-2 digits>`: no sign (POST rejects price<=0 anyway), no
+// exponent notation, no thousands separators, at most 2 decimal places (fiat minor unit).
+const PRICE_RE = /^(\d+)(?:\.(\d{1,2}))?$/;
+
+function parsePriceToMinor(price: string): bigint {
+  const m = PRICE_RE.exec(price);
+  if (!m) throw new ApiError(400, 'VALIDATION', `price must be a plain decimal string with at most 2 decimal places: ${price}`);
+  const [, whole = '0', frac = ''] = m;
+  const minor = BigInt(whole) * 100n + BigInt(frac.padEnd(2, '0'));
+  if (minor <= 0n) throw new ApiError(400, 'VALIDATION', `price must be > 0: ${price}`);
+  return minor;
 }
 
 function requireEvent(db: Db, id: string): EventRow {
@@ -488,6 +508,65 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
       if (e instanceof RegisterError) throw new ApiError(e.status, e.code, e.message);
       throw e;
     }
+  });
+
+  // Manual price entry (Task 4). MVP main path for period-end revaluation, fail-closed:
+  // unregistered coinType, malformed price, or an as-of date that isn't a known period
+  // cut-off are all rejected at the write boundary, never silently coerced.
+  const priceBodySchema = z.object({
+    coinType: z.string().min(1),
+    asOf: z.string().min(1),
+    price: z.string().min(1),
+  });
+
+  app.post<{ Params: { id: string }; Body: unknown }>('/entities/:id/prices', async (req, reply) => {
+    requireEntity(db, req.params.id);
+    const parsed = priceBodySchema.safeParse(req.body);
+    if (!parsed.success) throw new ApiError(400, 'VALIDATION', parsed.error.issues.map((i) => i.message).join('; '));
+    const { coinType: rawCoinType, asOf, price } = parsed.data;
+
+    let coinType: string;
+    try {
+      coinType = canonicalCoinType(rawCoinType);
+    } catch (e) {
+      if (e instanceof CoinTypeError) throw new ApiError(400, e.code, e.message);
+      throw e;
+    }
+    if (getAssetDecimals(db, req.params.id, coinType) === null) {
+      throw new ApiError(400, 'ASSET_NOT_REGISTERED', `coinType ${coinType} is not registered for entity ${req.params.id}`);
+    }
+    try {
+      cutoffPeriod(asOf);
+    } catch {
+      throw new ApiError(400, 'VALIDATION', `asOf ${asOf} is not a known period cut-off date`);
+    }
+
+    const priceMinor = parsePriceToMinor(price);
+    const row = insertPricePoint(db, {
+      entityId: req.params.id, coinType, asOf,
+      priceMinor: priceMinor.toString(), quoteCurrency: 'USD', principalMarket: 'manual',
+      source: 'manual', level: 'LEVEL_2',
+    });
+    reply.code(201);
+    return row;
+  });
+
+  app.get<{ Params: { id: string }; Querystring: { coinType?: string } }>('/entities/:id/prices', async (req) => {
+    requireEntity(db, req.params.id);
+    // A malformed filter value can't match any stored (already-canonicalized) coinType —
+    // fall back to the raw string rather than 400ing a read-only query param; it simply
+    // yields an empty result set, which is the correct answer to "history for a coin that
+    // was never validly written."
+    let coinTypeFilter: string | undefined;
+    if (req.query.coinType) {
+      try { coinTypeFilter = canonicalCoinType(req.query.coinType); } catch { coinTypeFilter = req.query.coinType; }
+    }
+    const history = listPriceHistory(db, req.params.id, coinTypeFilter);
+    const currentIds = new Set<string>();
+    for (const asOf of new Set(history.map((r) => r.asOf))) {
+      for (const r of latestPricesAt(db, req.params.id, asOf)) currentIds.add(r.id);
+    }
+    return { prices: history.map((r) => ({ ...r, superseded: !currentIds.has(r.id) })) };
   });
 
   // 1. GET /entities
