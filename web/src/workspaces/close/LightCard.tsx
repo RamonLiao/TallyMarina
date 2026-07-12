@@ -11,7 +11,9 @@ export function LightCard({
 }) {
   const status = effectiveStatus(light);
   const meta = LIGHT_META[status];
-  const actionable = status === 'red' && dispatchTarget(light.key) !== null;
+  // 'stale' blocks close like 'red' (spec D12/D13), so it must be just as dispatchable —
+  // the revaluation light's fix (rerun) lives behind the same Resolve → path.
+  const actionable = (status === 'red' || status === 'stale') && dispatchTarget(light.key) !== null;
 
   return (
     <div

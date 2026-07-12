@@ -5,6 +5,7 @@ import type {
   OnboardingDTO, ChallengeDTO, VerifyResultDTO,
   PolicyDocDTO, CoaRuleDTO, PolicyHistoryDTO,
   PricePointDTO, RevaluationPreviewDTO, RevaluationRunResultDTO,
+  EntityAssetDTO,
 } from './types';
 
 const enc = encodeURIComponent;
@@ -169,4 +170,9 @@ export function postRevaluationRun(entityId: string, periodId: string): Promise<
   return fetchJson<RevaluationRunResultDTO>(`/entities/${enc(entityId)}/revaluation/run`, {
     method: 'POST', body: JSON.stringify({ periodId }),
   });
+}
+
+// 22. GET /entities/:id/assets — registered assets (Task 12: price-entry dropdown + lot scale)
+export async function getAssets(entityId: string): Promise<EntityAssetDTO[]> {
+  return (await fetchJson<{ assets: EntityAssetDTO[] }>(`/entities/${enc(entityId)}/assets`)).assets;
 }

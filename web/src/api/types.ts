@@ -387,6 +387,17 @@ export interface RevaluationPreviewDTO {
   priceMissing: string[]; // coinTypes
 }
 
+// Minimal read view of GET /entities/:id/assets rows — only what the revaluation UI needs
+// (coin dropdown limited to the registry + lot-quantity scale). The full AssetRow mirror
+// stays local to AssetRegistryPanel on purpose (see its header comment); the wire sends
+// extra fields, which structural typing ignores.
+export interface EntityAssetDTO {
+  coinType: string;
+  decimals: number;
+  symbol: string;
+  source: 'chain' | 'manual';
+}
+
 export interface RevaluationRunResultDTO {
   runId: string;
   jeIds: string[];

@@ -39,6 +39,9 @@ export function dispatchTarget(key: string): WorkspaceId | StepId | null {
     case 'classification': return 'review';
     case 'je':             return 'journal';
     case 'completeness':   return 'ingest';
+    // In-page target: CloseCockpit intercepts this key and scrolls to the revaluation card
+    // (same workspace). The 'close' value only marks the light as actionable/dispatchable.
+    case 'revaluation':    return 'close';
     default:               return null; // pricing/export are mock — nowhere to go yet
   }
 }
