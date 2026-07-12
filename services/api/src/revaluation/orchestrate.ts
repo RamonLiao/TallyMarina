@@ -35,6 +35,7 @@ import {
 import { latestPricesAt, periodCutoff, priceSetHash, type PricePointRow } from '../store/pricePointStore.js';
 import {
   insertRun, latestRun, insertValuation, supersedeValuationsOfRun, foldValuationStates, lotSetHash,
+  valuedLotIdsOfRun,
   type RevaluationRunRow,
 } from '../store/revaluationStore.js';
 import { getActivePolicy, type PolicyDoc } from '../store/policyStore.js';
@@ -139,8 +140,10 @@ export function loadRevaluationContext(db: Db, entityId: string, periodId: strin
 
 // Build the Dr/Cr-swapped reversal drafts for the old run's `reval:` JEs. Reads the original
 // JE text back from journal_entries.je_json (contract #7). `reval-open:` and `reval-rev:`
-// keys are excluded by the exact-prefix match — see the module header for why.
-function reversalDrafts(db: Db, entityId: string, oldRun: RevaluationRunRow, heldCoins: Set<string>): JournalEntry[] {
+// keys are excluded by the exact-prefix match — see the module header for why. `reverseCoins`
+// is the LOT-LEVEL decision computed by the caller: a coin appears iff at least one lot the old
+// run valued still survives into this run's fold.
+function reversalDrafts(db: Db, entityId: string, oldRun: RevaluationRunRow, reverseCoins: Set<string>): JournalEntry[] {
   const evtId = `evt-reval-${oldRun.id}`;
   return listJournal(db, entityId, oldRun.periodId)
     .filter((r) => r.eventId === evtId && r.idempotencyKey.startsWith('reval:'))
@@ -150,15 +153,20 @@ function reversalDrafts(db: Db, entityId: string, oldRun: RevaluationRunRow, hel
       if (!coinType) throw new Error(`reversalDrafts: reval JE ${r.id} has no origCoinType — cannot key its reversal`);
       return { je, coinType };
     })
-    // C1 (final-review): a coin with NO remaining lots was FULLY disposed after the old run.
-    // Its old reval unrealized gain/loss was already RECLASSIFIED to realized by the disposal
-    // JE (swapRules UNREALIZED_*_RECLASS) — it is not sitting on the books to be reversed.
-    // Reversing it would drive DigitalAssets negative by the released amount (the "全數出清後
-    // rerun → 轉負" defect). A coin that still has remaining lots is reversed IN FULL: the new
-    // run's fresh reval (fed by a fold whose surviving DISPOSAL_RELEASE row already nets out
-    // the disposed delta) re-establishes the correct carrying, so full reversal + fresh reval
-    // nets exactly to fair value regardless of any intervening partial disposal.
-    .filter(({ coinType }) => heldCoins.has(coinType))
+    // C1 / Task 13 (re-review critical): the reverse-or-skip decision is LOT-LEVEL, not
+    // coin-level. `reverseCoins` holds exactly the coins for which at least one of the OLD
+    // RUN'S valued lots survives into this run's fold (see valuedLotIdsOfRun + the caller).
+    //   - Coin with a surviving old-run lot → reverse IN FULL: the new run's fresh reval (fed by
+    //     a fold whose surviving DISPOSAL_RELEASE row on that SAME lot nets out any disposed
+    //     delta) re-establishes correct carrying, so full reversal + fresh reval nets to fair
+    //     value across any intervening PARTIAL disposal (series A).
+    //   - Coin whose old-run lots were ALL disposed → skip. Its old reval was already
+    //     reclassified to realized on disposal; reversing it drove DigitalAssets negative
+    //     (series B) OR — the coin-level trap — silently dropped R2 when the coin was RE-ACQUIRED
+    //     as a fresh lot before the rerun (series C): heldCoins.has(coin) was true, so the
+    //     disposed lot's reval got reversed against the fresh lot's carrying. The fresh lot
+    //     starts from cost via its own reval, so no reversal is owed.
+    .filter(({ coinType }) => reverseCoins.has(coinType))
     .map(({ je, coinType }) => ({
       idempotencyKey: `reval-rev:${oldRun.id}:${coinType}`,
       lineageHash: je.lineageHash,
@@ -179,8 +187,20 @@ function computeRunInTxn(db: Db, ctx: RevaluationContext): ComputedRun {
     policySetVersion: ctx.doc.policySetVersion, accountingStandard: ctx.doc.accountingStandard,
     reversalOfRunId: ctx.latest?.id ?? null,
   });
-  const heldCoins = new Set(ctx.lots.map((l) => l.coinType));
-  const reversalJes = ctx.latest ? reversalDrafts(db, ctx.entityId, ctx.latest, heldCoins) : [];
+  // Lot-level reversal decision (Task 13): map each of the OLD run's valued lots to its coin
+  // VIA THE CURRENT FOLD. foldAllRemainingLots drops fully-disposed lots (qty 0), so a coin
+  // lands in reverseCoins iff at least one lot it was valued for still survives. A re-acquired
+  // fresh lot shares the coinType but is NOT among the old run's valued lots, so it can never
+  // resurrect a skip into a reversal.
+  const coinByRemainingLot = new Map(ctx.lots.map((l) => [l.lotId, l.coinType]));
+  const reverseCoins = new Set<string>();
+  if (ctx.latest) {
+    for (const lotId of valuedLotIdsOfRun(db, ctx.entityId, ctx.latest.id)) {
+      const coin = coinByRemainingLot.get(lotId);
+      if (coin !== undefined) reverseCoins.add(coin);
+    }
+  }
+  const reversalJes = ctx.latest ? reversalDrafts(db, ctx.entityId, ctx.latest, reverseCoins) : [];
   if (ctx.latest) supersedeValuationsOfRun(db, ctx.latest.id, run.id);
 
   // Contract #2: entity-level, not per-lot. seq-0 rows are permanent (never superseded), so

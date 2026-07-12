@@ -114,6 +114,21 @@ export function supersedeValuationsOfRun(db: Db, runId: string, byRunId: string)
   return result.changes;
 }
 
+// Task 13 (rerun reversal decision, lot-level): the DISTINCT lotIds a run booked a PERIOD
+// valuation row for (REVALUE/IMPAIR/REVERSE, seq>0). Excludes seq-0 OPENING_FV (permanent,
+// never reversed — reval-open JEs are not reversed) and DISPOSAL_RELEASE (a borrowed-run
+// historical fact, not a valuation this run produced). The rerun reversal decision stays
+// per-coin, but is DRIVEN by these lotIds: a coin's old reval JE is reversed iff at least one
+// of ITS old-run-valued lots still survives in the current fold. A coin whose old-run lots
+// were all disposed (even if the coin is re-acquired as a fresh lot) must be skipped — the
+// fresh lot carries no old reval, and the disposed lots' gains were already realized.
+export function valuedLotIdsOfRun(db: Db, entityId: string, runId: string): string[] {
+  return (db.prepare(
+    `SELECT DISTINCT lot_id FROM lot_valuation
+     WHERE entity_id = ? AND run_id = ? AND seq > 0 AND reason IN ('REVALUE', 'IMPAIR', 'REVERSE')`,
+  ).all(entityId, runId) as Array<{ lot_id: string }>).map((r) => r.lot_id);
+}
+
 // SUI S3-style input domain hash: same set in, same hash out, independent of read order.
 export function lotSetHash(lots: PositionLot[]): string {
   const entries = lots.map((l) => `${l.lotId}:${l.remainingQtyMinor}`).sort();

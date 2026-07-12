@@ -104,9 +104,12 @@ function glBalance(db: Db, account: string, coin?: string): bigint {
 }
 interface LvRow { run_id: string; seq: number; delta_minor: string; reason: string; superseded_by: string | null }
 function lvRows(db: Db): LvRow[] {
+  return db_lvRows(db, LOT);
+}
+function db_lvRows(db: Db, lotId: string): LvRow[] {
   return db.prepare(
     'SELECT run_id, seq, delta_minor, reason, superseded_by FROM lot_valuation WHERE entity_id = ? AND lot_id = ? ORDER BY created_at',
-  ).all(E, LOT) as LvRow[];
+  ).all(E, lotId) as LvRow[];
 }
 function reversalJe(db: Db): { lines: Array<{ account: string; side: string; amountMinor: string }> } | null {
   const row = db.prepare("SELECT je_json FROM journal_entries WHERE entity_id = ? AND idempotency_key LIKE 'reval-rev:%'").get(E) as { je_json: string } | undefined;
@@ -206,5 +209,104 @@ describe('C1 (final review): revaluation rerun after an intervening disposal', (
     const release = lvRows(app._db).find((r) => r.reason === 'DISPOSAL_RELEASE')!;
     expect(release.delta_minor).toBe('-40000');
     expect(release.superseded_by).toBeNull();
+  });
+
+  it('series C — full disposal then same-coin RE-ACQUIRE (new lot) then rerun @ corrected price: DigitalAssets equals the FRESH fair value of the new lot only; the old fully-disposed lot is NOT reversed even though the coin is held again', async () => {
+    const app = await freshApp();
+    await seedThroughTwoRevals(app);
+
+    // Dispose ALL 100 SUI — lot A (OPEN-open-sui) is fully gone. DA(SUI) → 0.
+    await postPriceAt(app, USDC, '2026-06-15', '0.01');
+    seedAuto(app._db, 'swp1', swap());
+    await runRules(app);
+    expect(glBalance(app._db, 'DigitalAssets', SUI)).toBe(0n);
+
+    // Re-acquire SUI as a BRAND-NEW lot (cost 100000, qty 100) AFTER the disposal. This lot was
+    // never valued by run2. The coin SUI returns to heldCoins — exactly the coin-level trap: a
+    // per-coin reversal decision would now reverse run2's reval for the DISPOSED lot A.
+    seedAuto(app._db, 'open-sui-2', opening({ eventId: 'open-sui-2', quantityMinor: '100', openingCostMinor: '100000', eventTime: '2026-06-20T00:00:00Z' }));
+    await runRules(app);
+    expect(glBalance(app._db, 'DigitalAssets', SUI)).toBe(100000n); // new lot at cost, no reval yet
+
+    await postPriceAt(app, USDC, ASOF, '0.01');
+    await postPriceAt(app, SUI, ASOF, '16.00');
+    const rr = await runReval(app);
+    expect(rr.statusCode).toBe(201);
+
+    // THE invariant (Rule 9): DA(SUI) = FRESH reval of the new lot only = 100 * 1600 = 160000.
+    // The old run2 reval belonged to the fully-disposed lot A (its unrealized gain was already
+    // reclassified to realized on disposal) — nothing on the books to reverse. Coin-level
+    // heldCoins reverses run2 in full (−20000) and silently lands 140000, dropping R2.
+    expect(glBalance(app._db, 'DigitalAssets', SUI)).toBe(160000n);
+    expect(glBalance(app._db, 'UnrealizedGainCryptoPnL')).toBe(-60000n); // fresh gain 160000-100000 on new lot
+
+    // No reversal JE at all: the only old-run-valued lot (A) is fully disposed.
+    expect(reversalJe(app._db)).toBeNull();
+
+    // The new run emitted exactly one fresh reval JE (no reversal).
+    expect(rr.body.jeIds!.length).toBe(1);
+  });
+
+  // Series D shared setup: two SUI lots (A=OPEN-open-sui, B=OPEN-open-sui-b), each cost 100000 /
+  // qty 100. Transition @ $12, period reval @ $14 (both lots valued by run2). Dispose lot A FULLY
+  // (FIFO consumes the earliest lot). Rerun @ corrected $16 with lot B surviving.
+  async function seedTwoLotsDisposeOneThenRerun(app: FastifyInstance & { _db: Db }): Promise<{ run2: string; run3: string }> {
+    seedAuto(app._db, 'open-sui', opening());
+    seedAuto(app._db, 'open-sui-b', opening({ eventId: 'open-sui-b', quantityMinor: '100', openingCostMinor: '100000', eventTime: '2026-04-02T00:00:00Z', txDigest: 'DIGB', rawPayloadHash: 'beefb', eventIndex: 1 }));
+    await runRules(app);
+    await patchToGaap(app);
+    await postPriceAt(app, SUI, ASOF, '12.00');
+    expect((await runReval(app)).statusCode).toBe(201);
+    await postPriceAt(app, SUI, ASOF, '14.00');
+    expect((await runReval(app)).statusCode).toBe(201);
+    expect(glBalance(app._db, 'DigitalAssets', SUI)).toBe(280000n); // 2 * (100000+20000+20000)
+    const run2 = lvRows(app._db).find((r) => r.reason === 'REVALUE')!.run_id;
+
+    await postPriceAt(app, USDC, '2026-06-15', '0.01');
+    seedAuto(app._db, 'swp1', swap());          // dispose lot A fully
+    await runRules(app);
+    expect(glBalance(app._db, 'DigitalAssets', SUI)).toBe(140000n); // 280000 − lot A carrying 140000
+
+    await postPriceAt(app, USDC, ASOF, '0.01');
+    await postPriceAt(app, SUI, ASOF, '16.00');
+    const rr = await runReval(app);
+    expect(rr.statusCode).toBe(201);
+    return { run2, run3: rr.body.runId! };
+  }
+
+  it('series D (decision regression guard) — two old lots of the same coin, one FULLY disposed: the SURVIVING sibling keeps the coin in the reversal set (reversal fires; disposed lot superseded; its release survives)', async () => {
+    // This is the mutation guard for the lot-level DECISION: a naive "skip if any lot of this
+    // coin was disposed" would wrongly drop lot B's reversal → reversalJe null here. It asserts
+    // ONLY the decision + supersession bookkeeping, NOT the coin-aggregate reversal AMOUNT (see
+    // the it.fails below — the amount is a separate, pre-existing defect out of this fix's scope).
+    const app = await freshApp();
+    const { run2, run3 } = await seedTwoLotsDisposeOneThenRerun(app);
+
+    // Coin stayed in the reversal set because lot B (an old-run-valued lot) survives.
+    expect(reversalJe(app._db)).not.toBeNull();
+    // Lot A (disposed) run2 REVALUE row is superseded by run3; lot A's release row survives.
+    const aRows = db_lvRows(app._db, 'OPEN-open-sui');
+    expect(aRows.find((r) => r.reason === 'REVALUE' && r.run_id === run2)!.superseded_by).toBe(run3);
+    expect(aRows.find((r) => r.reason === 'DISPOSAL_RELEASE')!.superseded_by).toBeNull();
+    // Lot B got a fresh reval row under run3.
+    const bRows = db_lvRows(app._db, 'OPEN-open-sui-b');
+    expect(bRows.find((r) => r.reason === 'REVALUE' && r.run_id === run3)).toBeTruthy();
+  });
+
+  // KNOWN GAP (surfaced by this fix, NOT closed by it — see task-13-fixwave.md §"series D finding").
+  // The lot-level DECISION is correct (coin reversed because lot B survives), but the reversal
+  // AMOUNT is the OLD run's COIN-AGGREGATE reval JE (both lots, 40000). Reversing lot A's 20000
+  // share double-counts: the disposal already reclassified lot A's unrealized gain to realized.
+  // Unlike series A (single lot, partial disposal — the release row lives on the SAME surviving
+  // lot and compensates in-fold), lot A's release lives on the disposed lot and never enters lot
+  // B's fold, so nothing compensates. Result: DA(SUI)=140000, understating the true fair value of
+  // the surviving lot B (160000) by lot A's over-reversed 20000. The correct fix needs a per-LOT
+  // reversal amount (reverse only surviving lots' shares), which requires re-deriving the JE from
+  // per-lot deltas at the engine level — beyond this task's surgical scope. Encoded as an
+  // expected-fail so the TRUE invariant is on record and the suite stays honestly green.
+  it.fails('series D (amount) — DA must equal the surviving lot fair value (160000); currently 140000 due to coin-aggregate over-reversal [KNOWN GAP, expected-fail]', async () => {
+    const app = await freshApp();
+    await seedTwoLotsDisposeOneThenRerun(app);
+    expect(glBalance(app._db, 'DigitalAssets', SUI)).toBe(160000n); // TRUE invariant; currently 140000
   });
 });
