@@ -164,3 +164,7 @@ CREATE TABLE change_log (
 - `web`：PolicyWorkspace / PreviewPanel / CoaMappingTable / usePolicyData（新 mutation hooks）。
 - `services/anchor-svc` / `snapshot-svc` / `ingestion`：**零觸碰**。
 - `.move`：零行。
+
+## Revision log
+
+- 2026-07-12 — external dual-review BLOCKER: 「WAC 可存不可執行」原設計把 fail-closed 放在讀端，active=MAX(version) 使存入即生效 → 全系統 503；修訂為寫入端 400 NOT_EXECUTABLE_MVP，schema 值域保留給 P1，讀端守衛保留為 raw-SQL 防線。另記：版本 bump 改變 idempotency key 的安全性依賴 POSTED 為終態（stateMachine POSTED:[]）——若未來加入 reopen/reclassify-posted 流程，需同步設計重跑防重複入帳。

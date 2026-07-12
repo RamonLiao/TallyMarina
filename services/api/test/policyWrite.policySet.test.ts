@@ -88,6 +88,15 @@ describe('PATCH /policy/policy-set (Task 4)', () => {
     expect(res.json().error.code).toBe('CURRENCY_LOCKED');
   });
 
+  it('400 NOT_EXECUTABLE_MVP on costBasisMethod WAC — write-boundary rejection so active-on-write never bricks readers', async () => {
+    const res = await app.inject({ method: 'PATCH', url, payload: { ...base, changes: { costBasisMethod: 'WAC' } } });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe('NOT_EXECUTABLE_MVP');
+    expect((db.prepare('SELECT COUNT(*) AS n FROM policy_sets').get() as { n: number }).n).toBe(1); // no bad version persisted as active
+    const follow = await app.inject({ method: 'GET', url: `/policy/active?entity=${base.entity}` });
+    expect(follow.statusCode).toBe(200); // system not bricked — toResolvedPolicySet never sees a WAC active doc
+  });
+
   it('400 VALIDATION on unknown field (.strict() rejection)', async () => {
     const res = await app.inject({ method: 'PATCH', url, payload: { ...base, changes: { policySetVersion: 'hax-1' } } });
     expect(res.statusCode).toBe(400);

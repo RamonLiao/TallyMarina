@@ -303,6 +303,9 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     if (changes.functionalCurrency !== undefined || changes.reportingCurrency !== undefined) {
       throw new ApiError(400, 'CURRENCY_LOCKED', 'functional/reporting currency is USD-locked in MVP (spec §1.3)');
     }
+    if (changes.costBasisMethod !== undefined && changes.costBasisMethod !== 'FIFO') {
+      throw new ApiError(400, 'NOT_EXECUTABLE_MVP', 'costBasisMethod WAC is storable in the schema for P1 but not executable in MVP; the engine pins FIFO (spec §9.1/§7.1)');
+    }
     return deps.mutex.run('policy-write', async () => {
       const { doc: before } = getActivePolicy(db, entity);
       const merged: PolicyDoc = { ...before, ...changes };
