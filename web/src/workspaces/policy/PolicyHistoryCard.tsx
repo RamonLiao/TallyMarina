@@ -3,7 +3,7 @@ import type { ChangeRowDTO } from '../../api/types';
 import { getPolicyHistory } from '../../api/endpoints';
 import './policy.css';
 
-export function PolicyHistoryCard({ entityId }: { entityId: string }) {
+export function PolicyHistoryCard({ entityId, refreshKey }: { entityId: string; refreshKey?: number | string }) {
   const [changes, setChanges] = useState<ChangeRowDTO[]>();
   const [error, setError] = useState<string>();
 
@@ -15,7 +15,7 @@ export function PolicyHistoryCard({ entityId }: { entityId: string }) {
       .then((h) => { if (!cancelled) setChanges(h.changes); })
       .catch((e) => { if (!cancelled) setError((e as Error).message); });
     return () => { cancelled = true; };
-  }, [entityId]);
+  }, [entityId, refreshKey]);
 
   const sorted = changes ? [...changes].sort((a, b) => b.seq - a.seq) : undefined;
 

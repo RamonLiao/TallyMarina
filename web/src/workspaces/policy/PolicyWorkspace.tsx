@@ -21,7 +21,7 @@ export function PolicyWorkspace() {
       <PolicyEditForm doc={policy.policyDoc} onApply={applyPolicyChanges} />
       <CoaMappingTable rules={policy.coaMapping.rules} defaultAccount={policy.coaMapping.defaultAccount} title={`Live COA mapping (v${policy.coaMapping.version})`} />
       <PreviewPanel policy={policy} journal={journal} events={events} onApply={applyCoaMapping} />
-      <PolicyHistoryCard entityId={entity?.id ?? ''} />
+      <PolicyHistoryCard entityId={entity?.id ?? ''} refreshKey={`${policy.policyVersion}:${policy.coaVersion}`} />
     </div>
   );
 }
