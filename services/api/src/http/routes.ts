@@ -802,13 +802,45 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     const engineCoa = buildCoaMappingFromRules(activeCoa.rules);
     // §4.4.1 (D9): negative-net GAS_FEE events cap their GasFeeExpense contra at the
     // as-of-this-event cumulative balance, in event-time order (candidates are sorted
-    // chronologically above). Maintain that running total across the loop — it must be
-    // deterministic across replays of the same event set, so it is derived purely from
-    // this period's own GasFeeExpense account line, never from a DB read outside this loop.
+    // chronologically above). Maintain that running total across the loop.
+    //
+    // Task 8 review (Critical): the accumulator MUST also start from already-POSTED
+    // GasFeeExpense lines in this period, not '0' — otherwise staggered posting (batch 1
+    // posts a positive-gas event, batch 2 later posts a negative-net event over the SAME
+    // event set) drops the batch-1 contribution and produces a different contra/income
+    // split than a single-batch post would (D9 determinism violation). Seed from posted
+    // journal_entries here, then merge-advance it against the in-pass accumulation below
+    // using the SAME (eventTime, id) ordering key candidates are sorted by, so a posted
+    // event and an in-pass event with the same eventTime break ties identically regardless
+    // of which batch each landed in.
     const gasExpenseAcct = engineCoa.resolve({ eventType: 'GAS_FEE', leg: 'NETWORK_FEE', coinType: '' });
+    const postedGasContrib: Array<{ eventTime: string; eventId: string; delta: bigint }> = [];
+    if (gasExpenseAcct) {
+      for (const row of listJournal(db, req.params.id, periodId)) {
+        const je = JSON.parse(row.jeJson) as { lines: Array<{ account: string; side: string; amountMinor: string }> };
+        let delta = 0n;
+        for (const line of je.lines) {
+          if (line.account !== gasExpenseAcct) continue;
+          delta += line.side === 'DEBIT' ? BigInt(line.amountMinor) : -BigInt(line.amountMinor);
+        }
+        if (delta === 0n) continue;
+        const srcEvent = getEvent(db, row.eventId);
+        if (!srcEvent) throw new ApiError(500, 'INTERNAL', `journal entry ${row.id} references missing event ${row.eventId}`);
+        postedGasContrib.push({ eventTime: eventTimeOf(srcEvent), eventId: row.eventId, delta });
+      }
+      postedGasContrib.sort((a, b) => a.eventTime.localeCompare(b.eventTime) || a.eventId.localeCompare(b.eventId));
+    }
     let gasExpenseToDateMinor = '0';
+    let postedGasPtr = 0;
     let posted = 0, skipped = 0;
     for (const ev of candidates) {
+      // Merge in any already-posted GasFeeExpense contribution that sorts strictly before
+      // this candidate under the (eventTime, id) key — same tiebreak as the candidates sort.
+      const evTime = eventTimeOf(ev);
+      for (let next = postedGasContrib[postedGasPtr]; next && (next.eventTime < evTime || (next.eventTime === evTime && next.eventId < ev.id)); next = postedGasContrib[postedGasPtr]) {
+        gasExpenseToDateMinor = (BigInt(gasExpenseToDateMinor) + next.delta).toString();
+        postedGasPtr++;
+      }
       const output = evaluate(buildRuleInput(ev, {
         periodId, periodOpen, lots: lotsForEvent(db, ev), policySet: enginePolicy, coaMapping: engineCoa,
         gasExpenseToDateMinor,

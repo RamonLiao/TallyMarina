@@ -97,6 +97,48 @@ describe('§4.4.1 negative-net GAS_FEE — as-of accumulator (D9)', () => {
     expect(r2.json().journal).toEqual(journalAfterRun1);
   });
 
+  it('staggered posting (Task 8 review critical): a positive-gas event posted in an EARLIER run-rules call is still counted when a later run-rules call posts the negative-net event — contra must equal 100/100, never 0/200', async () => {
+    const app = await freshApp();
+    const db = app._db;
+    seedAuto(db, 'open1', opening({ eventId: 'open1', eventTime: '2026-04-01T00:00:00Z' }));
+    seedAuto(db, 'gasPos', baseEvent({ eventId: 'gasPos', eventTime: '2026-04-05T00:00:00Z', quantityMinor: '1', txDigest: 'DIGPOS' }));
+
+    // Batch 1: only the opening lot + positive gas-fee event exist. This posts gasPos and
+    // flips it out of AUTO/APPROVED — a naive '0'-seeded accumulator forgets about it here.
+    const rBatch1 = await app.inject({ method: 'POST', url: `/entities/${E}/run-rules`, payload: { periodId: P } });
+    expect(rBatch1.statusCode).toBe(200);
+    expect(jeLines(db, 'gasPos').find((l) => l.leg === 'NETWORK_FEE')).toMatchObject({ account: 'GasFeeExpense', side: 'DEBIT', amountMinor: '100' });
+
+    // Batch 2: the negative-net event is only approved/ingested AFTER batch 1 posted.
+    seedAuto(db, 'gasNeg', baseEvent({
+      eventId: 'gasNeg', eventTime: '2026-04-10T00:00:00Z', quantityMinor: '2',
+      economicPurpose: 'NETWORK_FEE_REBATE', txDigest: 'DIGNEG',
+    }));
+    const rBatch2 = await app.inject({ method: 'POST', url: `/entities/${E}/run-rules`, payload: { periodId: P } });
+    expect(rBatch2.statusCode).toBe(200);
+
+    // Must match the single-batch case exactly: contra=100 (capped at the prior posted
+    // gasPos balance), income=100 — NOT contra=0/income=200 from a '0'-seeded accumulator
+    // that forgot gasPos left the candidate set.
+    const negLines = jeLines(db, 'gasNeg');
+    expect(negLines.find((l) => l.leg === 'REBATE_CONTRA')).toMatchObject({ account: 'GasFeeExpense', side: 'CREDIT', amountMinor: '100' });
+    expect(negLines.find((l) => l.leg === 'REBATE_INCOME')).toMatchObject({ account: 'GasRebateIncome', side: 'CREDIT', amountMinor: '100' });
+
+    // Cross-batch determinism control: a FRESH app posting the identical final event set
+    // (open1, gasPos, gasNeg) in ONE batch must produce the byte-identical split (D9).
+    const controlApp = await freshApp();
+    const controlDb = controlApp._db;
+    seedAuto(controlDb, 'open1', opening({ eventId: 'open1', eventTime: '2026-04-01T00:00:00Z' }));
+    seedAuto(controlDb, 'gasPos', baseEvent({ eventId: 'gasPos', eventTime: '2026-04-05T00:00:00Z', quantityMinor: '1', txDigest: 'DIGPOS' }));
+    seedAuto(controlDb, 'gasNeg', baseEvent({
+      eventId: 'gasNeg', eventTime: '2026-04-10T00:00:00Z', quantityMinor: '2',
+      economicPurpose: 'NETWORK_FEE_REBATE', txDigest: 'DIGNEG',
+    }));
+    const rControl = await controlApp.inject({ method: 'POST', url: `/entities/${E}/run-rules`, payload: { periodId: P } });
+    expect(rControl.statusCode).toBe(200);
+    expect(jeLines(controlDb, 'gasNeg')).toEqual(negLines);
+  });
+
   it('regression: positive gas fee event is unaffected by the negative-net accumulator wiring', async () => {
     const app = await freshApp();
     const db = app._db;
