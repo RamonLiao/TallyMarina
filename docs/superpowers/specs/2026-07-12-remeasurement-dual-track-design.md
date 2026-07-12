@@ -133,7 +133,7 @@ lot_valuation(
 | Route | 行為 |
 |-------|------|
 | `GET /entities/:id/revaluation/preview?periodId=` | 試算：per-asset 彙總＋per-lot 明細＋擬出 JE lines＋`PRICE_MISSING` 清單。**不落庫** |
-| `POST /entities/:id/revaluation/run` | **重算為準**（不信 preview 快照）。缺價 → 400；period LOCKED → 400 `PERIOD_CLOSED`。已有前次 run → 同 transaction 內先 post 反向 JE（沖期末重估 JE，**過渡 JE 除外**）+ supersede 舊 valuation（seq-0 除外），再 post 新 JE。寫入 `revaluation_run` header |
+| `POST /entities/:id/revaluation/run` | **重算為準**（不信 preview 快照）。缺價 → 400；period LOCKED → **409 `PERIOD_LOCKED`**（v2.1 修訂：原定 400 `PERIOD_CLOSED` 與既有 locked-write 慣例——routes.ts 三處 409——衝突，向慣例收斂；`PERIOD_CLOSED` 字串保留給 rules-engine exception 域）。已有前次 run → 同 transaction 內先 post 反向 JE（沖期末重估 JE，**過渡 JE 除外**）+ supersede 舊 valuation（seq-0 除外），再 post 新 JE。寫入 `revaluation_run` header |
 | `GET/POST /entities/:id/prices` | 手動 PricePoint；POST 強制 `level='LEVEL_2'`、`source='manual'`、`quote_currency='USD'`；zod 驗界 |
 | cockpit DTO | 重估 light（`real:true`）：**綠** = 最新 run 存在、未被沖銷、`price_set_hash` 與 `lot_set_hash` 均與現況一致；**stale** = 任一指紋不符（run 後補價/改價/新 lot/處分）；**紅** = 未 run 或現有 `PRICE_MISSING`。blocking 單一權威 = `closeable`（D12），stale 與紅均使 `closeable=false` |
 
@@ -205,6 +205,8 @@ lot_valuation(
 - 完成制度：fresh-context verifier → dual-review（外部輪不給 spec）→ Ship as-is 才算完成。
 
 ## 11. Revision Log
+
+- 2026-07-12 v2.1：run 對 LOCKED period 的回應由 400 `PERIOD_CLOSED` 改 **409 `PERIOD_LOCKED`**（Task 6 review 發現與既有 locked-write 慣例衝突；Rule 11 conventions win，留痕）。
 
 - 2026-07-12 v1：初版（brainstorming 六裁決 + 三節逐節確認）。self-review 修 2 事實錯誤（GAAP 範圍外 = ASC 350-30 不可迴轉；GAAP 貶值走獨立科目）＋釘死 recoverable amount proxy。
 - 2026-07-12 v2：三路 review 整合（`tasks/review-remeasurement-{sui,cpa,frontend}.md`）。
