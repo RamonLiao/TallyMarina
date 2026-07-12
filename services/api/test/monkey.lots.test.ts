@@ -27,6 +27,7 @@ import { OffMemory } from '../src/triage/memory/offMemory.js';
 import { insertEntity } from '../src/store/entityStore.js';
 import { insertEvent, setAiSuggestion } from '../src/store/eventStore.js';
 import { listLotMovements, insertLotMovement } from '../src/store/lotMovementStore.js';
+import { insertPricePoint } from '../src/store/pricePointStore.js';
 
 const E = 'e1';
 const P = '2026-Q2';
@@ -60,6 +61,14 @@ function seedAuto(db: Db, id: string, raw: RawOver): void {
 async function freshApp(): Promise<FastifyInstance & { _db: Db }> {
   const app = await buildTestApp(false);
   insertEntity(app._db, { id: E, displayName: 'Acme', chainObjectId: '0xc', capObjectId: '0xk', originalPackageId: '0xp' });
+  // D14: RECEIPT/PAYMENT events in this file need a price on their exact event date
+  // (OPENING_LOT doesn't — historical cost, no valuation phase).
+  for (const asOf of ['2026-04-01', '2026-04-20']) {
+    insertPricePoint(app._db, {
+      entityId: E, coinType: SUI, asOf, priceMinor: '100',
+      quoteCurrency: 'USD', principalMarket: 'manual', source: 'manual', level: 'LEVEL_2',
+    });
+  }
   return app;
 }
 interface JeLine { account: string; side: 'DEBIT' | 'CREDIT'; amountMinor: string }
@@ -201,6 +210,14 @@ describe('monkey: lot ledger integrity under garbage, concurrency, restart (C4 T
       // First process lifetime: post, capture the persisted count.
       let db = openDb(dbPath);
       insertEntity(db, { id: E, displayName: 'Acme', chainObjectId: '0xc', capObjectId: '0xk', originalPackageId: '0xp' });
+      // D14: RECEIPT/PAYMENT need a price on their event date (this test builds its own db,
+      // bypassing freshApp's seeding above).
+      for (const asOf of ['2026-04-01', '2026-04-20']) {
+        insertPricePoint(db, {
+          entityId: E, coinType: SUI, asOf, priceMinor: '100',
+          quoteCurrency: 'USD', principalMarket: 'manual', source: 'manual', level: 'LEVEL_2',
+        });
+      }
       seedAuto(db, 'r1', receipt({ eventId: 'r1' }));
       seedAuto(db, 'pay1', payment({ eventId: 'pay1' }));
       let app = appOnDb(db);

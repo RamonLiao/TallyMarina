@@ -5,6 +5,7 @@ import type { NormalizedEvent, PositionLot } from '../deps/rulesEngine.js';
 import { listByStatus } from '../store/eventStore.js';
 import { evaluate } from '../deps/rulesEngine.js';
 import { buildRuleInput } from '../http/buildRuleInput.js';
+import { pricesForEvent } from '../http/pricesForEvent.js';
 import { getActivePolicy, getActiveCoaMapping, toResolvedPolicySet, buildCoaMappingFromRules } from '../store/policyStore.js';
 
 export interface SimLot { qtyMinor: string; costMinor: string; wallet: string; coinType: string; originEventId: string }
@@ -33,16 +34,22 @@ export function simulateLots(db: Db, entityId: string): SimulateResult {
   const activeCoa = getActiveCoaMapping(db, entityId);
   const enginePolicy = toResolvedPolicySet(activePolicy.doc, true);
   const engineCoa = buildCoaMappingFromRules(activeCoa.rules);
+  // D14: memoize prices by as-of date WITHIN this single simulateLots call — the whole
+  // function is already scoped to one entityId, never mix across entities/days.
+  const priceCache = new Map<string, ReturnType<typeof pricesForEvent>>();
 
   for (const ev of posted) {
     const raw = JSON.parse(ev.rawJson) as NormalizedEvent;
     const lots: PositionLot[] = [...pool.entries()]
       .filter(([, l]) => l.wallet === raw.wallet && l.coinType === raw.coinType)
       .map(([lotId, l]) => ({ lotId, seq: l.seq, coinType: l.coinType, wallet: l.wallet, remainingQtyMinor: l.qty.toString(), costMinor: l.cost.toString() }));
+    const asOf = raw.eventTime.slice(0, 10);
+    let prices = priceCache.get(asOf);
+    if (!prices) { prices = pricesForEvent(db, ev); priceCache.set(asOf, prices); }
 
     let output;
     try {
-      output = evaluate(buildRuleInput(ev, { periodId: ev.periodId ?? raw.eventTime.slice(0, 4), periodOpen: true, lots, policySet: enginePolicy, coaMapping: engineCoa }));
+      output = evaluate(buildRuleInput(ev, { periodId: ev.periodId ?? raw.eventTime.slice(0, 4), periodOpen: true, lots, policySet: enginePolicy, coaMapping: engineCoa, prices }));
     } catch {
       simulationGaps.push(ev.id); // a throw during replay is an honest gap, not a zero
       gapPools.add(`${raw.wallet}|${raw.coinType}`);

@@ -34,6 +34,7 @@ import type { Db } from '../src/store/db.js';
 import { insertEntity } from '../src/store/entityStore.js';
 import { insertEvent, setAiSuggestion, markPosted } from '../src/store/eventStore.js';
 import { insertLotMovement } from '../src/store/lotMovementStore.js';
+import { insertPricePoint } from '../src/store/pricePointStore.js';
 
 const E = 'e1';
 const P = '2026-Q2';
@@ -61,6 +62,15 @@ function opening(over: RawOver = {}): RawOver {
 async function freshApp(): Promise<FastifyInstance & { _db: Db }> {
   const app = await buildTestApp(false);
   insertEntity(app._db, { id: E, displayName: 'Acme', chainObjectId: '0xc', capObjectId: '0xk', originalPackageId: '0xp' });
+  // D14: RECEIPT/PAYMENT events in this file need a price on their exact event date
+  // (OPENING_LOT doesn't — historical cost, no valuation phase). Seed every date the tests
+  // below use; the value is irrelevant to the tie-out identity assertions.
+  for (const asOf of ['2026-04-10', '2026-04-20']) {
+    insertPricePoint(app._db, {
+      entityId: E, coinType: SUI, asOf, priceMinor: '100',
+      quoteCurrency: 'USD', principalMarket: 'manual', source: 'manual', level: 'LEVEL_2',
+    });
+  }
   return app;
 }
 function seedAuto(db: Db, id: string, raw: RawOver): void {

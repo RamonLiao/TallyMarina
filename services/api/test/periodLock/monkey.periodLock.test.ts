@@ -19,6 +19,7 @@ import type { FixtureBundle } from '../../src/deps/ingestion.js';
 import { upsertReconDisposition } from '../../src/store/reconBreakStore.js';
 import { getPeriodLock } from '../../src/periodLock/store.js';
 import { makeRevaluationGreen } from '../helpers/revaluation.js';
+import { insertPricePoint } from '../../src/store/pricePointStore.js';
 
 const RECON_BREAKS = [
   '0xacmeTreasury|0x2::sui::SUI',
@@ -76,6 +77,16 @@ beforeEach(async () => {
     entityCapId: cfg.entityCapId,
     originalPackageId: cfg.anchorOriginalPackageId,
   }, fixture as FixtureBundle);
+  // D14: the fixture's RECEIPT (2026-06-01) and PAYMENT (2026-06-02) events require
+  // valuation — seed prices for both exact dates (mirrors test/helpers/app.ts).
+  insertPricePoint(db, {
+    entityId: cfg.entityId, coinType: '0x2::sui::SUI', asOf: '2026-06-01',
+    priceMinor: '100', quoteCurrency: 'USD', principalMarket: 'manual', source: 'manual', level: 'LEVEL_2',
+  });
+  insertPricePoint(db, {
+    entityId: cfg.entityId, coinType: '0x2::sui::SUI', asOf: '2026-06-02',
+    priceMinor: '100', quoteCurrency: 'USD', principalMarket: 'manual', source: 'manual', level: 'LEVEL_2',
+  });
   registerAcmeFixtureAssets(db, cfg.entityId); // registry close-gate precondition (assets have known scale)
   app = Fastify();
   registerRoutes(app, {

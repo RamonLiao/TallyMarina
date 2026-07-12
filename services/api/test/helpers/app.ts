@@ -12,6 +12,7 @@ import { seed } from '../../src/store/seed.js';
 import type { FixtureBundle } from '../../src/deps/ingestion.js';
 import type { MemoryClient } from '../../src/triage/memory/types.js';
 import { OffMemory } from '../../src/triage/memory/offMemory.js';
+import { insertPricePoint } from '../../src/store/pricePointStore.js';
 
 const require = createRequire(import.meta.url);
 const fixture = require('../../src/fixtures/acme-pilot-001.events.json') as unknown;
@@ -67,6 +68,17 @@ export async function buildTestApp(
       entityCapId: '0xcap',
       originalPackageId: '0xpkg',
     }, fixture as FixtureBundle);
+    // D14: the fixture's RECEIPT (2026-06-01) and PAYMENT (2026-06-02) events require
+    // valuation — seed prices for both exact dates so every caller of this shared factory
+    // keeps posting, same as the old hardcoded-100 behavior (assertions unchanged).
+    insertPricePoint(db, {
+      entityId: TEST_ENTITY_ID, coinType: '0x2::sui::SUI', asOf: '2026-06-01',
+      priceMinor: '100', quoteCurrency: 'USD', principalMarket: 'manual', source: 'manual', level: 'LEVEL_2',
+    });
+    insertPricePoint(db, {
+      entityId: TEST_ENTITY_ID, coinType: '0x2::sui::SUI', asOf: '2026-06-02',
+      priceMinor: '100', quoteCurrency: 'USD', principalMarket: 'manual', source: 'manual', level: 'LEVEL_2',
+    });
   }
   const app = Fastify() as unknown as FastifyInstance & { _db: Db };
   app._db = db;

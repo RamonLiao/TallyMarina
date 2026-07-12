@@ -32,6 +32,8 @@ import { classifyEvent } from '../ai/classify.js';
 import { reviewCopilot } from '../ai/copilot.js';
 import { buildRuleInput } from './buildRuleInput.js';
 import { lotsForEvent } from './lotsForEvent.js';
+import { pricesForEvent } from './pricesForEvent.js';
+import type { PricePoint } from '../deps/rulesEngine.js';
 import { buildLotsDTO } from '../lots/dto.js';
 import { evaluate, buildMerkle, leafHash, inclusionProof, eventTypeSchema, type JournalEntry } from '../deps/rulesEngine.js';
 import { buildSnapshot } from '../deps/snapshotSvc.js';
@@ -833,6 +835,11 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     let gasExpenseToDateMinor = '0';
     let postedGasPtr = 0;
     let posted = 0, skipped = 0;
+    // D14: memoize prices by as-of date WITHIN this single run-rules pass. Safe because the
+    // whole loop is already scoped to one entityId (req.params.id) — never mix across
+    // entities/days. Avoids re-querying price_points once per event when many candidates
+    // share the same event date.
+    const priceCache = new Map<string, PricePoint[]>();
     for (const ev of candidates) {
       // Merge in any already-posted GasFeeExpense contribution that sorts strictly before
       // this candidate under the (eventTime, id) key — same tiebreak as the candidates sort.
@@ -841,9 +848,12 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
         gasExpenseToDateMinor = (BigInt(gasExpenseToDateMinor) + next.delta).toString();
         postedGasPtr++;
       }
+      const asOf = evTime.slice(0, 10);
+      let prices = priceCache.get(asOf);
+      if (!prices) { prices = pricesForEvent(db, ev); priceCache.set(asOf, prices); }
       const output = evaluate(buildRuleInput(ev, {
         periodId, periodOpen, lots: lotsForEvent(db, ev), policySet: enginePolicy, coaMapping: engineCoa,
-        gasExpenseToDateMinor,
+        gasExpenseToDateMinor, prices,
       }));
       // JE-less POSTABLE outputs still carry lot movements that must persist — the old
       // `journalEntries.length === 0 → skip` guard is gone. Non-zero OPENING_LOT now posts

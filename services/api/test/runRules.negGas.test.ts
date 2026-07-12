@@ -14,6 +14,7 @@ import { buildTestApp } from './helpers/app.js';
 import type { Db } from '../src/store/db.js';
 import { insertEntity } from '../src/store/entityStore.js';
 import { insertEvent, setAiSuggestion } from '../src/store/eventStore.js';
+import { insertPricePoint } from '../src/store/pricePointStore.js';
 
 const E = 'e1';
 const P = '2026-Q2';
@@ -42,6 +43,14 @@ function opening(over: RawOver = {}): RawOver {
 async function freshApp(): Promise<FastifyInstance & { _db: Db }> {
   const app = await buildTestApp(false);
   insertEntity(app._db, { id: E, displayName: 'Acme', chainObjectId: '0xc', capObjectId: '0xk', originalPackageId: '0xp' });
+  // D14: GAS_FEE events require valuation (gasRules.requiresValuation: true); OPENING_LOT
+  // doesn't. Seed a price for every event date used below.
+  for (const asOf of ['2026-04-01', '2026-04-05', '2026-04-10']) {
+    insertPricePoint(app._db, {
+      entityId: E, coinType: COIN, asOf, priceMinor: '100',
+      quoteCurrency: 'USD', principalMarket: 'manual', source: 'manual', level: 'LEVEL_2',
+    });
+  }
   return app;
 }
 

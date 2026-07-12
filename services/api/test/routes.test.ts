@@ -16,6 +16,7 @@ import { insertSnapshot } from '../src/store/snapshotStore.js';
 import { insertEntity } from '../src/store/entityStore.js';
 import { deriveEntityRef } from '../src/deps/anchorSvc.js';
 import { upsertReconDisposition } from '../src/store/reconBreakStore.js';
+import { insertPricePoint } from '../src/store/pricePointStore.js';
 
 // Fixture recon breaks that need dismissal before any snapshot can proceed.
 const RECON_BREAKS = [
@@ -61,6 +62,16 @@ beforeEach(async () => {
     entityCapId: cfg.entityCapId,
     originalPackageId: cfg.anchorOriginalPackageId,
   }, fixture as FixtureBundle);
+  // D14: the fixture's RECEIPT (2026-06-01) and PAYMENT (2026-06-02) events require
+  // valuation — seed prices for both exact dates (mirrors test/helpers/app.ts).
+  insertPricePoint(db, {
+    entityId: cfg.entityId, coinType: '0x2::sui::SUI', asOf: '2026-06-01',
+    priceMinor: '100', quoteCurrency: 'USD', principalMarket: 'manual', source: 'manual', level: 'LEVEL_2',
+  });
+  insertPricePoint(db, {
+    entityId: cfg.entityId, coinType: '0x2::sui::SUI', asOf: '2026-06-02',
+    priceMinor: '100', quoteCurrency: 'USD', principalMarket: 'manual', source: 'manual', level: 'LEVEL_2',
+  });
   registerAcmeFixtureAssets(db, cfg.entityId); // registry close-gate precondition (assets have known scale)
   app = Fastify();
   registerRoutes(app, {

@@ -44,6 +44,7 @@ import { insertEntity } from '../src/store/entityStore.js';
 import { insertEvent, setAiSuggestion } from '../src/store/eventStore.js';
 import { listLotMovements } from '../src/store/lotMovementStore.js';
 import { lockPeriod, getPeriodLock } from '../src/periodLock/store.js';
+import { insertPricePoint } from '../src/store/pricePointStore.js';
 
 const E = 'e1';
 const P = '2026-Q2';
@@ -77,6 +78,18 @@ function seedAuto(db: Db, id: string, raw: RawOver): void {
 async function freshApp(): Promise<FastifyInstance & { _db: Db }> {
   const app = await buildTestApp(false);
   insertEntity(app._db, { id: E, displayName: 'Acme', chainObjectId: '0xc', capObjectId: '0xk', originalPackageId: '0xp' });
+  // D14: real price_points rows for both event dates in this test — the buildRuleInput.js
+  // mock above OVERRIDES the resulting unitPriceMinor at call-time, so the seeded value
+  // here is irrelevant; what matters is that a row exists so pricesForEvent doesn't return
+  // an empty array (which would PRICE_MISSING before the mock ever runs).
+  insertPricePoint(app._db, {
+    entityId: E, coinType: SUI, asOf: '2026-05-10',
+    priceMinor: '1', quoteCurrency: 'USD', principalMarket: 'manual', source: 'manual', level: 'LEVEL_2',
+  });
+  insertPricePoint(app._db, {
+    entityId: E, coinType: SUI, asOf: '2026-08-15',
+    priceMinor: '1', quoteCurrency: 'USD', principalMarket: 'manual', source: 'manual', level: 'LEVEL_2',
+  });
   return app;
 }
 
