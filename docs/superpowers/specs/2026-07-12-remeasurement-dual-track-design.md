@@ -72,6 +72,7 @@
 - 淨額 = computation + storage − rebate；可為負。
 - 為負時：① 先沖當期 `GasFeeExpense`（contra，上限 = **依事件時間序、截至本事件位置**的當期已認列 gas 費用累計餘額——D9，同一事件集重跑必得相同拆分）；② 超額入 `GasRebateIncome`（income 科目，不倒沖 expense）；③ 淨流入量建新 lot，basis = 取得日 FV——**取價走 `price_points`（D14），缺價 fail-closed 擋該事件**。
 - 兩軌一致（GAAP 以 FV 入帳、IFRS 以取得日 FV 為成本，數字相同）。
+- **實作慣例（v2.2 留痕）**：負淨額事件以 `economicPurpose === 'NETWORK_FEE_REBATE'` 標示（`quantityMinor` schema 鎖正數，無法帶符號）。已知耦合風險：`economicPurpose` 可被人工 `finalPurpose` 覆寫（§6.9 分類流程），reviewer 改 finalPurpose 會翻轉會計分支——**follow-up**：對 gas 事件的 finalPurpose 覆寫加守衛或警示（入 minor triage，restatement/UI 批次收）。
 
 ### 4.4 §7.3 ASU 過渡（一次性，雙向）
 - 觸發：entity 首次以 GAAP FV 軌 Run（該 entity 無任何 `basis='GAAP_FV'` 且 `seq=0` 的 valuation 記錄）。
@@ -207,6 +208,7 @@ lot_valuation(
 ## 11. Revision Log
 
 - 2026-07-12 v2.1：run 對 LOCKED period 的回應由 400 `PERIOD_CLOSED` 改 **409 `PERIOD_LOCKED`**（Task 6 review 發現與既有 locked-write 慣例衝突；Rule 11 conventions win，留痕）。
+- 2026-07-12 v2.2：§4.3 補負 gas 的 `NETWORK_FEE_REBATE` 標示慣例與 finalPurpose 翻轉風險（Task 8 review adjudication 2）；D9 累計器語意釘死為「含已 post JE 的 event-time 序 seed」（Task 8 review Critical 修復）。
 
 - 2026-07-12 v1：初版（brainstorming 六裁決 + 三節逐節確認）。self-review 修 2 事實錯誤（GAAP 範圍外 = ASC 350-30 不可迴轉；GAAP 貶值走獨立科目）＋釘死 recoverable amount proxy。
 - 2026-07-12 v2：三路 review 整合（`tasks/review-remeasurement-{sui,cpa,frontend}.md`）。
