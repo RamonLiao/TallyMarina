@@ -32,7 +32,7 @@ const triageRunner = makeTriageRunner({ db, cfg, client: ai, memory });
 startTriageScheduler(triageRunner, cfg.triageIntervalMs, cfg.entityId, DEFAULT_PERIOD);
 
 const app = Fastify({ logger: true });
-const LOCALHOST_ORIGIN = /^https?:\/\/localhost(:\d+)?$/;
+const LOCALHOST_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/;
 app.addHook('onRequest', async (req, reply) => {
   const origin = req.headers.origin;
   if (origin && LOCALHOST_ORIGIN.test(origin)) {
