@@ -4,6 +4,7 @@ import type {
   SnapshotDTO, PrepareDTO, InclusionProof, PolicyActiveDTO,
   OnboardingDTO, ChallengeDTO, VerifyResultDTO,
   PolicyDocDTO, CoaRuleDTO, PolicyHistoryDTO,
+  PricePointDTO, RevaluationPreviewDTO, RevaluationRunResultDTO,
 } from './types';
 
 const enc = encodeURIComponent;
@@ -136,4 +137,36 @@ export function postOnboardingChallenge(wallet: string): Promise<ChallengeDTO> {
 // 17. POST /onboarding/verify
 export function postOnboardingVerify(body: { wallet: string; nonce: string; signature: string; connectedAccount: string }): Promise<VerifyResultDTO> {
   return fetchJson<VerifyResultDTO>('/onboarding/verify', { method: 'POST', body: JSON.stringify(body) });
+}
+
+// ---- Period-end revaluation (Task 6/11) ----
+
+// 18. GET /entities/:id/prices?coinType=
+export async function getPrices(entityId: string, coinType?: string): Promise<PricePointDTO[]> {
+  const q = coinType ? `?coinType=${enc(coinType)}` : '';
+  return (await fetchJson<{ prices: PricePointDTO[] }>(`/entities/${enc(entityId)}/prices${q}`)).prices;
+}
+
+// 19. POST /entities/:id/prices
+export function postPrice(
+  entityId: string,
+  body: { coinType: string; asOf: string; price: string },
+): Promise<PricePointDTO> {
+  return fetchJson<PricePointDTO>(`/entities/${enc(entityId)}/prices`, {
+    method: 'POST', body: JSON.stringify(body),
+  });
+}
+
+// 20. GET /entities/:id/revaluation/preview?periodId=
+export function getRevaluationPreview(entityId: string, periodId: string): Promise<RevaluationPreviewDTO> {
+  return fetchJson<RevaluationPreviewDTO>(
+    `/entities/${enc(entityId)}/revaluation/preview?periodId=${enc(periodId)}`,
+  );
+}
+
+// 21. POST /entities/:id/revaluation/run
+export function postRevaluationRun(entityId: string, periodId: string): Promise<RevaluationRunResultDTO> {
+  return fetchJson<RevaluationRunResultDTO>(`/entities/${enc(entityId)}/revaluation/run`, {
+    method: 'POST', body: JSON.stringify({ periodId }),
+  });
 }

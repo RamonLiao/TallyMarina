@@ -83,6 +83,13 @@
   color: var(--warn, #c28a1e);
 }
 
+/* Stale (Task 7/11, spec D12/D13): a revaluation light whose prior run no longer reflects
+   current prices/lots. Blocks close like red, rendered amber (⟳ Stale — rerun) so it reads
+   as "action needed" distinct from the hard-error red glyph. */
+.light--stale {
+  color: var(--warn, #c28a1e);
+}
+
 .light--mock {
   color: var(--ink-soft, #3e4a6b);
   border-style: dashed;

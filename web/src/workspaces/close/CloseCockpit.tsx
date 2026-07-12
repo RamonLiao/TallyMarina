@@ -5,7 +5,7 @@ import { useWorkspace } from '../../app/WorkspaceContext';
 import { useEntityCtx } from '../../app/EntityContext';
 import { isWorkspaceId } from '../../app/workspaces';
 import { LightCard } from './LightCard';
-import { sortLights, dispatchTarget } from './lightMeta';
+import { sortLights, dispatchTarget, isBlocking } from './lightMeta';
 import { LockPanel } from './LockPanel';
 import { ReopenDialog } from './ReopenDialog';
 import './close.css';
@@ -19,10 +19,12 @@ export function CloseCockpit({ entityId }: { entityId: string }) {
   if (loading && !data) return <p>Loading close cockpit…</p>;
   if (!data) return <p>No cockpit data.</p>;
 
-  const blockingReds = data.lights.filter((l) => l.status === 'red').length;
+  // red OR stale blocks close (spec D12/D13) — semantics live in lightMeta.isBlocking,
+  // shared with LockPanel's blockers filter so the two can't drift.
+  const blocking = data.lights.filter((l) => isBlocking(l.status)).length;
   const verdict = data.closeable
     ? 'All controls ready to lock.'
-    : `${blockingReds} light${blockingReds === 1 ? '' : 's'} blocking close.`;
+    : `${blocking} light${blocking === 1 ? '' : 's'} blocking close.`;
 
   const onDispatch = (key: string) => {
     const target = dispatchTarget(key);
