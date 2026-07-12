@@ -109,7 +109,7 @@ export function latestValuationForLot(db: Db, entityId: string, lotId: string): 
 // re-valuation run silently erase the ASU-2023-08 opening baseline.
 export function supersedeValuationsOfRun(db: Db, runId: string, byRunId: string): number {
   const result = db.prepare(
-    'UPDATE lot_valuation SET superseded_by = ? WHERE run_id = ? AND seq > 0',
+    "UPDATE lot_valuation SET superseded_by = ? WHERE run_id = ? AND seq > 0 AND reason != 'DISPOSAL_RELEASE'",
   ).run(byRunId, runId);
   return result.changes;
 }
