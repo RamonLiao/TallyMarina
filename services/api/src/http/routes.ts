@@ -62,6 +62,8 @@ import { canonicalCoinType, CoinTypeError } from '../assets/normalize.js';
 import {
   insertPricePoint, latestPricesAt, listPriceHistory, periodCutoff, cutoffPeriod,
 } from '../store/pricePointStore.js';
+import { previewRun, executeRun } from '../revaluation/orchestrate.js';
+import { RevaluationDataError } from '../store/revaluationStore.js';
 
 const ASSET_ACTOR = 'demo-controller';      // server-side constant, never a client value (D13)
 const COIN_INFO_TIMEOUT_MS = 5000;
@@ -266,6 +268,11 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     if (err instanceof SnapshotError) return reply.code(409).send(toEnvelope(err.code, err.message));
     if (err instanceof PolicyPersistenceError) {
       return reply.code(503).send(toEnvelope(err.code, err.message));
+    }
+    // Corrupt lot_valuation rows detected by the fail-closed fold (Task 6) — a server-side
+    // data integrity fault, never a client error.
+    if (err instanceof RevaluationDataError) {
+      return reply.code(500).send(toEnvelope(err.code, err.message));
     }
     if (err instanceof AnchorError) {
       const map: Record<string, number> = {
@@ -568,6 +575,32 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     }
     return { prices: history.map((r) => ({ ...r, superseded: !currentIds.has(r.id) })) };
   });
+
+  // Period-end revaluation (Task 6, spec §6). Preview is READ-ONLY (its sandbox transaction
+  // always rolls back) and never 400s on missing prices — it reports them. Run is the write
+  // path: all-or-nothing PRICE_MISSING, dual-fingerprint replay gate, reversal rerun.
+  app.get<{ Params: { id: string }; Querystring: { periodId?: string } }>(
+    '/entities/:id/revaluation/preview', async (req) => {
+      requireEntity(db, req.params.id);
+      const periodId = req.query.periodId;
+      if (!periodId) throw new ApiError(400, 'VALIDATION', 'periodId query param is required');
+      return previewRun(db, req.params.id, periodId);
+    });
+
+  app.post<{ Params: { id: string }; Body: { periodId?: string } }>(
+    '/entities/:id/revaluation/run', async (req, reply) => {
+      requireEntity(db, req.params.id);
+      const periodId = req.body?.periodId;
+      if (!periodId) throw new ApiError(400, 'VALIDATION', 'periodId is required');
+      // Spec §6 pins 400 PERIOD_CLOSED for this route (unlike run-rules' 409 PERIOD_LOCKED):
+      // a revaluation of a closed period is a malformed request, not a state conflict.
+      if (getPeriodLock(db, req.params.id, periodId).status === 'LOCKED') {
+        throw new ApiError(400, 'PERIOD_CLOSED', `period ${periodId} is locked; reopen it before revaluing`);
+      }
+      const result = executeRun(db, req.params.id, periodId);
+      reply.code(201);
+      return result;
+    });
 
   // 1. GET /entities
   app.get('/entities', async () => ({
