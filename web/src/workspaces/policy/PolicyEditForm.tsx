@@ -81,7 +81,9 @@ export function PolicyEditForm({ doc, onApply }: Props) {
         <label className="policy-field">
           <span className="policy-defrow-label">Cost basis method</span>
           <select aria-label="cost basis method" value={costBasisMethod} onChange={(e) => setCostBasisMethod(e.target.value as PolicyDocDTO['costBasisMethod'])}>
-            {COST_BASIS.map((v) => <option key={v} value={v}>{v}</option>)}
+            {/* WAC is schema-reserved for P1; the API rejects it (400 NOT_EXECUTABLE_MVP), so an
+                enabled option would be a guaranteed dead end — visible but unselectable. */}
+            {COST_BASIS.map((v) => <option key={v} value={v} disabled={v !== 'FIFO'}>{v === 'FIFO' ? v : `${v} (P1)`}</option>)}
           </select>
         </label>
         <label className="policy-field">
