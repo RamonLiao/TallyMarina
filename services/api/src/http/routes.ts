@@ -64,8 +64,8 @@ import { canonicalCoinType, CoinTypeError } from '../assets/normalize.js';
 import {
   insertPricePoint, latestPricesAt, listPriceHistory, periodOfDate,
 } from '../store/pricePointStore.js';
-import { previewRun, executeRun } from '../revaluation/orchestrate.js';
-import { RevaluationDataError, insertValuation, latestValuationForLot } from '../store/revaluationStore.js';
+import { previewRun, executeRun, basisOf } from '../revaluation/orchestrate.js';
+import { RevaluationDataError, insertValuation, latestValuationForLot, activeGaapCoinBasis } from '../store/revaluationStore.js';
 
 const ASSET_ACTOR = 'demo-controller';      // server-side constant, never a client value (D13)
 const COIN_INFO_TIMEOUT_MS = 5000;
@@ -347,7 +347,32 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     }
     return deps.mutex.run('policy-write', async () => {
       const { doc: before } = getActivePolicy(db, entity);
+      // External review (should-fix, basis-lock; generalized after round-1 dual-review):
+      // accountingStandard / asu202308Applies pick the `expectedBasis` foldValuationStates
+      // folds existing lot_valuation rows against (Task 6/9). foldValuationStates throws
+      // RevaluationDataError on ANY basis mismatch — not just a GAAP_FV one — so reverting a
+      // coin's basis away from whatever it was last revalued under would make the next
+      // run-rules event touching it 500 (mislabeled VALUATION_CORRUPT; the entity actually
+      // needs a restatement flow, which doesn't exist yet). Reject at the write boundary,
+      // same shape as the WAC guard above.
+      // Deliberately allows the FORWARD adoption direction — a coin with no live valuation
+      // yet, or moving GAAP_COST -> GAAP_FV — since that's the one-directional,
+      // already-orchestrated transition (orchestrate.ts transitionMode) with its own tests.
+      // Only reverting an already-GAAP-elected coin (GAAP_FV, or GAAP_COST straight back to
+      // IFRS_COST) counts as a lock trip. Merge first so the check reads the PROPOSED doc's
+      // basis per coin (equal-value resends compute the same basis as before, so they never
+      // trip this).
       const merged: PolicyDoc = { ...before, ...changes };
+      if (changes.accountingStandard !== undefined || changes.asu202308Applies !== undefined) {
+        for (const [coinType, liveBasis] of activeGaapCoinBasis(db, entity)) {
+          const newBasis = basisOf(merged, coinType);
+          const reverted = liveBasis === 'GAAP_FV' ? newBasis !== 'GAAP_FV' : newBasis === 'IFRS_COST';
+          if (reverted) {
+            throw new ApiError(400, 'POLICY_BASIS_LOCKED',
+              `coin ${coinType} is already revalued under GAAP basis '${liveBasis}' — reverting to '${newBasis}' requires a restatement flow (not yet available)`);
+          }
+        }
+      }
       if (canonical(merged) === canonical(before)) {
         throw new ApiError(409, 'NO_CHANGE', 'no effective change to the active policy set');
       }

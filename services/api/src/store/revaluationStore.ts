@@ -103,6 +103,38 @@ export function latestValuationForLot(db: Db, entityId: string, lotId: string): 
   return row ? fromValuationRow(row) : null;
 }
 
+// External review (should-fix, basis-lock; generalized after round-1 dual-review): coin type
+// -> current live (unsuperseded) lot_valuation basis, restricted to the two GAAP bases
+// (GAAP_FV, GAAP_COST) — an IFRS_COST-live coin has never been through a GAAP election and
+// imposes no restriction. PATCH /policy/policy-set uses this to block accountingStandard /
+// asu202308Applies changes that would revert an already-GAAP-elected coin's basis in a way
+// foldValuationStates' mixed-basis guard (CPA B2) can't tolerate: it throws
+// RevaluationDataError on ANY basis mismatch between a persisted lot_valuation row and the
+// expectedBasis the next run-rules event computes — not just GAAP_FV mismatches — so a live
+// GAAP_COST coin reverting straight to IFRS_COST (accountingStandard flipped back to IFRS,
+// no asu202308Applies change at all) hits the exact same mislabeled-500 crash class as the
+// GAAP_FV case. Round-1 external review flagged the GAAP_FV-only version of this helper as
+// leaving that gap open.
+// Deliberately still allows the FORWARD direction — GAAP_COST -> GAAP_FV, and (for a coin
+// with no live valuation at all, i.e. absent from this map) any first-time IFRS_COST ->
+// GAAP_{FV,COST} adoption — since those are the one-directional, already-orchestrated
+// transition paths (orchestrate.ts transitionMode) with their own tests. Only "coin already
+// has a live GAAP_* row" x "proposed basis is not GAAP_FV, and if the live basis was
+// GAAP_COST the proposed basis is also not GAAP_COST" counts as a revert; see the two-arm
+// check at the PATCH call site.
+export function activeGaapCoinBasis(db: Db, entityId: string): Map<string, 'GAAP_FV' | 'GAAP_COST'> {
+  const rows = db.prepare(
+    `SELECT DISTINCT lm.coin_type AS coinType, lv.basis AS basis
+     FROM lot_valuation lv
+     JOIN lot_movement lm ON lm.entity_id = lv.entity_id AND lm.lot_id = lv.lot_id
+     WHERE lv.entity_id = ? AND lv.superseded_by IS NULL AND lv.basis IN ('GAAP_FV', 'GAAP_COST')`,
+  ).all(entityId) as Array<{ coinType: string; basis: 'GAAP_FV' | 'GAAP_COST' }>;
+  // A coin can only have ONE live basis at a time (foldValuationStates would already have
+  // thrown a mixed-basis error on a prior run if it didn't) — Map keyed by coinType is safe,
+  // last-write-wins is never actually exercised.
+  return new Map(rows.map((r) => [r.coinType, r.basis]));
+}
+
 // D6: seq=0 (opening/transition) rows are permanent — a later run recomputing the same lot
 // supersedes only its own >=1 run-seq predecessors, never the opening row. The WHERE seq > 0
 // guard is the entire enforcement of that invariant; removing it would let a routine
