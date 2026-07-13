@@ -34,14 +34,15 @@ openingFV(P)/closingFV(P) = cost fold(lot_movement) + val fold(live lot_valuatio
 | gains/losses(B) | 50000 | 50000 |
 | **closingFV（真值=DA·SUI GL）** | **80000** | **110000** |
 | **Candidate B** | **80000 ✓ 殘差0** | **110000 ✓ 殘差0** |
-| Candidate A（disposals at cost + realized reclass, spec §4.2 字面） | 90000（**+10000**） | 155000（**+45000**） |
+| candidateAMissingReclass（strawman：漏 reclassOffset 的錯誤版本，非 brief 的 Candidate A） | 90000（**+10000**） | 155000（**+45000**） |
+| **candidateAWithReclass（coherent 成本基礎，= B 恆等重組）** | **80000 ✓ 殘差0** | **110000 ✓ 殘差0** |
 
-Candidate A 殘差非有意義會計量（= realizedReclass − openingFvDelta − releaseDelta），只是把 A 硬湊回 B 的補正項 → 證明無乾淨成本基礎公式，定案 B。
+更正（re-review C-1）：coherent 成本基礎公式（`openingFV + additionsCost − disposalsCost + gainsB − releaseRemoved`）存在且逐期精確，與 B 恆等（`disposalsCarrying = disposalsCost + releaseRemoved`）。定案 B 是呈現層/欄位配置決策（§11.2 六欄無 reclass 欄，releaseRemoved 折進 disposals 最不失真），使用者 2026-07-13 裁決採 B。
 
 ## Deviations（memo 詳述 + design spec Revision log v1.1 留痕）
 
-1. **disposals 依 carrying 而非 cost**（偏離 §4.2「依成本基礎釋放」）：處分在 GL 是把「成本+已累積估值」整批貸出 DigitalAssets，資產帳對帳必須帶走 carrying；成本基礎無法零殘差。
-2. **gains/losses = 未實現重估 delta，realized 處分損益不入本表**（偏離 §4.2「pnlBuckets = realized+unrealized」）：disposals 依 carrying 帶走已累積估值後，realized(proceeds−carrying) 不觸及 DigitalAssets 餘額（落 P&L/TB），加回即雙算(Candidate A)。realized 走恆等式②(期末FV=同期 TB DigitalAssets) 與 TB 科目稽核；pnlBuckets 仍是 realized/unrealized 拆分真相源，只是不作 roll-forward 加減項。
+1. **disposals 依 carrying 呈現（呈現層裁決，非代數必然）**：coherent 成本基礎公式亦零殘差且與 B 恆等；選 carrying 是因 §11.2 六欄無 reclass 欄，releaseRemoved 折進 disposals 最不失真（塞 losses 會把已認列估值移轉誤呈為虧損）。使用者 2026-07-13 裁決採 B。
+2. **gains/losses = 未實現重估 delta，realized 處分損益不入本表**：disposals 依 carrying 帶走已累積估值後，realized(proceeds−carrying) 不觸及 DigitalAssets 餘額（落 P&L/TB），加回即雙算（strawman 的殘差來源之一）。realized 走恆等式②(期末FV=同期 TB DigitalAssets) 與 TB 科目稽核；pnlBuckets 仍是 realized/unrealized 拆分真相源，只是不作 roll-forward 加減項。
 3. **Finding 2 — OPENING_LOT 必入 additions**（brief 註「排除 OPENING_LOT」在 Choice X 下漏帳 = OPENING_LOT 成本）：定案純期界 Choice X，OPENING_LOT 於其所屬期計入 additions，保 openingFV(P)=closingFV(P−1) 連續 + tie GL + 正確處理後期再取得。替代 Choice Y 亦零殘差但脆弱且破連續性，不採。
 
 ## Self-review（mutation，L4）
