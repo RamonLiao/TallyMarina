@@ -113,21 +113,34 @@ function registryLight(db: Db, entityId: string, periodId: string): Light {
 // Fail-closed like recon/registry/revaluation/je: buildRollForward can throw (malformed
 // periodId — periodCutoff throws, same convention Task 4 established for jeLight) → red, never
 // a 500 out of the whole cockpit.
+// Single source of truth (Rule 7) for the 'completeness' light's green/red predicate, mirroring
+// computeJeGreen: notApplicable (IFRS / no ASU track) → green (N/A is still "checked"), else
+// identitiesOk drives it; fail-closed (buildRollForward throws on a malformed periodId) → red.
+// Exported so meta.ts's lockedDrift re-checks completeness against the EXACT predicate that made
+// the frozen snapshot green — a period can only ever drift against what actually locked green.
+export function computeCompletenessGreen(db: Db, entityId: string, periodId: string): boolean {
+  try {
+    const rf = buildRollForward(db, entityId, periodId);
+    return rf.notApplicable ? true : rf.identitiesOk;
+  } catch {
+    return false;
+  }
+}
+
+const COMPLETENESS_LABEL = 'Completeness (ASU 2023-08 roll-forward)';
+
 function completenessLight(db: Db, entityId: string, periodId: string): Light {
   try {
     const rf = buildRollForward(db, entityId, periodId);
     if (rf.notApplicable) {
       return {
-        key: 'completeness', status: 'green', label: 'Completeness (ASU 2023-08 roll-forward)',
-        real: true, note: 'N/A — ASU 2023-08 roll-forward does not apply under IFRS',
+        key: 'completeness', status: 'green', label: COMPLETENESS_LABEL, real: true,
+        note: 'N/A — ASU 2023-08 roll-forward does not apply under IFRS',
       };
     }
-    return {
-      key: 'completeness', status: rf.identitiesOk ? 'green' : 'red',
-      label: 'Completeness (ASU 2023-08 roll-forward)', real: true,
-    };
+    return { key: 'completeness', status: rf.identitiesOk ? 'green' : 'red', label: COMPLETENESS_LABEL, real: true };
   } catch {
-    return { key: 'completeness', status: 'red', label: 'Completeness (ASU 2023-08 roll-forward)', real: true };
+    return { key: 'completeness', status: 'red', label: COMPLETENESS_LABEL, real: true };
   }
 }
 

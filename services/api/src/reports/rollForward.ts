@@ -12,7 +12,14 @@ export interface RollForwardRow {
   coinType: string;
   openingFvMinor: string; additionsMinor: string; disposalsMinor: string;
   gainsMinor: string; lossesMinor: string; closingFvMinor: string;
-  identityOk: boolean;   // 恆等式①（逐資產）
+  // Identity① — per-coin GL tie (dual-review external round, spec v1.2): this coin's lot-side
+  // closingFvMinor (lot_movement + live lot_valuation fold) === this coin's DigitalAssets GL
+  // closing (journal_entries side). A REAL cross-store control: moving a single coin's ledger
+  // balance reds ONLY that coin's row. The old identityOk was `closingFV === openingFV +
+  // additions − disposals + gains − losses`, an algebraic restatement of the SAME lot-side fold
+  // (external review坐實其對任何資料恆真), so it could never fail. The six columns below are the
+  // ASU roll-forward PRESENTATION (§11.2), not the control.
+  identityOk: boolean;
 }
 export interface RollForward {
   notApplicable: boolean; reason: string | null;
@@ -62,7 +69,10 @@ function readCoinRows(db: Db, entityId: string, coinType: string): { movements: 
 }
 
 // memo §2/§5: closingFV(P) = openingFV(P) + additionsCost(P) − disposalsCarrying(P) + (gains − losses)(P)
-function computeRow(db: Db, entityId: string, periodId: string, coinType: string): RollForwardRow {
+// glClosingForCoin is this coin's DigitalAssets GL closing (journal side, computed once in
+// buildRollForward via digitalAssetsClosingForCoins) — identityOk ties the lot-side closingFV to
+// it (per-coin GL tie, spec v1.2). The six roll-forward columns remain the ASU presentation.
+function computeRow(db: Db, entityId: string, periodId: string, coinType: string, glClosingForCoin: bigint): RollForwardRow {
   const cut = periodCutoff(periodId); // malformed periodId → throws (fail-closed, matches trialBalance)
   const before = (p: string): boolean => periodCutoff(p) < cut;
   const upTo = (p: string): boolean => periodCutoff(p) <= cut;
@@ -110,7 +120,10 @@ function computeRow(db: Db, entityId: string, periodId: string, coinType: string
     else if (v.delta < 0n) losses += -v.delta;
   }
 
-  const identityOk = closingFV === openingFV + additionsCost - disposalsCarrying + gains - losses;
+  // Identity① — per-coin GL tie (spec v1.2): lot-side closingFV must equal this coin's
+  // DigitalAssets GL closing. NOT the old fold-restatement (closingFV === openingFV + additions
+  // − disposals + gains − losses), which was algebraically恆真 over the same lot-side numbers.
+  const identityOk = closingFV === glClosingForCoin;
 
   return {
     coinType,
@@ -137,15 +150,32 @@ function computeRow(db: Db, entityId: string, periodId: string, coinType: string
 // scan doesn't have (e.g. TB's own malformed-period guard). Identity ② is intentionally computed
 // via this coin-scoped JE scan instead, because TB's DigitalAssets row does not split by coin and
 // would contaminate the tie-out with non-ASU coins, per the reasoning above.
-function digitalAssetsClosingForCoins(db: Db, entityId: string, periodId: string, coins: string[]): bigint {
-  if (coins.length === 0) return 0n;
+// Returns a PER-COIN DigitalAssets GL closing map (Fix 1: group by origCoinType, so identity①
+// can tie each coin's lot-side closing to its own ledger balance — same skip-VOIDED/skip-future
+// semantics as before, just no longer collapsed to one total). `unparseable` (Fix 3, fail-closed):
+// a legacy JE with a NULL/malformed period_id can no longer be placed relative to the cutoff — the
+// per-coin GL is then not fully determinable, so the caller must red the tie (tbTie.ok=false)
+// rather than 500 out of periodCutoff. Corrupt amountMinor is NOT covered here (BigInt below still
+// throws) — that is money corruption, a real 500, per the trialBalance contract.
+function digitalAssetsClosingForCoins(
+  db: Db, entityId: string, periodId: string, coins: string[],
+): { perCoin: Map<string, bigint>; unparseable: boolean } {
+  const perCoin = new Map<string, bigint>();
+  if (coins.length === 0) return { perCoin, unparseable: false };
   const target = periodCutoff(periodId);
   const coinSet = new Set(coins);
   const rows = db.prepare('SELECT je_json AS j, period_id AS p FROM journal_entries WHERE entity_id = ?')
     .all(entityId) as Array<{ j: string; p: string }>;
-  let bal = 0n;
+  let unparseable = false;
   for (const r of rows) {
-    if (periodCutoff(r.p) > target) continue;
+    let cutoff: string;
+    try {
+      cutoff = periodCutoff(r.p);
+    } catch {
+      unparseable = true; // NULL/malformed legacy period_id — can't place this JE; fail-closed
+      continue;
+    }
+    if (cutoff > target) continue;
     const je = JSON.parse(r.j) as {
       status?: string;
       lines: Array<{ account: string; side: string; amountMinor: string; origCoinType?: string | null }>;
@@ -153,10 +183,11 @@ function digitalAssetsClosingForCoins(db: Db, entityId: string, periodId: string
     if (je.status === 'VOIDED') continue;
     for (const l of je.lines) {
       if (l.account !== 'DigitalAssets' || !l.origCoinType || !coinSet.has(l.origCoinType)) continue;
-      bal += l.side === 'DEBIT' ? BigInt(l.amountMinor) : -BigInt(l.amountMinor);
+      const delta = l.side === 'DEBIT' ? BigInt(l.amountMinor) : -BigInt(l.amountMinor);
+      perCoin.set(l.origCoinType, (perCoin.get(l.origCoinType) ?? 0n) + delta);
     }
   }
-  return bal;
+  return { perCoin, unparseable };
 }
 
 export function buildRollForward(db: Db, entityId: string, periodId: string): RollForward {
@@ -166,14 +197,19 @@ export function buildRollForward(db: Db, entityId: string, periodId: string): Ro
   }
 
   const coins = Object.entries(doc.asu202308Applies).filter(([, v]) => v).map(([k]) => k);
-  const rows = coins.map((coinType) => computeRow(db, entityId, periodId, coinType));
+  // Compute the per-coin DigitalAssets GL closing ONCE, then tie each row against its own coin.
+  const { perCoin, unparseable } = digitalAssetsClosingForCoins(db, entityId, periodId, coins);
+  const rows = coins.map((coinType) => computeRow(db, entityId, periodId, coinType, perCoin.get(coinType) ?? 0n));
 
   const closingFvTotal = sum(rows, (r) => BigInt(r.closingFvMinor));
-  const digitalAssetsClosing = digitalAssetsClosingForCoins(db, entityId, periodId, coins);
+  // tbTie is now the AGGREGATE view of the per-coin ties (Σ GL vs Σ closingFV) — kept for the
+  // Identity② presentation banner. It is a derived roll-up: if every row.identityOk holds and no
+  // period_id is unparseable, this ties by construction. `unparseable` forces it red (fail-closed).
+  const digitalAssetsClosing = [...perCoin.values()].reduce((s, v) => s + v, 0n);
   const tbTie = {
     digitalAssetsClosingMinor: digitalAssetsClosing.toString(),
     closingFvTotalMinor: closingFvTotal.toString(),
-    ok: digitalAssetsClosing === closingFvTotal,
+    ok: !unparseable && digitalAssetsClosing === closingFvTotal,
   };
 
   return {

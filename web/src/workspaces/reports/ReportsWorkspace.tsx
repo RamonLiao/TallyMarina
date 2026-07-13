@@ -25,8 +25,11 @@ export function ReportsWorkspace({ entityId, periodId }: { entityId: string; per
 
       {tb.drift && (
         <div className="reports-banner reports-banner--drift" role="alert">
-          <strong>⚠ Drift</strong> — recomputed trial balance disagrees with the frozen LOCKED-period
-          snapshot (frozen JE light: {tb.drift.frozenJeStatus}, recomputed balanced: {String(tb.drift.recomputedJeGreen)}).
+          <strong>⚠ Drift</strong> — recomputed reports disagree with the frozen LOCKED-period
+          snapshot:{' '}
+          {tb.drift.dimensions.map((d) => (
+            `${d.light} (frozen ${d.frozenStatus}, recomputed green: ${String(d.recomputedGreen)})`
+          )).join('; ')}.
         </div>
       )}
 

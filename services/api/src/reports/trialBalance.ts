@@ -26,12 +26,12 @@ export interface TbTieOut {
 export interface TrialBalance { rows: TbRow[]; tieOut: TbTieOut }
 
 export function buildTrialBalance(db: Db, entityId: string, periodId: string): TrialBalance {
-  const targetCutoff = periodCutoff(periodId); // malformed periodId → throw（沿用既有驗證）
+  const targetCutoff = periodCutoff(periodId); // malformed *target* periodId → throw（route 已驗證，沿用）
   const jeRows = db.prepare(
-    `SELECT je.je_json AS jeJson, je.period_id AS periodId, ev.final_event_type AS eventType
+    `SELECT je.id AS jeId, je.je_json AS jeJson, je.period_id AS periodId, ev.final_event_type AS eventType
        FROM journal_entries je JOIN events ev ON ev.id = je.event_id
       WHERE je.entity_id = ?`,
-  ).all(entityId) as { jeJson: string; periodId: string; eventType: string | null }[];
+  ).all(entityId) as { jeId: string; jeJson: string; periodId: string; eventType: string | null }[];
 
   const classByAccount = new Map<string, AccountClass>();
   for (const a of db.prepare('SELECT name, class FROM accounts WHERE entity_id = ?')
@@ -42,9 +42,22 @@ export function buildTrialBalance(db: Db, entityId: string, periodId: string): T
   const debit = new Map<string, bigint>();
   const credit = new Map<string, bigint>();
   let sumDr = 0n, sumCr = 0n;
+  // Fix 3 (dual-review external round, fail-closed): a legacy JE with a NULL/malformed period_id
+  // can't be placed relative to the cutoff. Previously periodCutoff(r.periodId) threw straight out
+  // → the read endpoint 500'd. That JE is now excluded from the fold and recorded as a failure so
+  // the report renders 200 with balanced=false (auditor sees the corrupt row) instead of a 500.
+  // NOTE: the amountMinor throw below is DELIBERATELY kept — that's money corruption (500 契約,
+  // reports.routes.test 釘著), a different class of fault from an unplaceable period.
+  const periodFailures: string[] = [];
 
   for (const r of jeRows) {
-    const cutoff = periodCutoff(r.periodId);
+    let cutoff: string;
+    try {
+      cutoff = periodCutoff(r.periodId);
+    } catch {
+      periodFailures.push(`unparseable period_id on JE ${r.jeId}`);
+      continue;
+    }
     if (cutoff > targetCutoff) continue;                        // 未來期一律不入（spec §4.1）
     const je = JSON.parse(r.jeJson) as JeDoc;
     if (je.status === 'VOIDED') continue;                       // §11.1 最終狀態呈現（裁決 7）
@@ -63,7 +76,7 @@ export function buildTrialBalance(db: Db, entityId: string, periodId: string): T
 
   const accounts = [...new Set([...opening.keys(), ...debit.keys(), ...credit.keys()])]
     .sort((a, b) => a.localeCompare(b));
-  const failures: string[] = [];
+  const failures: string[] = [...periodFailures];
   let sumSignedClosing = 0n;
   const rows: TbRow[] = accounts.map((account) => {
     const openNet = opening.get(account) ?? 0n;

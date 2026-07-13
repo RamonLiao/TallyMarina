@@ -436,10 +436,18 @@ export interface ReportMetaDTO {
   generatedAt: string;
 }
 
+// Multi-dimensional drift (Fix 2, dual-review external round): the frozen LOCKED snapshot pins
+// both the 'je' and 'completeness' evidence; a post-lock raw edit can break either independently.
+// Each drifting light is one dimension. Mirror of services/api/src/reports/meta.ts.
+export type DriftLight = 'je' | 'completeness';
+export interface DriftDimensionDTO {
+  light: DriftLight;
+  frozenStatus: string;
+  recomputedGreen: boolean;
+}
 export interface LockedDriftDTO {
   code: 'LIGHTS_SNAPSHOT_DRIFT';
-  frozenJeStatus: string;
-  recomputedJeGreen: boolean;
+  dimensions: DriftDimensionDTO[];
 }
 
 export interface TrialBalanceResponseDTO {
@@ -473,4 +481,9 @@ export interface RollForwardResponseDTO {
   tbTie: RollForwardTbTieDTO | null;
   identitiesOk: boolean;
   meta: ReportMetaDTO;
+  // Fix 2: same LOCKED-period drift object the TB endpoint returns (null when OPEN). The backend
+  // ALWAYS sends this field now; it is `?`-optional here ONLY because a pre-existing out-of-scope
+  // fixture (src/test/mascot-governance.test.tsx) constructs this DTO literal without it. Follow-up
+  // (tracked): tighten to required + update that fixture once it is in scope — TB's drift is required.
+  drift?: LockedDriftDTO | null;
 }

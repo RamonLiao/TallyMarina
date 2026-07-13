@@ -49,6 +49,7 @@ function rf(overrides: Partial<RollForwardResponseDTO> = {}): RollForwardRespons
     tbTie: { digitalAssetsClosingMinor: '145', closingFvTotalMinor: '145', ok: true },
     identitiesOk: true,
     meta,
+    drift: null,
     ...overrides,
   };
 }
@@ -110,7 +111,10 @@ it('meta row shows standard + policySetVersion + periodStatus', () => {
 
 it('drift warning: non-null drift renders a blocked/danger alert, never aqua', () => {
   mockTrialBalance.mockReturnValue({
-    data: tb({ drift: { code: 'LIGHTS_SNAPSHOT_DRIFT', frozenJeStatus: 'green', recomputedJeGreen: false } }),
+    data: tb({ drift: { code: 'LIGHTS_SNAPSHOT_DRIFT', dimensions: [
+      { light: 'je', frozenStatus: 'green', recomputedGreen: false },
+      { light: 'completeness', frozenStatus: 'green', recomputedGreen: false },
+    ] } }),
     isLoading: false,
   });
   mockRollForward.mockReturnValue({ data: rf(), isLoading: false });
@@ -119,6 +123,9 @@ it('drift warning: non-null drift renders a blocked/danger alert, never aqua', (
   const alert = screen.getByRole('alert');
   expect(alert).toBeInTheDocument();
   expect(alert.textContent).toMatch(/drift/i);
+  // Each drifting dimension names its light — completeness drift must be visible, not just je.
+  expect(alert.textContent).toMatch(/completeness/i);
+  expect(alert.textContent).toMatch(/je/i);
   // aqua is on-chain/anchor semantics only — a drift alert must never carry the aqua class.
   expect(alert.className).not.toMatch(/aqua/i);
 });

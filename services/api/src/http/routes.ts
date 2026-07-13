@@ -1135,7 +1135,11 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     }
     const rf = buildRollForward(db, req.params.id, periodId);
     const meta = buildReportMeta(db, req.params.id, periodId);
-    return { ...rf, meta };
+    // Fix 2: same LOCKED-period drift object the TB endpoint returns (null when OPEN). Surfaces
+    // here too so the roll-forward view can flag a post-lock ledger edit that broke the
+    // completeness (per-coin GL tie) or je dimension of the frozen snapshot.
+    const drift = lockedDrift(db, req.params.id, periodId);
+    return { ...rf, meta, drift };
   });
 
   // Period Close Cockpit (Phase 2 B1)

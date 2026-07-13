@@ -8,7 +8,7 @@
 import type { Db } from '../store/db.js';
 import { getActivePolicy } from '../store/policyStore.js';
 import { getPeriodLock } from '../periodLock/store.js';
-import { computeJeGreen } from '../periodLock/cockpit.js';
+import { computeJeGreen, computeCompletenessGreen } from '../periodLock/cockpit.js';
 
 export interface ReportMeta {
   accountingStandard: string;
@@ -17,10 +17,20 @@ export interface ReportMeta {
   generatedAt: string;
 }
 
+// Fix 2 (dual-review external round): drift is now MULTI-DIMENSIONAL. The frozen lights_snapshot
+// pins BOTH the 'je' and 'completeness' evidence a controller signed off on; a post-lock raw edit
+// can break either independently (e.g. a raw lot_valuation INSERT breaks the roll-forward's
+// per-coin GL tie → completeness only, while the je tie-out still holds). Each drifting light
+// contributes one dimension; a null drift means every checked dimension still agrees.
+export type DriftLight = 'je' | 'completeness';
+export interface DriftDimension {
+  light: DriftLight;
+  frozenStatus: string;
+  recomputedGreen: boolean;
+}
 export interface LockedDrift {
   code: 'LIGHTS_SNAPSHOT_DRIFT';
-  frozenJeStatus: string;
-  recomputedJeGreen: boolean;
+  dimensions: DriftDimension[];
 }
 
 export function buildReportMeta(db: Db, entityId: string, periodId: string): ReportMeta {
@@ -40,11 +50,16 @@ export function buildReportMeta(db: Db, entityId: string, periodId: string): Rep
 // INSERT/UPDATE into journal_entries post-lock) — that must surface as a fail-loud drift object,
 // never silently re-derive a "new truth" that contradicts the frozen one.
 //
-// Final review I-1: recomputedGreen MUST use computeJeGreen — the exact same per-JE-sweep AND
-// tie-out predicate jeLight uses to decide the frozen snapshot's 'je' status in the first place.
-// Re-checking only tieOut.balanced (the pre-fix behavior) misses drift where an aggregate-
-// preserving raw edit breaks a single JE's own debit/credit balance while leaving ΣDr=ΣCr and
-// Σsigned-closing=0 intact — that case would silently report drift=null.
+// Final review I-1 / Fix 2: each dimension's recomputedGreen MUST use the SAME predicate the
+// cockpit uses to decide the frozen snapshot's status — computeJeGreen (per-JE sweep AND TB
+// tie-out) for 'je', computeCompletenessGreen (roll-forward identities, N/A→green) for
+// 'completeness'. A period can only ever drift against what actually made a light green at lock
+// time, never a narrower re-derivation.
+const DRIFT_CHECKS: Array<{ light: DriftLight; recompute: (db: Db, e: string, p: string) => boolean }> = [
+  { light: 'je', recompute: computeJeGreen },
+  { light: 'completeness', recompute: computeCompletenessGreen },
+];
+
 export function lockedDrift(db: Db, entityId: string, periodId: string): LockedDrift | null {
   const lock = getPeriodLock(db, entityId, periodId);
   // periodLock/state.ts's PeriodStatus is currently 'OPEN' | 'LOCKED' only (no separate FROZEN
@@ -52,10 +67,15 @@ export function lockedDrift(db: Db, entityId: string, periodId: string): LockedD
   if (lock.status !== 'LOCKED') return null;
   if (!lock.lightsSnapshot) return null;
   const lights = JSON.parse(lock.lightsSnapshot) as Array<{ key: string; status: string }>;
-  const je = lights.find((l) => l.key === 'je');
-  if (!je) return null;
-  const frozenGreen = je.status === 'green';
-  const recomputedGreen = computeJeGreen(db, entityId, periodId);
-  if (frozenGreen === recomputedGreen) return null;
-  return { code: 'LIGHTS_SNAPSHOT_DRIFT', frozenJeStatus: je.status, recomputedJeGreen: recomputedGreen };
+  const dimensions: DriftDimension[] = [];
+  for (const { light, recompute } of DRIFT_CHECKS) {
+    const frozen = lights.find((l) => l.key === light);
+    if (!frozen) continue; // light not in the frozen snapshot — nothing to compare against
+    const recomputedGreen = recompute(db, entityId, periodId);
+    if ((frozen.status === 'green') !== recomputedGreen) {
+      dimensions.push({ light, frozenStatus: frozen.status, recomputedGreen });
+    }
+  }
+  if (dimensions.length === 0) return null;
+  return { code: 'LIGHTS_SNAPSHOT_DRIFT', dimensions };
 }

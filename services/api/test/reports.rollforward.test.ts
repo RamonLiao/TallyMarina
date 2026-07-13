@@ -241,6 +241,47 @@ describe('buildRollForward', () => {
     expect(() => buildRollForward(app._db, E, Q2)).toThrow(/FUTURE_KIND/);
   });
 
+  it('identity①（per-coin GL tie，dual-review 外部輪）：把某 coin 的一筆 DigitalAssets JE 挪到別 account → 只有該 coin 的 row identityOk=false，另一 coin true（mutation：舊 fold 恆真式對此攻擊必過，故先紅）', async () => {
+    const app = await buildTestApp(false);
+    const E = 'e-percoin';
+    insertEntity(app._db, { id: E, displayName: 'PerCoinCo', chainObjectId: '0xc', capObjectId: '0xk', originalPackageId: '0xp' });
+    registerTestAsset(app._db, E, SUI, 0);
+    registerTestAsset(app._db, E, USDC, 0);
+
+    // Two ASU-applicable coins, each with its own OPENING_LOT → each has a lot-side closing (opening
+    // cost) AND a DigitalAssets GL debit; both tie at cost basis before any mutation.
+    seedAuto(app._db, E, 'open-sui', opening(E));
+    seedAuto(app._db, E, 'open-usdc', opening(E, {
+      eventId: 'open-usdc', coinType: USDC, quantityMinor: '200', openingCostMinor: '50000',
+      eventTime: '2026-04-02T00:00:00Z', txDigest: 'DIGU', rawPayloadHash: 'beefu', eventIndex: 1,
+    }));
+    await runRules(app, E, Q2);
+    await adoptAsu(app, E, { [SUI]: true, [USDC]: true });
+
+    const before = buildRollForward(app._db, E, Q2);
+    expect(before.rows.find((r) => r.coinType === SUI)?.identityOk).toBe(true);
+    expect(before.rows.find((r) => r.coinType === USDC)?.identityOk).toBe(true);
+    expect(before.identitiesOk).toBe(true);
+
+    // Move SUI's OPENING_LOT DigitalAssets debit to a different account. GL(SUI) drops; the lot side
+    // (lot_movement/lot_valuation) is untouched → closingFV(SUI) != GL(SUI). Only SUI's row reds.
+    const row = app._db.prepare(
+      "SELECT id, je_json AS j FROM journal_entries WHERE entity_id = ? AND event_id = 'open-sui'",
+    ).get(E) as { id: string; j: string };
+    const je = JSON.parse(row.j) as { lines: Array<{ account: string; origCoinType?: string | null }> };
+    let moved = false;
+    for (const l of je.lines) {
+      if (l.account === 'DigitalAssets' && l.origCoinType === SUI) { l.account = 'MiscAsset'; moved = true; }
+    }
+    expect(moved).toBe(true); // guard: the mutation actually hit a SUI DigitalAssets line
+    app._db.prepare('UPDATE journal_entries SET je_json = ? WHERE id = ?').run(JSON.stringify(je), row.id);
+
+    const after = buildRollForward(app._db, E, Q2);
+    expect(after.rows.find((r) => r.coinType === SUI)?.identityOk).toBe(false);
+    expect(after.rows.find((r) => r.coinType === USDC)?.identityOk).toBe(true);
+    expect(after.identitiesOk).toBe(false);
+  });
+
   it('空期（無該類資產活動）→ rows=[]、identitiesOk=true', async () => {
     const app = await buildTestApp(false);
     const E = 'e-empty';

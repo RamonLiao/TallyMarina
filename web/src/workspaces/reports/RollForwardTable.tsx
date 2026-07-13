@@ -1,8 +1,9 @@
 // DATA ZONE — ASU 2023-08 roll-forward evidence view. Mascot-free (§8.4). Two identities are
-// evidence, not decoration: ① per-coin (openingFV + additions − disposals + gains − losses ==
-// closingFV) and ② TB tie (Σ per-coin closingFV == DigitalAssets GL balance). Both render as
-// explicit PASS/FAIL rows — never colour-only (spec §15 rule: status must carry a non-colour
-// cue too).
+// evidence, not decoration: ① per-coin GL tie (this coin's lot-side closing FV == its DigitalAssets
+// GL closing — a real cross-store control, dual-review external round) and ② TB tie (Σ per-coin
+// closing FV == Σ DigitalAssets GL). The six roll-forward columns are the ASU presentation, not the
+// control. Both identities render as explicit PASS/FAIL rows — never colour-only (spec §15 rule:
+// status must carry a non-colour cue too).
 import { Table, type Column } from '../../components/ui/Table';
 import type { RollForwardResponseDTO, RollForwardRowDTO } from '../../api/types';
 import { fmtMinor } from '../../lib/fmtMinor';
@@ -44,7 +45,7 @@ export function RollForwardTable({ data }: { data: RollForwardResponseDTO }) {
     { key: 'closing', header: 'Closing FV', type: 'mono', render: (r) => <Amount minor={r.closingFvMinor} /> },
     {
       key: 'identity',
-      header: 'Identity ①',
+      header: 'Identity ① (per-coin GL tie)',
       render: (r) => (
         <span>{r.identityOk ? '✓ PASS' : '✗ FAIL'}</span>
       ),
