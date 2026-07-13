@@ -269,15 +269,19 @@ describe('buildTrialBalance', () => {
     expect(tb.tieOut.balanced).toBe(true);
   });
 
-  it('非法 amountMinor（"1.5"、"abc"、""）→ throw（fail-loud，不靜默跳過）', () => {
-    insertAccount(db, 'TAsset', 'asset');
-    insertAccount(db, 'TPlug', 'asset');
+  it('非法 amountMinor（"1.5"、"abc"、""）→ throw（fail-loud，不靜默跳過）', async () => {
     for (const bad of ['1.5', 'abc', '']) {
-      insertJe(db, { periodId: '2026-Q2', lines: [
+      const isolatedApp = await buildTestApp();
+      const isolatedDb = isolatedApp._db;
+      insertAccount(isolatedDb, 'TAsset', 'asset');
+      insertAccount(isolatedDb, 'TPlug', 'asset');
+      insertJe(isolatedDb, { periodId: '2026-Q2', lines: [
         { account: 'TAsset', side: 'DEBIT', amountMinor: bad },
         { account: 'TPlug', side: 'CREDIT', amountMinor: '0' },
       ] });
-      expect(() => buildTrialBalance(db, TEST_ENTITY_ID, '2026-Q2')).toThrow();
+      expect(() => buildTrialBalance(isolatedDb, TEST_ENTITY_ID, '2026-Q2')).toThrow(
+        `invalid amountMinor ${JSON.stringify(bad)}`,
+      );
     }
   });
 
