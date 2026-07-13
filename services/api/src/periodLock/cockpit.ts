@@ -58,11 +58,12 @@ export function computeJeGreen(db: Db, entityId: string, periodId: string): bool
     }
     if (d !== c) perJeOk = false;
   }
-  // Fail-closed like recon/registry/revaluation lights: buildTrialBalance throws on an
-  // unparseable JE period_id (column is nullable — legacy rows). That is an un-verifiable
-  // tie-out → red, not a 500. Malformed amountMinor is NOT covered by this catch: the
-  // per-JE loop above does a bare BigInt() first and would throw out of buildCockpit (500),
-  // same as the pre-Task-4 jeLight. Widening the guard is a tracked follow-up.
+  // Fail-closed like recon/registry/revaluation lights. Unparseable JE period_id (column is
+  // nullable — legacy rows) no longer throws: buildTrialBalance records it in tieOut.failures
+  // and returns balanced=false → red via the normal path. The catch below now only guards
+  // corrupt-money throws (malformed amountMinor inside buildTrialBalance). The per-JE loop
+  // above still does a bare BigInt() first and would throw out of buildCockpit (500), same as
+  // the pre-Task-4 jeLight. Widening that guard is a tracked follow-up.
   let tieOutOk = false;
   try {
     tieOutOk = buildTrialBalance(db, entityId, periodId).tieOut.balanced;
