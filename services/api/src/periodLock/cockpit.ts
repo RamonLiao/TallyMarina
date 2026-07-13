@@ -11,6 +11,7 @@ import { BLOCKING_CATEGORIES } from '../exceptions/types.js';
 import { openMaterialReconBlockers, unregisteredAssetBlockers } from '../reconciliation/collect.js';
 import { listByStatus, listEvents } from '../store/eventStore.js';
 import { loadRevaluationContext } from '../revaluation/orchestrate.js';
+import { buildTrialBalance } from '../reports/trialBalance.js';
 
 export type LightStatus = 'green' | 'red' | 'stale' | 'mock';
 export interface Light { key: string; status: LightStatus; label: string; real: boolean }
@@ -32,23 +33,34 @@ function classificationLight(db: Db, entityId: string, periodId: string, lowConf
   return { key: 'classification', status: green ? 'green' : 'red', label: 'Classification', real: true };
 }
 
-// NOTE: jeLight and completenessLight are ENTITY-scoped, not period-scoped, because
-// events/JEs carry no period_id (spec §9 "Period attribution / Cutoff control" — blocking-for-production).
-// This is intentional and consistent with the entity-scoped /snapshot, exceptions, and recon gates.
-function jeLight(db: Db, entityId: string): Light {
+// NOTE: completenessLight stays ENTITY-scoped (spec §9 "Period attribution / Cutoff control"
+// — blocking-for-production). jeLight's per-JE balance sweep is still entity-scoped, but the
+// aggregate tie-out is now the full buildTrialBalance as-of periodId (Task 4, spec §14 step 5):
+// it also fails closed on unknown-class accounts and Σsigned-closing ≠ 0, which the old
+// raw ΣDr=ΣCr sum could never see.
+function jeLight(db: Db, entityId: string, periodId: string): Light {
   const jes = listJournal(db, entityId);
   if (jes.length === 0) return { key: 'je', status: 'red', label: 'Journal entries (TB tie-out)', real: true };
-  let tbDebit = 0n, tbCredit = 0n, perJeOk = true;
+  let perJeOk = true;               // §14 step 5: per-JE balance AND TB tie-out must both hold
   for (const r of jes) {
     const je = JSON.parse(r.jeJson) as Je;
     let d = 0n, c = 0n;
     for (const l of je.lines) {
       const amt = BigInt(l.amountMinor);
-      if (l.side === 'DEBIT') { d += amt; tbDebit += amt; } else { c += amt; tbCredit += amt; }
+      if (l.side === 'DEBIT') d += amt; else c += amt;
     }
     if (d !== c) perJeOk = false;
   }
-  const green = perJeOk && tbDebit === tbCredit;
+  // Fail-closed like recon/registry/revaluation lights: buildTrialBalance throws on an
+  // unparseable JE period_id (column is nullable — legacy rows) or malformed amountMinor.
+  // That is an un-verifiable tie-out → red, never a 500 out of the whole cockpit.
+  let tieOutOk = false;
+  try {
+    tieOutOk = buildTrialBalance(db, entityId, periodId).tieOut.balanced;
+  } catch {
+    tieOutOk = false;
+  }
+  const green = perJeOk && tieOutOk;
   return { key: 'je', status: green ? 'green' : 'red', label: 'Journal entries (TB tie-out)', real: true };
 }
 
@@ -118,7 +130,7 @@ function revaluationLight(db: Db, entityId: string, periodId: string): Light {
 export function buildCockpit(db: Db, entityId: string, periodId: string, lowConf: number): CockpitView {
   const lights: Light[] = [
     classificationLight(db, entityId, periodId, lowConf),
-    jeLight(db, entityId),
+    jeLight(db, entityId, periodId),
     reconLight(db, entityId, periodId),
     registryLight(db, entityId, periodId),
     completenessLight(db, entityId),
