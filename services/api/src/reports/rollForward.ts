@@ -5,7 +5,6 @@
 // boundary). Do NOT re-derive from accounting-spec §4.2's literal wording; the memo is the
 // authority (user-ratified 2026-07-13; see memo §4 Deviation 1/2, Finding 2).
 import type { Db } from '../store/db.js';
-import { buildTrialBalance } from './trialBalance.js';
 import { getActivePolicy } from '../store/policyStore.js';
 import { periodCutoff } from '../store/pricePointStore.js';
 
@@ -29,7 +28,13 @@ const sum = <T>(xs: T[], f: (x: T) => bigint): bigint => xs.reduce((s, x) => s +
 
 // SUI-scope-style read (memo §2): lot_movement filtered by coin_type, lot_valuation filtered by
 // that lot_id set + superseded_by IS NULL (live only). Guards the empty-lot-set case explicitly
-// (a naive `lot_id IN ()` is invalid SQL — see derivation test's readSuiRows for the same trap).
+// (mirrors the derivation test's readSuiRows for the same shape). NOTE (review fix, verified
+// empirically against this repo's better-sqlite3/SQLite 3.49.2): `lot_id IN ()` does NOT actually
+// throw on this driver — it's accepted as an always-false predicate, so this guard is currently a
+// no-op vs. the un-guarded query (both return valsLive: []). Kept anyway as defensive/
+// engine-independent (some SQL engines do reject empty IN() lists) and to skip a pointless query
+// when a coin has zero lots. See reports.rollforward.test.ts's "ASU coin 已勾選但零 lot 活動" test
+// for the regression coverage — it locks the zero-row output, not a SQL-throw claim.
 function readCoinRows(db: Db, entityId: string, coinType: string): { movements: MvRow[]; valsLive: LvRow[] } {
   const movements = (db.prepare(
     'SELECT period_id AS p, delta_cost_minor AS c FROM lot_movement WHERE entity_id = ? AND coin_type = ?',
@@ -108,9 +113,12 @@ function computeRow(db: Db, entityId: string, periodId: string, coinType: string
 // holding a non-ASU coin (e.g. USDC from a swap's consideration leg) in the same DigitalAssets
 // account would contaminate the aggregate. This mirrors the derivation test's daBalanceThrough
 // helper (reports.rollforward.derivation.test.ts) — same JE-line scan, filtered by origCoinType,
-// summed over the ASU coin list. buildTrialBalance is still called (below, in buildRollForward)
-// to honor the Task 1 consumption contract; this function is the coin-scoped read identity ②
-// actually needs.
+// summed over the ASU coin list. NOTE (review fix): the brief's "Consumes buildTrialBalance"
+// declaration is NOT satisfied by an actual call — a decorative `buildTrialBalance(...)` call
+// here would be dead (return value discarded) and would introduce a throw path this coin-scoped
+// scan doesn't have (e.g. TB's own malformed-period guard). Identity ② is intentionally computed
+// via this coin-scoped JE scan instead, because TB's DigitalAssets row does not split by coin and
+// would contaminate the tie-out with non-ASU coins, per the reasoning above.
 function digitalAssetsClosingForCoins(db: Db, entityId: string, periodId: string, coins: string[]): bigint {
   if (coins.length === 0) return 0n;
   const target = periodCutoff(periodId);
@@ -141,10 +149,6 @@ export function buildRollForward(db: Db, entityId: string, periodId: string): Ro
 
   const coins = Object.entries(doc.asu202308Applies).filter(([, v]) => v).map(([k]) => k);
   const rows = coins.map((coinType) => computeRow(db, entityId, periodId, coinType));
-
-  // Consumed per Task 1 interface contract; the aggregate 'DigitalAssets' row is coin-blind (see
-  // digitalAssetsClosingForCoins above) so it is not used for the coin-scoped tie-out itself.
-  buildTrialBalance(db, entityId, periodId);
 
   const closingFvTotal = sum(rows, (r) => BigInt(r.closingFvMinor));
   const digitalAssetsClosing = digitalAssetsClosingForCoins(db, entityId, periodId, coins);

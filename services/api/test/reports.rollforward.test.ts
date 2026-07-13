@@ -191,6 +191,23 @@ describe('buildRollForward', () => {
     expect(rf.rows.some((r) => r.coinType === USDC)).toBe(false);
   });
 
+  it('ASU coin 已勾選但零 lot 活動（無 event 可 seed）→ 該 coin 全零列，不得 SQL throw（守衛 lots.length===0）', async () => {
+    const app = await buildTestApp(false);
+    const E = 'e-empty-lot';
+    const fullSui = canonicalCoinType(SUI);
+    insertEntity(app._db, { id: E, displayName: 'EmptyLotCo', chainObjectId: '0xc', capObjectId: '0xk', originalPackageId: '0xp' });
+    await adoptAsu(app, E, { [fullSui]: true }); // flagged ASU-applicable, but zero lot_movement/lot_valuation rows exist
+    const rf = buildRollForward(app._db, E, Q2);
+    expect(rf.notApplicable).toBe(false);
+    expect(rf.rows).toEqual([{
+      coinType: fullSui,
+      openingFvMinor: '0', additionsMinor: '0', disposalsMinor: '0',
+      gainsMinor: '0', lossesMinor: '0', closingFvMinor: '0',
+      identityOk: true,
+    }]);
+    expect(rf.identitiesOk).toBe(true);
+  });
+
   it('空期（無該類資產活動）→ rows=[]、identitiesOk=true', async () => {
     const app = await buildTestApp(false);
     const E = 'e-empty';
