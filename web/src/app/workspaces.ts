@@ -1,6 +1,6 @@
 export type WorkspaceId =
   | 'close' | 'exceptions' | 'reconciliation'
-  | 'audit' | 'policy' | 'export' | 'onboarding';
+  | 'audit' | 'policy' | 'export' | 'onboarding' | 'reports';
 
 export const WORKSPACES: {
   id: WorkspaceId; label: string; status: 'ready' | 'soon';
@@ -9,6 +9,7 @@ export const WORKSPACES: {
   { id: 'exceptions',     label: 'Exceptions',     status: 'ready' },
   { id: 'reconciliation', label: 'Reconciliation', status: 'ready' },
   { id: 'audit',          label: 'Audit',          status: 'ready' },
+  { id: 'reports',        label: 'Reports',        status: 'ready' },
   { id: 'policy',         label: 'Policy',         status: 'ready' },
   { id: 'export',         label: 'Export',         status: 'ready' },
   { id: 'onboarding',     label: 'Onboarding',     status: 'ready' },

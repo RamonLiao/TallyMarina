@@ -6,6 +6,7 @@ import type {
   PolicyDocDTO, CoaRuleDTO, PolicyHistoryDTO,
   PricePointDTO, RevaluationPreviewDTO, RevaluationRunResultDTO,
   EntityAssetDTO,
+  TrialBalanceResponseDTO, RollForwardResponseDTO,
 } from './types';
 
 const enc = encodeURIComponent;
@@ -175,4 +176,20 @@ export function postRevaluationRun(entityId: string, periodId: string): Promise<
 // 22. GET /entities/:id/assets — registered assets (Task 12: price-entry dropdown + lot scale)
 export async function getAssets(entityId: string): Promise<EntityAssetDTO[]> {
   return (await fetchJson<{ assets: EntityAssetDTO[] }>(`/entities/${enc(entityId)}/assets`)).assets;
+}
+
+// ---- Reports: trial balance / roll-forward (Task 6/8) ----
+
+// 23. GET /entities/:id/trial-balance?periodId=
+export function getTrialBalance(entityId: string, periodId: string): Promise<TrialBalanceResponseDTO> {
+  return fetchJson<TrialBalanceResponseDTO>(
+    `/entities/${enc(entityId)}/trial-balance?periodId=${enc(periodId)}`,
+  );
+}
+
+// 24. GET /entities/:id/roll-forward?periodId=
+export function getRollForward(entityId: string, periodId: string): Promise<RollForwardResponseDTO> {
+  return fetchJson<RollForwardResponseDTO>(
+    `/entities/${enc(entityId)}/roll-forward?periodId=${enc(periodId)}`,
+  );
 }

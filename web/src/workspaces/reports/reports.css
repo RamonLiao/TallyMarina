@@ -1,0 +1,70 @@
+/* Reports workspace — TB + roll-forward evidence views (spec §5, §15). Tokens only, no hex
+   literals. Status colour is always paired with a text/icon cue (never colour-only). */
+
+.reports-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+}
+
+.reports-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-3);
+  padding: var(--s-2) var(--s-3);
+  border-radius: var(--r-md);
+  background: var(--paper-card);
+  border: 1px solid var(--paper-line);
+  color: var(--ink-soft);
+  font-size: var(--text-sm);
+}
+
+.reports-banner {
+  padding: var(--s-2) var(--s-3);
+  border-radius: var(--r-md);
+  font-size: var(--text-sm);
+  margin-block: var(--s-2);
+}
+
+/* PASS — success ink, same family as the close cockpit's green light. */
+.reports-banner--pass {
+  color: var(--credit);
+  background: color-mix(in srgb, var(--credit) 10%, var(--paper-card));
+}
+
+/* FAIL — debit/danger ink with an inset border cue, same pattern as .light--red
+   (legible without colour: the ✗ FAIL glyph/text is the primary signal). */
+.reports-banner--fail {
+  color: var(--debit);
+  background: color-mix(in srgb, var(--debit) 10%, var(--paper-card));
+  box-shadow: inset 3px 0 0 var(--debit);
+}
+
+/* Drift: NOT an on-chain/anchor semantic, so this must never use --aqua (spec §15).
+   Uses the same danger ink as --fail, plus the ⚠ glyph and explicit "Drift" text. */
+.reports-banner--drift {
+  color: var(--debit);
+  background: color-mix(in srgb, var(--debit) 14%, var(--paper-card));
+  box-shadow: inset 3px 0 0 var(--debit);
+  font-weight: 600;
+}
+
+/* N/A — informational, neither pass nor fail; ink-soft + ℹ glyph (non-colour cue). */
+.reports-banner--na {
+  color: var(--ink-soft);
+  background: var(--paper);
+}
+
+.reports-empty {
+  padding: var(--s-6);
+  text-align: center;
+  color: var(--ink-soft);
+  border-radius: var(--r-md);
+  background: var(--paper-card);
+  border: 1px dashed var(--paper-line);
+}
+
+.reports-rollforward ul {
+  margin: var(--s-1) 0 0;
+  padding-left: var(--s-3);
+}

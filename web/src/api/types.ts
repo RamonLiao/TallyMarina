@@ -403,3 +403,74 @@ export interface RevaluationRunResultDTO {
   jeIds: string[];
   reversedRunId: string | null;
 }
+
+// ---- Trial Balance / Roll-Forward report types (Task 6/8) ----
+// Mirror of services/api/src/reports/trialBalance.ts, rollForward.ts, meta.ts — kept in sync
+// with the backend's exact field names (not paraphrased).
+
+export type AccountClass = 'asset' | 'liability' | 'equity' | 'income' | 'expense';
+
+export interface TbRowDTO {
+  account: string;
+  accountClass: AccountClass | null;
+  openingMinor: string;
+  debitMinor: string;
+  creditMinor: string;
+  // null = unknown account class → fail-closed (spec D5). Never default to "0" — render as
+  // an explicit unknown, never a computed zero.
+  closingMinor: string | null;
+}
+
+export interface TbTieOutDTO {
+  sumDebitMinor: string;
+  sumCreditMinor: string;
+  sumSignedClosingMinor: string;
+  balanced: boolean;
+  failures: string[];
+}
+
+export interface ReportMetaDTO {
+  accountingStandard: string;
+  policySetVersion: string;
+  periodStatus: string;
+  generatedAt: string;
+}
+
+export interface LockedDriftDTO {
+  code: 'LIGHTS_SNAPSHOT_DRIFT';
+  frozenJeStatus: string;
+  recomputedBalanced: boolean;
+}
+
+export interface TrialBalanceResponseDTO {
+  rows: TbRowDTO[];
+  tieOut: TbTieOutDTO;
+  meta: ReportMetaDTO;
+  drift: LockedDriftDTO | null;
+}
+
+export interface RollForwardRowDTO {
+  coinType: string;
+  openingFvMinor: string;
+  additionsMinor: string;
+  disposalsMinor: string;
+  gainsMinor: string;
+  lossesMinor: string;
+  closingFvMinor: string;
+  identityOk: boolean;
+}
+
+export interface RollForwardTbTieDTO {
+  digitalAssetsClosingMinor: string;
+  closingFvTotalMinor: string;
+  ok: boolean;
+}
+
+export interface RollForwardResponseDTO {
+  notApplicable: boolean;
+  reason: string | null;
+  rows: RollForwardRowDTO[];
+  tbTie: RollForwardTbTieDTO | null;
+  identitiesOk: boolean;
+  meta: ReportMetaDTO;
+}
