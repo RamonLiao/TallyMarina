@@ -9,12 +9,13 @@ import { getDisposition } from '../store/dispositionStore.js';
 import { blocksClose } from '../exceptions/disposition.js';
 import { BLOCKING_CATEGORIES } from '../exceptions/types.js';
 import { openMaterialReconBlockers, unregisteredAssetBlockers } from '../reconciliation/collect.js';
-import { listByStatus, listEvents } from '../store/eventStore.js';
+import { listByStatus } from '../store/eventStore.js';
 import { loadRevaluationContext } from '../revaluation/orchestrate.js';
 import { buildTrialBalance } from '../reports/trialBalance.js';
+import { buildRollForward } from '../reports/rollForward.js';
 
 export type LightStatus = 'green' | 'red' | 'stale' | 'mock';
-export interface Light { key: string; status: LightStatus; label: string; real: boolean }
+export interface Light { key: string; status: LightStatus; label: string; real: boolean; note?: string }
 export interface CockpitView {
   lights: Light[]; status: PeriodStatus; anchored: boolean; staleAnchor: boolean;
   anchorStaleness: AnchorStaleness | null;
@@ -90,13 +91,34 @@ function registryLight(db: Db, entityId: string, periodId: string): Light {
   }
 }
 
-function completenessLight(db: Db, entityId: string): Light {
-  const events = listEvents(db, entityId);
-  // Events start at INGESTED; processed events move to AUTO or NEEDS_REVIEW.
-  // "Stuck at INGESTED" = not yet processed by AI classify step.
-  const stuckIngested = listByStatus(db, entityId, 'INGESTED').length;
-  const ok = events.length > 0 && stuckIngested === 0;
-  return { key: 'completeness', status: ok ? 'green' : 'red', label: 'Ingest presence (no cutoff assurance)', real: false };
+// Completeness light (Task 5, spec §14 step 6, ruling 6): real化 — consumes buildRollForward's
+// ASU 2023-08 roll-forward identities instead of the old "any events ingested, none stuck"
+// presence-only mock. This is a BLOCKING gate change: a GAAP FV-basis period whose roll-forward
+// doesn't tie (identity① per-asset or identity② vs. the TB DigitalAssets ledger) now reds and
+// blocks /period/lock, where the old mock would have shown green.
+//   - IFRS (or any entity where the roll-forward is notApplicable) → green, real:true, PLUS a
+//     `note` explaining why (ruling 6: N/A must be auditable, not a silent/indistinguishable
+//     green — an auditor must be able to tell "checked, doesn't apply" from "not checked").
+//   - US_GAAP → identitiesOk drives green/red.
+// Fail-closed like recon/registry/revaluation/je: buildRollForward can throw (malformed
+// periodId — periodCutoff throws, same convention Task 4 established for jeLight) → red, never
+// a 500 out of the whole cockpit.
+function completenessLight(db: Db, entityId: string, periodId: string): Light {
+  try {
+    const rf = buildRollForward(db, entityId, periodId);
+    if (rf.notApplicable) {
+      return {
+        key: 'completeness', status: 'green', label: 'Completeness (ASU 2023-08 roll-forward)',
+        real: true, note: 'N/A — ASU 2023-08 roll-forward does not apply under IFRS',
+      };
+    }
+    return {
+      key: 'completeness', status: rf.identitiesOk ? 'green' : 'red',
+      label: 'Completeness (ASU 2023-08 roll-forward)', real: true,
+    };
+  } catch {
+    return { key: 'completeness', status: 'red', label: 'Completeness (ASU 2023-08 roll-forward)', real: true };
+  }
 }
 
 const MOCK = (key: string, label: string): Light => ({ key, status: 'mock', label, real: false });
@@ -135,7 +157,7 @@ export function buildCockpit(db: Db, entityId: string, periodId: string, lowConf
     jeLight(db, entityId, periodId),
     reconLight(db, entityId, periodId),
     registryLight(db, entityId, periodId),
-    completenessLight(db, entityId),
+    completenessLight(db, entityId, periodId),
     revaluationLight(db, entityId, periodId),
     MOCK('export', 'ERP export'),
   ];
