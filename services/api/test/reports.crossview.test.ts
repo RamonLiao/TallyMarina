@@ -51,6 +51,7 @@ import { insertEntity } from '../src/store/entityStore.js';
 import { insertEvent, setAiSuggestion } from '../src/store/eventStore.js';
 import { registerTestAsset } from './helpers/registerTestAsset.js';
 import { canonicalCoinType } from '../src/assets/normalize.js';
+import { periodCutoff } from '../src/store/pricePointStore.js';
 import { buildTrialBalance } from '../src/reports/trialBalance.js';
 import { buildRollForward } from '../src/reports/rollForward.js';
 import { collectBreaks } from '../src/reconciliation/collect.js';
@@ -151,6 +152,38 @@ function suiQtyMovementExOpening(db: Db, entityId: string, openingEventIds: stri
   return rows.reduce((s, r) => s + BigInt(r.q), 0n);
 }
 
+// ---- Independent AMOUNT-side (fiat, lot carrying) fold — the missing third path flagged in
+// review (Important 1/2): closes recon's money side against RF's tbTie WITHOUT calling anything
+// in services/api/src/reports/ (that is the object under test). This mirrors
+// reports.rollforward.derivation.test.ts's readSuiRows/rollTerms closingFV shape (both files
+// independently hand-roll the same raw-SQL fold over lot_movement/lot_valuation — the shared
+// technique is a deliberate cross-file convention, not duplication to clean up): sum
+// lot_movement.delta_cost_minor (all periods <= P) plus lot_valuation.delta_minor for LIVE rows
+// only (superseded_by IS NULL — supersede chains must not double-count a corrected revaluation),
+// scoped to SUI's own lots and cut off at period P's boundary via periodCutoff (imported from the
+// store layer, not from reports/).
+function suiCarryingClosingMinor(db: Db, entityId: string, coinType: string, period: string): bigint {
+  const cutoff = periodCutoff(period);
+  const lotIds = (db.prepare('SELECT DISTINCT lot_id FROM lot_movement WHERE entity_id = ? AND coin_type = ?')
+    .all(entityId, coinType) as Array<{ lot_id: string }>).map((r) => r.lot_id);
+  const movementRows = db.prepare(
+    `SELECT period_id AS p, delta_cost_minor AS c FROM lot_movement WHERE entity_id = ? AND coin_type = ?`,
+  ).all(entityId, coinType) as Array<{ p: string; c: string }>;
+  const movementTotal = movementRows
+    .filter((r) => periodCutoff(r.p) <= cutoff)
+    .reduce((s, r) => s + BigInt(r.c), 0n);
+  if (lotIds.length === 0) return movementTotal;
+  const placeholders = lotIds.map(() => '?').join(',');
+  const valuationRows = db.prepare(
+    `SELECT period_id AS p, delta_minor AS d FROM lot_valuation
+      WHERE entity_id = ? AND superseded_by IS NULL AND lot_id IN (${placeholders})`,
+  ).all(entityId, ...lotIds) as Array<{ p: string; d: string }>;
+  const valuationTotal = valuationRows
+    .filter((r) => periodCutoff(r.p) <= cutoff)
+    .reduce((s, r) => s + BigInt(r.d), 0n);
+  return movementTotal + valuationTotal;
+}
+
 describe('three-view consistency (TB / roll-forward / recon), same seed as Task 2 derivation', () => {
   it('roll-forward tbTie == fixed anchors; recon quantity fold ties lot_movement quantity fold; TB raw row is a documented non-tie', async () => {
     const app = await buildTestApp(false);
@@ -164,14 +197,34 @@ describe('three-view consistency (TB / roll-forward / recon), same seed as Task 
     expect(rfQ3.tbTie).not.toBeNull();
     // Fixed anchors (independent of the tie itself — non-vacuity guard, same anchors the
     // derivation test pins for closingFV): if the scenario amounts ever change, these break.
+    // NOTE (review Important 1): this pair of assertions is a verbatim repeat of
+    // reports.rollforward.test.ts:142-152's identity ② (rf.tbTie.digitalAssetsClosingMinor ==
+    // rf.tbTie.closingFvTotalMinor == anchor) — it is NOT an independent third path for the
+    // amount side. Kept here anyway as a same-file negative-example anchor for the
+    // buildTrialBalance() contamination check right below (daQ2/daQ3), not as fresh coverage.
+    // The actual independent amount-side tie is suiCarryingClosingMinor(...) further down,
+    // which reads lot_movement/lot_valuation directly and never imports reports/.
     expect(rfQ2.tbTie!.closingFvTotalMinor).toBe('80000');
     expect(rfQ3.tbTie!.closingFvTotalMinor).toBe('110000');
-    expect(rfQ2.tbTie!.digitalAssetsClosingMinor).toBe(rfQ2.tbTie!.closingFvTotalMinor);
-    expect(rfQ3.tbTie!.digitalAssetsClosingMinor).toBe(rfQ3.tbTie!.closingFvTotalMinor);
+    // (digitalAssetsClosingMinor === closingFvTotalMinor duplicate dropped: rfQ2.tbTie!.ok/
+    // rfQ3.tbTie!.ok below already assert this equality — see rollForward.ts's tbTie.ok
+    // definition — so re-asserting it verbatim here added no coverage.)
     expect(rfQ2.tbTie!.ok).toBe(true);
     expect(rfQ3.tbTie!.ok).toBe(true);
     expect(rfQ2.identitiesOk).toBe(true);
     expect(rfQ3.identitiesOk).toBe(true);
+
+    // ---- Independent amount-side (fiat, lot carrying) third path (review Important 2): raw-SQL
+    // fold over lot_movement + LIVE lot_valuation rows, computed entirely in this test file
+    // without importing anything from services/api/src/reports/. Ties both the fixed anchors and
+    // RF's own tbTie so a coherence break between RF's computation and the persisted lot rows
+    // would show up here even if RF's internal arithmetic were self-consistently wrong. ----
+    const carryingQ2 = suiCarryingClosingMinor(app._db, E, SUI, Q2);
+    const carryingQ3 = suiCarryingClosingMinor(app._db, E, SUI, Q3);
+    expect(carryingQ2).toBe(80000n);
+    expect(carryingQ3).toBe(110000n);
+    expect(carryingQ2).toBe(BigInt(rfQ2.tbTie!.closingFvTotalMinor));
+    expect(carryingQ3).toBe(BigInt(rfQ3.tbTie!.closingFvTotalMinor));
 
     // ---- NEGATIVE EXAMPLE: buildTrialBalance's plain 'DigitalAssets' row IS actually consumed
     //      here (per the brief's interface list) — to PROVE, not merely assert, that it must not
