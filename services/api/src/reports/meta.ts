@@ -20,7 +20,7 @@ export interface ReportMeta {
 export interface LockedDrift {
   code: 'LIGHTS_SNAPSHOT_DRIFT';
   frozenJeStatus: string;
-  recomputedBalanced: boolean;
+  recomputedJeGreen: boolean;
 }
 
 export function buildReportMeta(db: Db, entityId: string, periodId: string): ReportMeta {
@@ -57,5 +57,5 @@ export function lockedDrift(db: Db, entityId: string, periodId: string): LockedD
   const frozenGreen = je.status === 'green';
   const recomputedGreen = computeJeGreen(db, entityId, periodId);
   if (frozenGreen === recomputedGreen) return null;
-  return { code: 'LIGHTS_SNAPSHOT_DRIFT', frozenJeStatus: je.status, recomputedBalanced: recomputedGreen };
+  return { code: 'LIGHTS_SNAPSHOT_DRIFT', frozenJeStatus: je.status, recomputedJeGreen: recomputedGreen };
 }

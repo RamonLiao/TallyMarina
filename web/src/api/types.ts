@@ -439,7 +439,7 @@ export interface ReportMetaDTO {
 export interface LockedDriftDTO {
   code: 'LIGHTS_SNAPSHOT_DRIFT';
   frozenJeStatus: string;
-  recomputedBalanced: boolean;
+  recomputedJeGreen: boolean;
 }
 
 export interface TrialBalanceResponseDTO {

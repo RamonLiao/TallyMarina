@@ -125,7 +125,7 @@ describe('GET /entities/:id/trial-balance', () => {
     expect(r.statusCode).toBe(200);
     const body = r.json();
     expect(body.tieOut.balanced).toBe(false);
-    expect(body.drift).toEqual({ code: 'LIGHTS_SNAPSHOT_DRIFT', frozenJeStatus: 'green', recomputedBalanced: false });
+    expect(body.drift).toEqual({ code: 'LIGHTS_SNAPSHOT_DRIFT', frozenJeStatus: 'green', recomputedJeGreen: false });
   });
 
   it('LOCKED then a raw-UPDATE swaps two debit amounts across two JEs (aggregate preserved, per-JE broken) -> drift non-null (final review I-1: lockedDrift must re-check per-JE balance, not just tieOut)', async () => {

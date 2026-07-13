@@ -110,7 +110,7 @@ it('meta row shows standard + policySetVersion + periodStatus', () => {
 
 it('drift warning: non-null drift renders a blocked/danger alert, never aqua', () => {
   mockTrialBalance.mockReturnValue({
-    data: tb({ drift: { code: 'LIGHTS_SNAPSHOT_DRIFT', frozenJeStatus: 'green', recomputedBalanced: false } }),
+    data: tb({ drift: { code: 'LIGHTS_SNAPSHOT_DRIFT', frozenJeStatus: 'green', recomputedJeGreen: false } }),
     isLoading: false,
   });
   mockRollForward.mockReturnValue({ data: rf(), isLoading: false });
