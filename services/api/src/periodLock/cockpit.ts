@@ -52,8 +52,10 @@ function jeLight(db: Db, entityId: string, periodId: string): Light {
     if (d !== c) perJeOk = false;
   }
   // Fail-closed like recon/registry/revaluation lights: buildTrialBalance throws on an
-  // unparseable JE period_id (column is nullable — legacy rows) or malformed amountMinor.
-  // That is an un-verifiable tie-out → red, never a 500 out of the whole cockpit.
+  // unparseable JE period_id (column is nullable — legacy rows). That is an un-verifiable
+  // tie-out → red, not a 500. Malformed amountMinor is NOT covered by this catch: the
+  // per-JE loop above does a bare BigInt() first and would throw out of buildCockpit (500),
+  // same as the pre-Task-4 jeLight. Widening the guard is a tracked follow-up.
   let tieOutOk = false;
   try {
     tieOutOk = buildTrialBalance(db, entityId, periodId).tieOut.balanced;
