@@ -10,24 +10,38 @@
  * period reval → second disposal → new-lot acquisition) through the actual HTTP engine, reads
  * the persisted lot_movement / lot_valuation rows, and computes TWO rival identities per period:
  *
- *   Candidate A (spec-literal §4.2 — disposals at COST, gains = pnlBuckets-style
- *               unrealized + realized-reclass):
- *     closing =? opening + additionsCost − disposalsCost + unrealizedA + realizedReclass
  *   Candidate B (disposals at CARRYING — cost + released valuation; gains = unrealized
  *               remeasurement only, realized gain never touches the asset balance):
  *     closing =? opening + additionsCost − disposalsCarrying + gainsB
+ *   Candidate A-with-reclass (disposals at COST, gains net the reclassOffset so the released
+ *               valuation isn't double-counted — this is a COHERENT cost-basis formula,
+ *               ALGEBRAICALLY IDENTICAL to B: disposalsCarrying = disposalsCost + releaseRemoved,
+ *               so this candidate is literally B re-grouped, not a rival):
+ *     closing =? opening + additionsCost − disposalsCost + gainsB − releaseRemoved
+ *   Candidate A-missing-reclass (STRAWMAN, kept only as a negative example of the wrong way to
+ *               do cost-basis disposals — spec §4.2-literal misreading: disposals at cost,
+ *               gains = pnlBuckets-style unrealized + realized-reclass ADDED BACK ON TOP):
+ *     closing =? opening + additionsCost − disposalsCost + unrealizedA + realizedReclass
  *
- * FINDING (see docs/superpowers/specs/2026-07-13-rollforward-identity-memo.md): Candidate B is
- * EXACT (zero residual) every period; Candidate A over-states by a period-specific residual
- * (Q2 +10000, Q3 +45000) because subtracting disposals at cost while ALSO adding the realized
- * reclass as a gain counts the released valuation twice. B is the formula Task 3 must implement.
+ * FINDING (see docs/superpowers/specs/2026-07-13-rollforward-identity-memo.md): Candidate B and
+ * Candidate A-with-reclass are the SAME identity under algebraic regrouping and BOTH hold with
+ * ZERO residual every period — a clean cost-basis formula for the roll-forward identity DOES
+ * exist. The choice of B over A-with-reclass is therefore a PRESENTATION/field-layout decision,
+ * not a "which one is mathematically correct" decision — user-ratified 2026-07-13 in favor of B
+ * (§11.2's fixed six columns have no reclass column; folding releaseRemoved into disposals, i.e.
+ * carrying-based disposals, is the least-distorting choice — dumping it into losses would
+ * mischaracterize an already-recognized valuation transfer as a fresh loss). Candidate
+ * A-missing-reclass (the strawman) over-states by a period-specific residual (Q2 +10000,
+ * Q3 +45000) because it subtracts disposals at cost while ALSO adding the realized reclass as a
+ * gain, counting the released valuation twice. B is the formula Task 3 must implement.
  *
- * The identity B==closing is, by construction, an ALGEBRAIC identity over whatever rows the
- * engine wrote — so it can never fail on its own (that is the proof that B is *the* roll-forward
- * law, not a coincidence). The teeth of this test are therefore the FIXED anchors
- * (closing 80000/110000, the DA-GL tie-out, the A residuals) plus the mutation recorded in the
- * memo (swap disposalsCarrying→disposalsCost in B → Q2 goes red by 20000). Change any scenario
- * amount and the fixed anchors break; use a wrong disposal basis and the B identity breaks.
+ * The identities B==closing and A-with-reclass==closing are, by construction, ALGEBRAIC
+ * identities over whatever rows the engine wrote — so they can never fail on their own (that is
+ * the proof that this IS *the* roll-forward law, not a coincidence). The teeth of this test are
+ * therefore the FIXED anchors (closing 80000/110000, the DA-GL tie-out, the strawman's residuals)
+ * plus the mutations (swap disposalsCarrying→disposalsCost in B, or drop −releaseRemoved from
+ * A-with-reclass → both go red by the released-carrying amount). Change any scenario amount and
+ * the fixed anchors break; use a wrong disposal basis and the identity breaks.
  */
 import { describe, it, expect } from 'vitest';
 import type { FastifyInstance } from 'fastify';
@@ -110,9 +124,11 @@ const sum = <T>(xs: T[], f: (x: T) => bigint): bigint => xs.reduce((s, x) => s +
 
 interface RollTerms {
   openingFV: bigint; closingFV: bigint;
-  additionsCost: bigint; disposalsCost: bigint; disposalsCarrying: bigint;
+  additionsCost: bigint; disposalsCost: bigint; disposalsCarrying: bigint; releaseRemoved: bigint;
   gainsB: bigint; unrealizedA: bigint; realizedReclass: bigint;
-  candidateB: bigint; candidateA: bigint;
+  candidateB: bigint;
+  candidateAWithReclass: bigint;   // coherent cost-basis form — algebraically == candidateB
+  candidateAMissingReclass: bigint; // STRAWMAN: naive spec-literal misreading, double-counts reclass
 }
 // Pure derivation over the persisted rows — this is the executable spec Task 3 copies.
 // Period attribution is the pure period boundary (Choice X): openingFV(P) folds everything with
@@ -149,8 +165,17 @@ function rollTerms(P: string, movements: Mv[], valsLive: Lv[]): RollTerms {
   );
 
   const candidateB = openingFV + additionsCost - disposalsCarrying + gainsB;
-  const candidateA = openingFV + additionsCost - disposalsCost + unrealizedA + realizedReclass;
-  return { openingFV, closingFV, additionsCost, disposalsCost, disposalsCarrying, gainsB, unrealizedA, realizedReclass, candidateB, candidateA };
+  // Coherent cost-basis form: disposals at cost, gains net the reclassOffset (releaseRemoved) so
+  // the released valuation isn't double-counted. disposalsCarrying == disposalsCost +
+  // releaseRemoved by construction (see above), so this is B re-grouped — same identity, zero
+  // residual, not a rival formula.
+  const candidateAWithReclass = openingFV + additionsCost - disposalsCost + gainsB - releaseRemoved;
+  // STRAWMAN — kept only as a negative example: disposals at cost, but realizedReclass is ADDED
+  // BACK on top of unrealizedA instead of netted against gainsB via releaseRemoved. This double-
+  // counts the released valuation (once via realizedReclass, once implicitly via disposalsCost
+  // walking the same lot out). Do NOT call this "Candidate A" — it is the erroneous version.
+  const candidateAMissingReclass = openingFV + additionsCost - disposalsCost + unrealizedA + realizedReclass;
+  return { openingFV, closingFV, additionsCost, disposalsCost, disposalsCarrying, releaseRemoved, gainsB, unrealizedA, realizedReclass, candidateB, candidateAWithReclass, candidateAMissingReclass };
 }
 
 async function seedTwoPeriodScenario(app: FastifyInstance & { _db: Db }): Promise<void> {
@@ -223,12 +248,24 @@ describe('roll-forward identity derivation (real revaluation scenario, pins Task
     expect(q2.candidateB).toBe(q2.closingFV);
     expect(q3.candidateB).toBe(q3.closingFV);
 
-    // --- Candidate A: NON-zero residual — subtracting disposals at cost while also adding the
-    //     realized reclass double-counts the released valuation. Anchored residual amounts. ---
-    expect(q2.candidateA - q2.closingFV).toBe(10000n);
-    expect(q3.candidateA - q3.closingFV).toBe(45000n);
-    expect(q2.candidateA).not.toBe(q2.closingFV);
-    expect(q3.candidateA).not.toBe(q3.closingFV);
+    // --- Candidate A-with-reclass: the COHERENT cost-basis form (disposals at cost, gains net
+    //     the reclassOffset/releaseRemoved). Algebraically identical to B — also EXACT zero
+    //     residual, both periods. This is the executable proof (I-2) that a clean cost-basis
+    //     roll-forward formula exists; B vs A-with-reclass is a presentation choice, not a
+    //     correctness one (user-ratified 2026-07-13: pin B — see the memo). ---
+    expect(q2.candidateAWithReclass).toBe(80000n);
+    expect(q3.candidateAWithReclass).toBe(110000n);
+    expect(q2.candidateAWithReclass).toBe(q2.closingFV);
+    expect(q3.candidateAWithReclass).toBe(q3.closingFV);
+
+    // --- Candidate A-missing-reclass (STRAWMAN): NON-zero residual — subtracting disposals at
+    //     cost while also adding the realized reclass ON TOP double-counts the released
+    //     valuation. Anchored residual amounts. This is NOT "Candidate A" — it is the erroneous
+    //     version kept only to demonstrate the double-count failure mode. ---
+    expect(q2.candidateAMissingReclass - q2.closingFV).toBe(10000n);
+    expect(q3.candidateAMissingReclass - q3.closingFV).toBe(45000n);
+    expect(q2.candidateAMissingReclass).not.toBe(q2.closingFV);
+    expect(q3.candidateAMissingReclass).not.toBe(q3.closingFV);
 
     // --- Anchored per-line terms (so the memo's mapping is test-backed) ---
     expect(q2).toMatchObject({ additionsCost: 100000n, disposalsCost: 50000n, disposalsCarrying: 70000n, gainsB: 50000n, unrealizedA: 30000n, realizedReclass: 10000n });

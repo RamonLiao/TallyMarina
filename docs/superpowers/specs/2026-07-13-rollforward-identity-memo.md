@@ -9,7 +9,13 @@
 
 ## 0. 一句話定案
 
-**Candidate B — disposals 依「carrying（成本 + 已釋放估值）」減除，gains/losses = 當期未實現重估 delta（含 ASU 轉換 OPENING_FV），realized 處分損益不入資產 roll-forward。** 逐期零殘差。Candidate A（disposals 依成本 + 把 realized reclass 當 gain 加回，spec §4.2 字面）逐期高估（Q2 +10000、Q3 +45000），因為「成本減除」又「加回 reclass」把已釋放的估值算了兩次。
+**Candidate B — disposals 依「carrying（成本 + 已釋放估值）」減除，gains/losses = 當期未實現重估 delta（含 ASU 轉換 OPENING_FV），realized 處分損益不入資產 roll-forward。** 逐期零殘差。
+
+**代數事實（實跑驗證，見 `reports.rollforward.derivation.test.ts` 的 `candidateAWithReclass`）**：成本基礎版本並非不可行——`closingFV = openingFV + additionsCost − disposalsCost + gains/losses − releaseRemoved`（releaseRemoved = disposals 的已釋放 carrying）逐期同樣零殘差（Q2: 0+100000−50000+50000−20000=80000；Q3: 80000+30000−25000+50000−25000=110000），且與 Candidate B 恆等（`disposalsCarrying = disposalsCost + releaseRemoved` 代入即互相化簡）。兩式是同一恆等式的不同分組，不是互斥的兩個候選——不存在「哪個數學上對」的問題。
+
+定案 B 而非成本基礎重分組版本，是**呈現層 / 欄位配置**的決策：§11.2 六欄固定、無獨立 reclass 欄；releaseRemoved 折進 disposals（carrying 減除）最不失真——若改塞進 gains/losses 的 losses 欄，會把「已認列估值的移轉」誤呈為當期新虧損。**此裁決已於 2026-07-13 由使用者確認採用 B。**
+
+`candidateAMissingReclass`（測試中保留作負面示範，不再稱為 Candidate A）才是逐期高估的錯誤版本（Q2 +10000、Q3 +45000）：它在成本減除之外又把 realized reclass 當 gain 加回，把已釋放的估值算了兩次——這是「漏了 reclassOffset」的錯誤，不是「成本基礎公式本身不可行」。
 
 ---
 
@@ -82,7 +88,7 @@ closingFV(P) = openingFV(P) + additionsCost(P) − disposalsCarrying(P) + gains/
 
 ---
 
-## 3. 逐期實跑數字（兩候選並列）
+## 3. 逐期實跑數字（三候選並列）
 
 | 項 | Q2 | Q3 |
 |---|---:|---:|
@@ -92,18 +98,20 @@ closingFV(P) = openingFV(P) + additionsCost(P) − disposalsCarrying(P) + gains/
 | releaseRemoved | 20000 | 25000 |
 | disposalsCarrying | 70000 | 50000 |
 | gains/losses（B, 含 OPENING_FV） | 50000 | 50000 |
-| unrealizedA（A, 排除 OPENING_FV） | 30000 | 50000 |
+| unrealizedA（missing-reclass strawman, 排除 OPENING_FV） | 30000 | 50000 |
 | realizedReclass（= −Σ pnl_delta） | 10000 | 20000 |
 | **closingFV（真值 = DA·SUI GL）** | **80000** | **110000** |
 | **Candidate B** = open+add−disCarry+gains | **80000 ✓（殘差 0）** | **110000 ✓（殘差 0）** |
-| Candidate A = open+add−disCost+unrealizedA+realizedReclass | 90000（**+10000**） | 155000（**+45000**） |
+| **Candidate A-with-reclass** = open+add−disCost+gains−releaseRemoved | **80000 ✓（殘差 0）** | **110000 ✓（殘差 0）** |
+| Candidate A-missing-reclass（STRAWMAN）= open+add−disCost+unrealizedA+realizedReclass | 90000（**+10000**） | 155000（**+45000**） |
 
-Candidate A 之殘差 = `realizedReclass − openingFvDelta − releaseDelta`（Q2: 10000−20000−(−20000)=10000；Q3: 20000−0−(−25000)=45000）——非任何有意義的會計量，只是把 A 硬湊回 B 所需的補正項。∴ **不存在乾淨的成本基礎公式**，定案 B。
+Candidate A-with-reclass 與 Candidate B 是同一恆等式的不同分組（代入 `disposalsCarrying = disposalsCost + releaseRemoved` 即互相化簡），兩者皆逐期零殘差——**成本基礎公式是存在的，且是精確的**。Candidate A-missing-reclass（strawman）之殘差 = `realizedReclass − openingFvDelta − releaseDelta`（Q2: 10000−20000−(−20000)=10000；Q3: 20000−0−(−25000)=45000）——它錯在漏了 `− releaseRemoved` 這項（把 realizedReclass 錯當獨立 gain 加回、又沒net掉 releaseRemoved），不是「成本基礎公式本身不存在」。定案採 B，理由見 §4 Deviation 1（呈現層決策，非數學正確性）。
 
 ### Mutation（守衛先紅一次，L4）
 
 - 把定案式的 `disposalsCarrying` 換成 `disposalsCost`（錯誤的成本基礎）→ `candidateB(Q2)` 變 100000，斷言 `expect(q2.candidateB).toBe(80000n)` 紅（差 +20000 = 未釋放的 Q2 release）。已實跑驗證後還原綠。
-- 恆等式 `B==closing` 兩者皆由 DB 現算，本身是恆真——故測試的「牙齒」在固定錨（closingFV 80000/110000、A 殘差 10000/45000、DA·SUI tie-out、逐項 term 錨）+ 上述公式 mutation，非 `B==closing` 那行。
+- 把 `candidateAWithReclass` 的 `− releaseRemoved` 刪掉 → Q2 變 100000，斷言 `expect(q2.candidateAWithReclass).toBe(80000n)` 紅（差 +20000）。已實跑驗證後還原綠（見 `reports.rollforward.derivation.test.ts` 執行紀錄）。
+- 恆等式 `B==closing` 與 `A-with-reclass==closing` 兩者皆由 DB 現算，本身是恆真——故測試的「牙齒」在固定錨（closingFV 80000/110000、strawman 殘差 10000/45000、DA·SUI tie-out、逐項 term 錨）+ 上述公式 mutation，非這兩行本身。
 
 ---
 
@@ -119,13 +127,13 @@ Candidate A 之殘差 = `realizedReclass − openingFvDelta − releaseDelta`（
 
 ### Deviation 1 — disposals 依 carrying 減除（spec §4.2 字面為「依成本基礎釋放」）
 
-spec §4.2 寫 disposals =「依成本基礎釋放（§4.1/§4.2）」。實跑證明成本基礎**無法**逐期零殘差：處分事件在 GL 是把「成本 + 已累積估值」整批貸出 DigitalAssets，roll-forward 是資產帳的對帳，disposals 必須帶走 carrying。定案採 carrying。留痕：design spec Revision log 已加一條。
+spec §4.2 寫 disposals =「依成本基礎釋放（§4.1/§4.2）」。實跑證明（`candidateAWithReclass`）**成本基礎公式本身逐期零殘差、與 carrying 版本恆等**——這不是「哪個數學上對」的問題。定案採 carrying 而非成本基礎重分組，是**呈現層 / 欄位配置**理由：§11.2 固定六欄、無獨立 reclass 欄；releaseRemoved 折進 disposals（carrying 減除）最不失真——若改把它塞進 gains/losses 的 losses 欄，會把「已認列估值的移轉」誤呈為當期新虧損。**此裁決已於 2026-07-13 由使用者確認採用 B。** 留痕：design spec Revision log 已加一條。
 
 ### Deviation 2 — gains/losses = 未實現重估 delta，realized 處分損益不入本表（spec §4.2 寫「pnlBuckets() = realized 處分 + unrealized」）
 
-spec §4.2 把 gains/losses 對映到 `pnlBuckets()`（realized reclass + unrealized）。實跑證明：disposals 已依 carrying 帶走已累積估值後，**realized 處分損益（proceeds − carrying）不觸及 DigitalAssets 餘額**，落在 P&L / DisposalGain（TB 科目），不是資產 roll-forward 的變動行；把它當 gain 加回即 Candidate A 的雙算。故本表 gains/losses 只含未實現重估（含 OPENING_FV 轉換）。realized 損益的呈現與稽核走**恆等式②**（期末 FV = 同期 TB DigitalAssets closing）與 TB 的 UnrealizedGain/DisposalGain 科目，`pnlBuckets()` 仍是 realized/unrealized 拆分的真相源，只是不作為 roll-forward 的 disposals/gains 減加項。
+spec §4.2 把 gains/losses 對映到 `pnlBuckets()`（realized reclass + unrealized）。實跑證明：disposals 已依 carrying 帶走已累積估值後，**realized 處分損益（proceeds − carrying）不觸及 DigitalAssets 餘額**，落在 P&L / DisposalGain（TB 科目），不是資產 roll-forward 的變動行；把它當獨立 gain 加回、卻沒有同時從 disposals 扣掉 releaseRemoved，即 Candidate A-missing-reclass（strawman）的雙算錯誤。故本表 gains/losses 只含未實現重估（含 OPENING_FV 轉換）。realized 損益的呈現與稽核走**恆等式②**（期末 FV = 同期 TB DigitalAssets closing）與 TB 的 UnrealizedGain/DisposalGain 科目，`pnlBuckets()` 仍是 realized/unrealized 拆分的真相源，只是不作為 roll-forward 的 disposals/gains 減加項。
 
-> 註：Deviation 只涉「哪個數進哪一行」與「一次 vs 兩次」；恆等式的**總和**在任何一致分桶下都平。定案 B 是唯一「只讀既有 fold、無補正項、逐期零殘差、且 openingFV(P)=closingFV(P−1) 連續」的形式。
+> 註：Deviation 只涉「哪個數進哪一行」與「呈現層欄位配置」；恆等式的**總和**在 B 與 A-with-reclass 兩種一致分桶下都精確平（均逐期零殘差，見 §0/§3 代數證明）。定案 B 是**呈現層裁決（使用者已於 2026-07-13 確認）**：`disposalsCarrying` 折入 disposals、不設獨立 reclass 欄，符合 §11.2 固定六欄、且 `openingFV(P)=closingFV(P−1)` 連續。
 
 ### Finding 2 — OPENING_LOT 必入 additions（brief 註記「排除 OPENING_LOT 來源」在 Choice X 下會漏帳）
 
