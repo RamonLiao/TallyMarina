@@ -135,6 +135,26 @@ describe('GET /entities/:id/trial-balance', () => {
       expect(r.json().error.code).toBe('INVALID_PERIOD');
     }
   });
+
+  it('legal periodId + data corruption (illegal amountMinor JE) -> 500 INTERNAL, not 400 INVALID_PERIOD (review Important)', async () => {
+    // Simulate a raw-INSERT data-integrity fault unrelated to periodId format: buildTrialBalance
+    // throws a bare Error on a non-numeric amountMinor. Before the fix this was caught by the
+    // route's try/catch (which wrapped the whole builder call) and mis-reported as 400
+    // INVALID_PERIOD — masking a server-side data fault as a client input error.
+    ctx.db.prepare(
+      `INSERT INTO events (id, entity_id, raw_json, status, final_event_type, period_id)
+       VALUES ('corrupt-ev', ?, '{}', 'POSTED', 'MANUAL_ADJUSTMENT', ?)`,
+    ).run(TEST_ENTITY_ID, P);
+    const badJeJson = JSON.stringify({ status: 'POSTED', lines: [{ account: 'cash', side: 'DEBIT', amountMinor: 'not-a-number' }] });
+    ctx.db.prepare(
+      `INSERT INTO journal_entries (id, entity_id, event_id, je_json, idempotency_key, leaf_hash, period_id)
+       VALUES ('corrupt-je', ?, 'corrupt-ev', ?, 'idem-corrupt', 'hash-corrupt', ?)`,
+    ).run(TEST_ENTITY_ID, badJeJson, P);
+
+    const r = await ctx.app.inject({ method: 'GET', url: `/entities/${TEST_ENTITY_ID}/trial-balance?periodId=${P}` });
+    expect(r.statusCode).toBe(500);
+    expect(r.json().error.code).not.toBe('INVALID_PERIOD');
+  });
 });
 
 describe('GET /entities/:id/roll-forward', () => {
@@ -185,5 +205,24 @@ describe('GET /entities/:id/roll-forward', () => {
       expect(r.statusCode).toBe(400);
       expect(r.json().error.code).toBe('INVALID_PERIOD');
     }
+  });
+
+  it('legal periodId + corrupt active policy_sets doc -> 503 POLICY_CORRUPT, not 400 INVALID_PERIOD (review Important)', async () => {
+    // Append-only store: policy_sets rows are never updated, so simulate corruption by inserting
+    // a new (higher-version, therefore "active") row with a non-JSON doc. buildRollForward's
+    // getActivePolicy call throws PolicyPersistenceError('POLICY_CORRUPT', ...), which the global
+    // error handler maps to 503. Before the fix, the route's try/catch wrapped the whole
+    // buildRollForward call and mis-reported this as 400 INVALID_PERIOD — masking a server-side
+    // policy-store fault as a client input error.
+    const cur = ctx.db.prepare('SELECT MAX(version) AS v FROM policy_sets WHERE entity_id = ?')
+      .get(TEST_ENTITY_ID) as { v: number };
+    ctx.db.prepare(
+      `INSERT INTO policy_sets (entity_id, version, doc, created_at, created_by)
+       VALUES (?, ?, 'not-json', ?, 'test')`,
+    ).run(TEST_ENTITY_ID, cur.v + 1, new Date().toISOString());
+
+    const r = await ctx.app.inject({ method: 'GET', url: `/entities/${TEST_ENTITY_ID}/roll-forward?periodId=${P}` });
+    expect(r.statusCode).toBe(503);
+    expect(r.json().error.code).toBe('POLICY_CORRUPT');
   });
 });

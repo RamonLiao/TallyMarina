@@ -1097,19 +1097,22 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
   });
 
   // Trial Balance / Roll-Forward read endpoints (Task 6): read-only reports + audit meta +
-  // LOCKED-period drift fail-loud (spec ruling 4). periodCutoff/parsePeriodId throw a bare
-  // Error on malformed periodId (e.g. "2026-13", "garbage") — caught here and re-thrown as a
-  // proper 400 ApiError so the route never 500s on bad client input (monkey-test requirement).
+  // LOCKED-period drift fail-loud (spec ruling 4). periodCutoff throws a bare Error on malformed
+  // periodId (e.g. "2026-13", "garbage") — caught here and re-thrown as a proper 400 ApiError so
+  // the route never 500s on bad client input (monkey-test requirement). Only periodCutoff is
+  // caught — buildTrialBalance/buildRollForward run outside the try so PolicyPersistenceError
+  // (503, global handler) and data-corruption throws (500) keep their real contract instead of
+  // being flattened into 400 INVALID_PERIOD (review Important finding).
   app.get<{ Params: { id: string }; Querystring: { periodId?: string } }>('/entities/:id/trial-balance', async (req) => {
     requireEntity(db, req.params.id);
     const periodId = req.query.periodId;
     if (!periodId) throw new ApiError(400, 'PERIOD_ID_REQUIRED', 'periodId query param is required');
-    let tb: ReturnType<typeof buildTrialBalance>;
     try {
-      tb = buildTrialBalance(db, req.params.id, periodId);
+      periodCutoff(periodId);
     } catch (err) {
       throw new ApiError(400, 'INVALID_PERIOD', (err as Error).message);
     }
+    const tb = buildTrialBalance(db, req.params.id, periodId);
     const meta = buildReportMeta(db, req.params.id, periodId);
     const drift = lockedDrift(db, req.params.id, periodId, tb.tieOut.balanced);
     return { rows: tb.rows, tieOut: tb.tieOut, meta, drift };
@@ -1119,17 +1122,18 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     requireEntity(db, req.params.id);
     const periodId = req.query.periodId;
     if (!periodId) throw new ApiError(400, 'PERIOD_ID_REQUIRED', 'periodId query param is required');
-    let rf: ReturnType<typeof buildRollForward>;
     try {
       // buildRollForward reads the policy (accountingStandard) before periodCutoff — on the
       // IFRS track it early-returns notApplicable without ever validating periodId (known edge,
       // Task 5 note). Validate the periodId ourselves so a garbage periodId still 400s here,
-      // regardless of accounting track.
+      // regardless of accounting track. Only this check is caught — buildRollForward itself runs
+      // outside the try so PolicyPersistenceError (503, global handler) and data-corruption throws
+      // (500) keep their own contract instead of being flattened into 400 INVALID_PERIOD.
       periodCutoff(periodId);
-      rf = buildRollForward(db, req.params.id, periodId);
     } catch (err) {
       throw new ApiError(400, 'INVALID_PERIOD', (err as Error).message);
     }
+    const rf = buildRollForward(db, req.params.id, periodId);
     const meta = buildReportMeta(db, req.params.id, periodId);
     return { ...rf, meta };
   });
