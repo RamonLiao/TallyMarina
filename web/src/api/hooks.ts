@@ -49,6 +49,24 @@ export function useAnchors(entityId: string | undefined, idempotencyKey?: string
   });
 }
 
+// ---- Reports: trial balance / roll-forward (Task 6/8) ----
+
+export function useTrialBalance(entityId: string | undefined, periodId: string | undefined) {
+  return useQuery({
+    queryKey: ['trial-balance', entityId ?? '', periodId ?? ''],
+    queryFn: () => api.getTrialBalance(entityId!, periodId!),
+    enabled: !!entityId && !!periodId,
+  });
+}
+
+export function useRollForward(entityId: string | undefined, periodId: string | undefined) {
+  return useQuery({
+    queryKey: ['roll-forward', entityId ?? '', periodId ?? ''],
+    queryFn: () => api.getRollForward(entityId!, periodId!),
+    enabled: !!entityId && !!periodId,
+  });
+}
+
 // ---- Mutation hooks ----
 
 export function useIngest(entityId: string) {

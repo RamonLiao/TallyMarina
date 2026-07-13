@@ -28,6 +28,9 @@ import { encodeReconBreakId, decodeReconBreakId, ReconBreakIdError } from '../re
 import { REOPEN_REASON_CODES, type ReopenReasonCode } from '../periodLock/state.js';
 import { getPeriodLock, lockPeriod, reopenPeriod } from '../periodLock/store.js';
 import { buildCockpit } from '../periodLock/cockpit.js';
+import { buildTrialBalance } from '../reports/trialBalance.js';
+import { buildRollForward } from '../reports/rollForward.js';
+import { buildReportMeta, lockedDrift } from '../reports/meta.js';
 import { classifyEvent } from '../ai/classify.js';
 import { reviewCopilot } from '../ai/copilot.js';
 import { buildRuleInput } from './buildRuleInput.js';
@@ -62,7 +65,7 @@ import { listAssets } from '../assets/store.js';
 import { getAssetDecimals } from '../assets/registry.js';
 import { canonicalCoinType, CoinTypeError } from '../assets/normalize.js';
 import {
-  insertPricePoint, latestPricesAt, listPriceHistory, periodOfDate,
+  insertPricePoint, latestPricesAt, listPriceHistory, periodOfDate, periodCutoff,
 } from '../store/pricePointStore.js';
 import { previewRun, executeRun, basisOf } from '../revaluation/orchestrate.js';
 import { RevaluationDataError, insertValuation, latestValuationForLot, activeGaapCoinBasis } from '../store/revaluationStore.js';
@@ -1091,6 +1094,52 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
       registry: { blocking: registryBlockers.length, blockers: registryBlockers.map((b) => b.coinType) },
       closeable: exBlockers.length === 0 && reconBlockers.length === 0 && registryBlockers.length === 0,
     };
+  });
+
+  // Trial Balance / Roll-Forward read endpoints (Task 6): read-only reports + audit meta +
+  // LOCKED-period drift fail-loud (spec ruling 4). periodCutoff throws a bare Error on malformed
+  // periodId (e.g. "2026-13", "garbage") — caught here and re-thrown as a proper 400 ApiError so
+  // the route never 500s on bad client input (monkey-test requirement). Only periodCutoff is
+  // caught — buildTrialBalance/buildRollForward run outside the try so PolicyPersistenceError
+  // (503, global handler) and data-corruption throws (500) keep their real contract instead of
+  // being flattened into 400 INVALID_PERIOD (review Important finding).
+  app.get<{ Params: { id: string }; Querystring: { periodId?: string } }>('/entities/:id/trial-balance', async (req) => {
+    requireEntity(db, req.params.id);
+    const periodId = req.query.periodId;
+    if (!periodId) throw new ApiError(400, 'PERIOD_ID_REQUIRED', 'periodId query param is required');
+    try {
+      periodCutoff(periodId);
+    } catch (err) {
+      throw new ApiError(400, 'INVALID_PERIOD', (err as Error).message);
+    }
+    const tb = buildTrialBalance(db, req.params.id, periodId);
+    const meta = buildReportMeta(db, req.params.id, periodId);
+    const drift = lockedDrift(db, req.params.id, periodId);
+    return { rows: tb.rows, tieOut: tb.tieOut, meta, drift };
+  });
+
+  app.get<{ Params: { id: string }; Querystring: { periodId?: string } }>('/entities/:id/roll-forward', async (req) => {
+    requireEntity(db, req.params.id);
+    const periodId = req.query.periodId;
+    if (!periodId) throw new ApiError(400, 'PERIOD_ID_REQUIRED', 'periodId query param is required');
+    try {
+      // buildRollForward reads the policy (accountingStandard) before periodCutoff — on the
+      // IFRS track it early-returns notApplicable without ever validating periodId (known edge,
+      // Task 5 note). Validate the periodId ourselves so a garbage periodId still 400s here,
+      // regardless of accounting track. Only this check is caught — buildRollForward itself runs
+      // outside the try so PolicyPersistenceError (503, global handler) and data-corruption throws
+      // (500) keep their own contract instead of being flattened into 400 INVALID_PERIOD.
+      periodCutoff(periodId);
+    } catch (err) {
+      throw new ApiError(400, 'INVALID_PERIOD', (err as Error).message);
+    }
+    const rf = buildRollForward(db, req.params.id, periodId);
+    const meta = buildReportMeta(db, req.params.id, periodId);
+    // Fix 2: same LOCKED-period drift object the TB endpoint returns (null when OPEN). Surfaces
+    // here too so the roll-forward view can flag a post-lock ledger edit that broke the
+    // completeness (per-coin GL tie) or je dimension of the frozen snapshot.
+    const drift = lockedDrift(db, req.params.id, periodId);
+    return { ...rf, meta, drift };
   });
 
   // Period Close Cockpit (Phase 2 B1)

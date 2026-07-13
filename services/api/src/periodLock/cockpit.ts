@@ -9,11 +9,13 @@ import { getDisposition } from '../store/dispositionStore.js';
 import { blocksClose } from '../exceptions/disposition.js';
 import { BLOCKING_CATEGORIES } from '../exceptions/types.js';
 import { openMaterialReconBlockers, unregisteredAssetBlockers } from '../reconciliation/collect.js';
-import { listByStatus, listEvents } from '../store/eventStore.js';
+import { listByStatus } from '../store/eventStore.js';
 import { loadRevaluationContext } from '../revaluation/orchestrate.js';
+import { buildTrialBalance } from '../reports/trialBalance.js';
+import { buildRollForward } from '../reports/rollForward.js';
 
 export type LightStatus = 'green' | 'red' | 'stale' | 'mock';
-export interface Light { key: string; status: LightStatus; label: string; real: boolean }
+export interface Light { key: string; status: LightStatus; label: string; real: boolean; note?: string }
 export interface CockpitView {
   lights: Light[]; status: PeriodStatus; anchored: boolean; staleAnchor: boolean;
   anchorStaleness: AnchorStaleness | null;
@@ -32,23 +34,47 @@ function classificationLight(db: Db, entityId: string, periodId: string, lowConf
   return { key: 'classification', status: green ? 'green' : 'red', label: 'Classification', real: true };
 }
 
-// NOTE: jeLight and completenessLight are ENTITY-scoped, not period-scoped, because
-// events/JEs carry no period_id (spec §9 "Period attribution / Cutoff control" — blocking-for-production).
-// This is intentional and consistent with the entity-scoped /snapshot, exceptions, and recon gates.
-function jeLight(db: Db, entityId: string): Light {
+// NOTE: completenessLight stays ENTITY-scoped (spec §9 "Period attribution / Cutoff control"
+// — blocking-for-production). jeLight's per-JE balance sweep is still entity-scoped, but the
+// aggregate tie-out is now the full buildTrialBalance as-of periodId (Task 4, spec §14 step 5):
+// it also fails closed on unknown-class accounts and Σsigned-closing ≠ 0, which the old
+// raw ΣDr=ΣCr sum could never see.
+// Single source of truth (Rule 7) for the 'je' light's green/red predicate: per-JE balance sweep
+// AND TB tie-out must both hold. Exported so meta.ts's lockedDrift (LOCKED-period fail-loud
+// re-check, spec ruling 4) recomputes against the EXACT same semantics jeLight uses — a period
+// can only ever drift against what actually made 'je' green at lock time, never a narrower
+// re-derivation (final review I-1: the old lockedDrift only re-checked tieOut.balanced, missing
+// the per-JE dimension entirely).
+export function computeJeGreen(db: Db, entityId: string, periodId: string): boolean {
   const jes = listJournal(db, entityId);
-  if (jes.length === 0) return { key: 'je', status: 'red', label: 'Journal entries (TB tie-out)', real: true };
-  let tbDebit = 0n, tbCredit = 0n, perJeOk = true;
+  if (jes.length === 0) return false;
+  let perJeOk = true;               // §14 step 5: per-JE balance AND TB tie-out must both hold
   for (const r of jes) {
     const je = JSON.parse(r.jeJson) as Je;
     let d = 0n, c = 0n;
     for (const l of je.lines) {
       const amt = BigInt(l.amountMinor);
-      if (l.side === 'DEBIT') { d += amt; tbDebit += amt; } else { c += amt; tbCredit += amt; }
+      if (l.side === 'DEBIT') d += amt; else c += amt;
     }
     if (d !== c) perJeOk = false;
   }
-  const green = perJeOk && tbDebit === tbCredit;
+  // Fail-closed like recon/registry/revaluation lights. Unparseable JE period_id (column is
+  // nullable — legacy rows) no longer throws: buildTrialBalance records it in tieOut.failures
+  // and returns balanced=false → red via the normal path. The catch below now only guards
+  // corrupt-money throws (malformed amountMinor inside buildTrialBalance). The per-JE loop
+  // above still does a bare BigInt() first and would throw out of buildCockpit (500), same as
+  // the pre-Task-4 jeLight. Widening that guard is a tracked follow-up.
+  let tieOutOk = false;
+  try {
+    tieOutOk = buildTrialBalance(db, entityId, periodId).tieOut.balanced;
+  } catch {
+    tieOutOk = false;
+  }
+  return perJeOk && tieOutOk;
+}
+
+function jeLight(db: Db, entityId: string, periodId: string): Light {
+  const green = computeJeGreen(db, entityId, periodId);
   return { key: 'je', status: green ? 'green' : 'red', label: 'Journal entries (TB tie-out)', real: true };
 }
 
@@ -76,13 +102,47 @@ function registryLight(db: Db, entityId: string, periodId: string): Light {
   }
 }
 
-function completenessLight(db: Db, entityId: string): Light {
-  const events = listEvents(db, entityId);
-  // Events start at INGESTED; processed events move to AUTO or NEEDS_REVIEW.
-  // "Stuck at INGESTED" = not yet processed by AI classify step.
-  const stuckIngested = listByStatus(db, entityId, 'INGESTED').length;
-  const ok = events.length > 0 && stuckIngested === 0;
-  return { key: 'completeness', status: ok ? 'green' : 'red', label: 'Ingest presence (no cutoff assurance)', real: false };
+// Completeness light (Task 5, spec §14 step 6, ruling 6): real化 — consumes buildRollForward's
+// ASU 2023-08 roll-forward identities instead of the old "any events ingested, none stuck"
+// presence-only mock. This is a BLOCKING gate change: a GAAP FV-basis period whose roll-forward
+// doesn't tie (identity① per-asset or identity② vs. the TB DigitalAssets ledger) now reds and
+// blocks /period/lock, where the old mock would have shown green.
+//   - IFRS (or any entity where the roll-forward is notApplicable) → green, real:true, PLUS a
+//     `note` explaining why (ruling 6: N/A must be auditable, not a silent/indistinguishable
+//     green — an auditor must be able to tell "checked, doesn't apply" from "not checked").
+//   - US_GAAP → identitiesOk drives green/red.
+// Fail-closed like recon/registry/revaluation/je: buildRollForward can throw (malformed
+// periodId — periodCutoff throws, same convention Task 4 established for jeLight) → red, never
+// a 500 out of the whole cockpit.
+// Single source of truth (Rule 7) for the 'completeness' light's green/red predicate, mirroring
+// computeJeGreen: notApplicable (IFRS / no ASU track) → green (N/A is still "checked"), else
+// identitiesOk drives it; fail-closed (buildRollForward throws on a malformed periodId) → red.
+// Exported so meta.ts's lockedDrift re-checks completeness against the EXACT predicate that made
+// the frozen snapshot green — a period can only ever drift against what actually locked green.
+export function computeCompletenessGreen(db: Db, entityId: string, periodId: string): boolean {
+  try {
+    const rf = buildRollForward(db, entityId, periodId);
+    return rf.notApplicable ? true : rf.identitiesOk;
+  } catch {
+    return false;
+  }
+}
+
+const COMPLETENESS_LABEL = 'Completeness (ASU 2023-08 roll-forward)';
+
+function completenessLight(db: Db, entityId: string, periodId: string): Light {
+  try {
+    const rf = buildRollForward(db, entityId, periodId);
+    if (rf.notApplicable) {
+      return {
+        key: 'completeness', status: 'green', label: COMPLETENESS_LABEL, real: true,
+        note: 'N/A — ASU 2023-08 roll-forward does not apply under IFRS',
+      };
+    }
+    return { key: 'completeness', status: rf.identitiesOk ? 'green' : 'red', label: COMPLETENESS_LABEL, real: true };
+  } catch {
+    return { key: 'completeness', status: 'red', label: COMPLETENESS_LABEL, real: true };
+  }
 }
 
 const MOCK = (key: string, label: string): Light => ({ key, status: 'mock', label, real: false });
@@ -118,10 +178,10 @@ function revaluationLight(db: Db, entityId: string, periodId: string): Light {
 export function buildCockpit(db: Db, entityId: string, periodId: string, lowConf: number): CockpitView {
   const lights: Light[] = [
     classificationLight(db, entityId, periodId, lowConf),
-    jeLight(db, entityId),
+    jeLight(db, entityId, periodId),
     reconLight(db, entityId, periodId),
     registryLight(db, entityId, periodId),
-    completenessLight(db, entityId),
+    completenessLight(db, entityId, periodId),
     revaluationLight(db, entityId, periodId),
     MOCK('export', 'ERP export'),
   ];

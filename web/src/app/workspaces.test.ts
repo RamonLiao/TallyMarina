@@ -24,7 +24,7 @@ it('carries no emoji codepoints anywhere (defense in depth)', () => {
 });
 
 it('still exposes every workspace with a label and status', () => {
-  expect(WORKSPACES).toHaveLength(7);
+  expect(WORKSPACES).toHaveLength(8);
   for (const w of WORKSPACES) {
     expect(w.label.length).toBeGreaterThan(0);
     expect(['ready', 'soon']).toContain(w.status);

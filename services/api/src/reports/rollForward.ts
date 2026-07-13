@@ -1,0 +1,222 @@
+// Task 3 — ASU 2023-08 roll-forward, compute-on-read.
+// Formula is PINNED by docs/superpowers/specs/2026-07-13-rollforward-identity-memo.md §5 (Candidate
+// B: disposals at CARRYING, gains/losses = unrealized remeasurement delta only, sign-split per
+// valuation row, OPENING_LOT counted as an addition in its own period — Choice X pure period
+// boundary). Do NOT re-derive from accounting-spec §4.2's literal wording; the memo is the
+// authority (user-ratified 2026-07-13; see memo §4 Deviation 1/2, Finding 2).
+import type { Db } from '../store/db.js';
+import { getActivePolicy } from '../store/policyStore.js';
+import { periodCutoff } from '../store/pricePointStore.js';
+
+export interface RollForwardRow {
+  coinType: string;
+  openingFvMinor: string; additionsMinor: string; disposalsMinor: string;
+  gainsMinor: string; lossesMinor: string; closingFvMinor: string;
+  // Identity① — per-coin GL tie (dual-review external round, spec v1.2): this coin's lot-side
+  // closingFvMinor (lot_movement + live lot_valuation fold) === this coin's DigitalAssets GL
+  // closing (journal_entries side). A REAL cross-store control: moving a single coin's ledger
+  // balance reds ONLY that coin's row. The old identityOk was `closingFV === openingFV +
+  // additions − disposals + gains − losses`, an algebraic restatement of the SAME lot-side fold
+  // (external review坐實其對任何資料恆真), so it could never fail. The six columns below are the
+  // ASU roll-forward PRESENTATION (§11.2), not the control.
+  identityOk: boolean;
+}
+export interface RollForward {
+  notApplicable: boolean; reason: string | null;
+  rows: RollForwardRow[];
+  tbTie: { digitalAssetsClosingMinor: string; closingFvTotalMinor: string; ok: boolean } | null;
+  identitiesOk: boolean;
+}
+
+interface MvRow { period: string; deltaCost: bigint }
+interface LvRow { period: string; reason: string; delta: bigint }
+
+const sum = <T>(xs: T[], f: (x: T) => bigint): bigint => xs.reduce((s, x) => s + f(x), 0n);
+
+// memo §5 whitelist: only these valuation reasons are unrealized remeasurement and fold into a
+// period's gains/losses. DISPOSAL_RELEASE is excluded separately (realized disposal P&L). Any
+// other reason is unaccounted-for by the formula — see computeRow's fail-loud throw below.
+const GAINS_FOLD_REASONS = new Set(['REVALUE', 'IMPAIR', 'REVERSE', 'OPENING_FV']);
+
+// SUI-scope-style read (memo §2): lot_movement filtered by coin_type, lot_valuation filtered by
+// that lot_id set + superseded_by IS NULL (live only). Guards the empty-lot-set case explicitly
+// (mirrors the derivation test's readSuiRows for the same shape). NOTE (review fix, verified
+// empirically against this repo's better-sqlite3/SQLite 3.49.2): `lot_id IN ()` does NOT actually
+// throw on this driver — it's accepted as an always-false predicate, so this guard is currently a
+// no-op vs. the un-guarded query (both return valsLive: []). Kept anyway as defensive/
+// engine-independent (some SQL engines do reject empty IN() lists) and to skip a pointless query
+// when a coin has zero lots. See reports.rollforward.test.ts's "ASU coin 已勾選但零 lot 活動" test
+// for the regression coverage — it locks the zero-row output, not a SQL-throw claim.
+function readCoinRows(db: Db, entityId: string, coinType: string): { movements: MvRow[]; valsLive: LvRow[] } {
+  const movements = (db.prepare(
+    'SELECT period_id AS p, delta_cost_minor AS c FROM lot_movement WHERE entity_id = ? AND coin_type = ?',
+  ).all(entityId, coinType) as Array<{ p: string; c: string }>).map((r) => ({ period: r.p, deltaCost: BigInt(r.c) }));
+
+  const lots = (db.prepare(
+    'SELECT DISTINCT lot_id FROM lot_movement WHERE entity_id = ? AND coin_type = ?',
+  ).all(entityId, coinType) as Array<{ lot_id: string }>).map((r) => r.lot_id);
+
+  if (lots.length === 0) return { movements, valsLive: [] };
+
+  const placeholders = lots.map(() => '?').join(',');
+  const valsLive = (db.prepare(
+    `SELECT period_id AS p, reason AS r, delta_minor AS d FROM lot_valuation
+      WHERE entity_id = ? AND superseded_by IS NULL AND lot_id IN (${placeholders})`,
+  ).all(entityId, ...lots) as Array<{ p: string; r: string; d: string }>)
+    .map((v) => ({ period: v.p, reason: v.r, delta: BigInt(v.d) }));
+
+  return { movements, valsLive };
+}
+
+// memo §2/§5: closingFV(P) = openingFV(P) + additionsCost(P) − disposalsCarrying(P) + (gains − losses)(P)
+// glClosingForCoin is this coin's DigitalAssets GL closing (journal side, computed once in
+// buildRollForward via digitalAssetsClosingForCoins) — identityOk ties the lot-side closingFV to
+// it (per-coin GL tie, spec v1.2). The six roll-forward columns remain the ASU presentation.
+function computeRow(db: Db, entityId: string, periodId: string, coinType: string, glClosingForCoin: bigint): RollForwardRow {
+  const cut = periodCutoff(periodId); // malformed periodId → throws (fail-closed, matches trialBalance)
+  const before = (p: string): boolean => periodCutoff(p) < cut;
+  const upTo = (p: string): boolean => periodCutoff(p) <= cut;
+  const inP = (p: string): boolean => p === periodId;
+
+  const { movements, valsLive } = readCoinRows(db, entityId, coinType);
+
+  const openingFV = sum(movements.filter((m) => before(m.period)), (m) => m.deltaCost)
+    + sum(valsLive.filter((v) => before(v.period)), (v) => v.delta);
+  const closingFV = sum(movements.filter((m) => upTo(m.period)), (m) => m.deltaCost)
+    + sum(valsLive.filter((v) => upTo(v.period)), (v) => v.delta);
+
+  const mvInP = movements.filter((m) => inP(m.period));
+  // additionsCost includes OPENING_LOT in its own period (Choice X — memo Finding 2): no
+  // special-casing by event/reason here, purely period-boundary + sign of delta_cost.
+  const additionsCost = sum(mvInP.filter((m) => m.deltaCost > 0n), (m) => m.deltaCost);
+  const disposalsCost = -sum(mvInP.filter((m) => m.deltaCost < 0n), (m) => m.deltaCost);
+
+  const releasesInP = valsLive.filter((v) => inP(v.period) && v.reason === 'DISPOSAL_RELEASE');
+  const releaseRemoved = -sum(releasesInP, (v) => v.delta);
+  const disposalsCarrying = disposalsCost + releaseRemoved;
+
+  // gains/losses (memo Deviation 2, §5): every LIVE non-release valuation delta in P (REVALUE,
+  // IMPAIR, REVERSE, seq-0 OPENING_FV) — realized disposal P&L never enters this row. Sign-split
+  // is PER ROW, not on the net total (a period could in principle mix REVALUE-up on one lot with
+  // REVALUE-down/IMPAIR on another).
+  //
+  // Final review Minor #6: whitelist, not exclude-list. The old `reason !== 'DISPOSAL_RELEASE'`
+  // silently folded ANY unrecognized reason into gains/losses. An unknown reason means a
+  // valuation row this formula's memo (§5) never accounted for — folding it in unverified would
+  // silently corrupt the roll-forward identity; fail loud instead (repo's fail-closed convention,
+  // same as jeLight/reconLight/registryLight/revaluationLight/completenessLight).
+  let gains = 0n;
+  let losses = 0n;
+  for (const v of valsLive) {
+    if (!inP(v.period)) continue;
+    if (v.reason === 'DISPOSAL_RELEASE') continue;
+    if (!GAINS_FOLD_REASONS.has(v.reason)) {
+      throw new Error(
+        `buildRollForward: unknown lot_valuation reason '${v.reason}' cannot fold into gains/losses `
+        + `(expected one of ${[...GAINS_FOLD_REASONS].join(', ')}, or DISPOSAL_RELEASE which is excluded)`,
+      );
+    }
+    if (v.delta > 0n) gains += v.delta;
+    else if (v.delta < 0n) losses += -v.delta;
+  }
+
+  // Identity① — per-coin GL tie (spec v1.2): lot-side closingFV must equal this coin's
+  // DigitalAssets GL closing. NOT the old fold-restatement (closingFV === openingFV + additions
+  // − disposals + gains − losses), which was algebraically恆真 over the same lot-side numbers.
+  const identityOk = closingFV === glClosingForCoin;
+
+  return {
+    coinType,
+    openingFvMinor: openingFV.toString(),
+    additionsMinor: additionsCost.toString(),
+    disposalsMinor: disposalsCarrying.toString(),
+    gainsMinor: gains.toString(),
+    lossesMinor: losses.toString(),
+    closingFvMinor: closingFV.toString(),
+    identityOk,
+  };
+}
+
+// Identity ② needs a per-coin DigitalAssets GL balance, restricted to the ASU-applicable coin
+// set, through periodId's cutoff. buildTrialBalance's 'DigitalAssets' row (Task 1) aggregates
+// EVERY coin into one row (services/api/src/reports/trialBalance.ts groups by l.account only —
+// it never reads origCoinType), so it cannot serve a coin-scoped tie-out directly: an entity
+// holding a non-ASU coin (e.g. USDC from a swap's consideration leg) in the same DigitalAssets
+// account would contaminate the aggregate. This mirrors the derivation test's daBalanceThrough
+// helper (reports.rollforward.derivation.test.ts) — same JE-line scan, filtered by origCoinType,
+// summed over the ASU coin list. NOTE (review fix): the brief's "Consumes buildTrialBalance"
+// declaration is NOT satisfied by an actual call — a decorative `buildTrialBalance(...)` call
+// here would be dead (return value discarded) and would introduce a throw path this coin-scoped
+// scan doesn't have (e.g. TB's own malformed-period guard). Identity ② is intentionally computed
+// via this coin-scoped JE scan instead, because TB's DigitalAssets row does not split by coin and
+// would contaminate the tie-out with non-ASU coins, per the reasoning above.
+// Returns a PER-COIN DigitalAssets GL closing map (Fix 1: group by origCoinType, so identity①
+// can tie each coin's lot-side closing to its own ledger balance — same skip-VOIDED/skip-future
+// semantics as before, just no longer collapsed to one total). `unparseable` (Fix 3, fail-closed):
+// a legacy JE with a NULL/malformed period_id can no longer be placed relative to the cutoff — the
+// per-coin GL is then not fully determinable, so the caller must red the tie (tbTie.ok=false)
+// rather than 500 out of periodCutoff. Corrupt amountMinor is NOT covered here (BigInt below still
+// throws) — that is money corruption, a real 500, per the trialBalance contract.
+function digitalAssetsClosingForCoins(
+  db: Db, entityId: string, periodId: string, coins: string[],
+): { perCoin: Map<string, bigint>; unparseable: boolean } {
+  const perCoin = new Map<string, bigint>();
+  if (coins.length === 0) return { perCoin, unparseable: false };
+  const target = periodCutoff(periodId);
+  const coinSet = new Set(coins);
+  const rows = db.prepare('SELECT je_json AS j, period_id AS p FROM journal_entries WHERE entity_id = ?')
+    .all(entityId) as Array<{ j: string; p: string }>;
+  let unparseable = false;
+  for (const r of rows) {
+    let cutoff: string;
+    try {
+      cutoff = periodCutoff(r.p);
+    } catch {
+      unparseable = true; // NULL/malformed legacy period_id — can't place this JE; fail-closed
+      continue;
+    }
+    if (cutoff > target) continue;
+    const je = JSON.parse(r.j) as {
+      status?: string;
+      lines: Array<{ account: string; side: string; amountMinor: string; origCoinType?: string | null }>;
+    };
+    if (je.status === 'VOIDED') continue;
+    for (const l of je.lines) {
+      if (l.account !== 'DigitalAssets' || !l.origCoinType || !coinSet.has(l.origCoinType)) continue;
+      const delta = l.side === 'DEBIT' ? BigInt(l.amountMinor) : -BigInt(l.amountMinor);
+      perCoin.set(l.origCoinType, (perCoin.get(l.origCoinType) ?? 0n) + delta);
+    }
+  }
+  return { perCoin, unparseable };
+}
+
+export function buildRollForward(db: Db, entityId: string, periodId: string): RollForward {
+  const { doc } = getActivePolicy(db, entityId);
+  if (doc.accountingStandard !== 'US_GAAP') {
+    return { notApplicable: true, reason: doc.accountingStandard, rows: [], tbTie: null, identitiesOk: true };
+  }
+
+  const coins = Object.entries(doc.asu202308Applies).filter(([, v]) => v).map(([k]) => k);
+  // Compute the per-coin DigitalAssets GL closing ONCE, then tie each row against its own coin.
+  const { perCoin, unparseable } = digitalAssetsClosingForCoins(db, entityId, periodId, coins);
+  const rows = coins.map((coinType) => computeRow(db, entityId, periodId, coinType, perCoin.get(coinType) ?? 0n));
+
+  const closingFvTotal = sum(rows, (r) => BigInt(r.closingFvMinor));
+  // tbTie is now the AGGREGATE view of the per-coin ties (Σ GL vs Σ closingFV) — kept for the
+  // Identity② presentation banner. It is a derived roll-up: if every row.identityOk holds and no
+  // period_id is unparseable, this ties by construction. `unparseable` forces it red (fail-closed).
+  const digitalAssetsClosing = [...perCoin.values()].reduce((s, v) => s + v, 0n);
+  const tbTie = {
+    digitalAssetsClosingMinor: digitalAssetsClosing.toString(),
+    closingFvTotalMinor: closingFvTotal.toString(),
+    ok: !unparseable && digitalAssetsClosing === closingFvTotal,
+  };
+
+  return {
+    notApplicable: false,
+    reason: null,
+    rows,
+    tbTie,
+    identitiesOk: rows.every((r) => r.identityOk) && tbTie.ok,
+  };
+}

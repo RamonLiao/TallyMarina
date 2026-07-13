@@ -57,6 +57,14 @@ const PATHS: Record<string, ReactElement> = {
       <path d="M12 5 l6 4 l-6 2 Z" />
     </>
   ),
+  reports: (
+    <>
+      <path d="M6 3 h9 l3 3 v15 h-12 Z" />
+      <line x1="9" y1="12" x2="9" y2="17" />
+      <line x1="12" y1="9" x2="12" y2="17" />
+      <line x1="15" y1="13" x2="15" y2="17" />
+    </>
+  ),
 };
 
 export function WorkspaceIcon({ id }: { id: string }): ReactElement | null {

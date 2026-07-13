@@ -21,6 +21,7 @@ import { CloseCockpit } from './workspaces/close/CloseCockpit';
 import { ExportWorkspace } from './workspaces/export/ExportWorkspace';
 import { PolicyWorkspace } from './workspaces/policy/PolicyWorkspace';
 import { OnboardingWorkspace } from './workspaces/onboarding/OnboardingWorkspace';
+import { ReportsWorkspace } from './workspaces/reports/ReportsWorkspace';
 
 function CloseWorkspace() {
   const { step, entity, periodId } = useEntityCtx();
@@ -48,7 +49,7 @@ function CloseWorkspace() {
 
 function WorkspaceContent() {
   const { activeWorkspace } = useWorkspace();
-  const { entity } = useEntityCtx();
+  const { entity, periodId } = useEntityCtx();
   if (activeWorkspace === 'close') return <CloseWorkspace />;
   if (activeWorkspace === 'exceptions') return <ExceptionsWorkspace />;
   if (activeWorkspace === 'audit') return <AuditWorkspace />;
@@ -56,6 +57,7 @@ function WorkspaceContent() {
   if (activeWorkspace === 'export') return <ExportWorkspace entityId={entity?.id ?? ''} />;
   if (activeWorkspace === 'policy') return <PolicyWorkspace />;
   if (activeWorkspace === 'onboarding') return <OnboardingWorkspace />;
+  if (activeWorkspace === 'reports') return <ReportsWorkspace entityId={entity?.id ?? ''} periodId={periodId} />;
   const meta = WORKSPACES.find((w) => w.id === activeWorkspace);
   return (
     <EmptyState

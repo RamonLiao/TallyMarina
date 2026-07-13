@@ -403,3 +403,87 @@ export interface RevaluationRunResultDTO {
   jeIds: string[];
   reversedRunId: string | null;
 }
+
+// ---- Trial Balance / Roll-Forward report types (Task 6/8) ----
+// Mirror of services/api/src/reports/trialBalance.ts, rollForward.ts, meta.ts — kept in sync
+// with the backend's exact field names (not paraphrased).
+
+export type AccountClass = 'asset' | 'liability' | 'equity' | 'income' | 'expense';
+
+export interface TbRowDTO {
+  account: string;
+  accountClass: AccountClass | null;
+  openingMinor: string;
+  debitMinor: string;
+  creditMinor: string;
+  // null = unknown account class → fail-closed (spec D5). Never default to "0" — render as
+  // an explicit unknown, never a computed zero.
+  closingMinor: string | null;
+}
+
+export interface TbTieOutDTO {
+  sumDebitMinor: string;
+  sumCreditMinor: string;
+  sumSignedClosingMinor: string;
+  balanced: boolean;
+  failures: string[];
+}
+
+export interface ReportMetaDTO {
+  accountingStandard: string;
+  policySetVersion: string;
+  periodStatus: string;
+  generatedAt: string;
+}
+
+// Multi-dimensional drift (Fix 2, dual-review external round): the frozen LOCKED snapshot pins
+// both the 'je' and 'completeness' evidence; a post-lock raw edit can break either independently.
+// Each drifting light is one dimension. Mirror of services/api/src/reports/meta.ts.
+export type DriftLight = 'je' | 'completeness';
+export interface DriftDimensionDTO {
+  light: DriftLight;
+  frozenStatus: string;
+  recomputedGreen: boolean;
+}
+export interface LockedDriftDTO {
+  code: 'LIGHTS_SNAPSHOT_DRIFT';
+  dimensions: DriftDimensionDTO[];
+}
+
+export interface TrialBalanceResponseDTO {
+  rows: TbRowDTO[];
+  tieOut: TbTieOutDTO;
+  meta: ReportMetaDTO;
+  drift: LockedDriftDTO | null;
+}
+
+export interface RollForwardRowDTO {
+  coinType: string;
+  openingFvMinor: string;
+  additionsMinor: string;
+  disposalsMinor: string;
+  gainsMinor: string;
+  lossesMinor: string;
+  closingFvMinor: string;
+  identityOk: boolean;
+}
+
+export interface RollForwardTbTieDTO {
+  digitalAssetsClosingMinor: string;
+  closingFvTotalMinor: string;
+  ok: boolean;
+}
+
+export interface RollForwardResponseDTO {
+  notApplicable: boolean;
+  reason: string | null;
+  rows: RollForwardRowDTO[];
+  tbTie: RollForwardTbTieDTO | null;
+  identitiesOk: boolean;
+  meta: ReportMetaDTO;
+  // Fix 2: same LOCKED-period drift object the TB endpoint returns (null when OPEN). The backend
+  // ALWAYS sends this field now; it is `?`-optional here ONLY because a pre-existing out-of-scope
+  // fixture (src/test/mascot-governance.test.tsx) constructs this DTO literal without it. Follow-up
+  // (tracked): tighten to required + update that fixture once it is in scope — TB's drift is required.
+  drift?: LockedDriftDTO | null;
+}

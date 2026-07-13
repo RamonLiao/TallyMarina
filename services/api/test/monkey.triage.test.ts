@@ -154,9 +154,13 @@ describe('monkey: triage', () => {
     // A single balanced JE so the TB-tie-out light is green (event_id FKs to events, reuse ev-m5).
     // walletAssetMovements() reads the event's rawJson wallet, so ev-m5 needs one even though this
     // JE's lines carry no origCoinType/origQtyMinor (no net movement contribution, by design).
+    // Task 4: jeLight now runs the full buildTrialBalance tie-out, so the seed must carry a real
+    // period_id and ACCOUNT_SEED account names — a class-less/period-less JE fails closed (red).
     app._db.prepare(
-      "INSERT INTO journal_entries (id, entity_id, event_id, je_json, idempotency_key, leaf_hash) VALUES ('je-1', ?, 'ev-m5', ?, 'idem-1', 'leaf-1')",
-    ).run(TEST_ENTITY_ID, JSON.stringify({ lines: [{ side: 'DEBIT', amountMinor: '100' }, { side: 'CREDIT', amountMinor: '100' }] }));
+      "INSERT INTO journal_entries (id, entity_id, event_id, je_json, idempotency_key, leaf_hash, period_id) VALUES ('je-1', ?, 'ev-m5', ?, 'idem-1', 'leaf-1', ?)",
+    ).run(TEST_ENTITY_ID, JSON.stringify({ lines: [
+      { account: 'DigitalAssets', side: 'DEBIT', amountMinor: '100' },
+      { account: 'StakingIncome', side: 'CREDIT', amountMinor: '100' }] }), P);
     const p = insertProposal(app._db, {
       exceptionId: 'RULES_FAILED:ev-m5', eventId: 'ev-m5', entityId: TEST_ENTITY_ID, periodId: P,
       action: 'deferred', reasonCode: 'PENDING_DOC', reasonNote: null, rationale: 'r', confidence: 0.5, model: 'm', createdAt: 1,
