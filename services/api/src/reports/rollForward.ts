@@ -26,6 +26,11 @@ interface LvRow { period: string; reason: string; delta: bigint }
 
 const sum = <T>(xs: T[], f: (x: T) => bigint): bigint => xs.reduce((s, x) => s + f(x), 0n);
 
+// memo §5 whitelist: only these valuation reasons are unrealized remeasurement and fold into a
+// period's gains/losses. DISPOSAL_RELEASE is excluded separately (realized disposal P&L). Any
+// other reason is unaccounted-for by the formula — see computeRow's fail-loud throw below.
+const GAINS_FOLD_REASONS = new Set(['REVALUE', 'IMPAIR', 'REVERSE', 'OPENING_FV']);
+
 // SUI-scope-style read (memo §2): lot_movement filtered by coin_type, lot_valuation filtered by
 // that lot_id set + superseded_by IS NULL (live only). Guards the empty-lot-set case explicitly
 // (mirrors the derivation test's readSuiRows for the same shape). NOTE (review fix, verified
@@ -80,14 +85,27 @@ function computeRow(db: Db, entityId: string, periodId: string, coinType: string
   const releaseRemoved = -sum(releasesInP, (v) => v.delta);
   const disposalsCarrying = disposalsCost + releaseRemoved;
 
-  // gains/losses (memo Deviation 2): every LIVE non-release valuation delta in P (REVALUE, IMPAIR,
-  // REVERSE, seq-0 OPENING_FV) — realized disposal P&L never enters this row. Sign-split is PER
-  // ROW, not on the net total (a period could in principle mix REVALUE-up on one lot with
+  // gains/losses (memo Deviation 2, §5): every LIVE non-release valuation delta in P (REVALUE,
+  // IMPAIR, REVERSE, seq-0 OPENING_FV) — realized disposal P&L never enters this row. Sign-split
+  // is PER ROW, not on the net total (a period could in principle mix REVALUE-up on one lot with
   // REVALUE-down/IMPAIR on another).
+  //
+  // Final review Minor #6: whitelist, not exclude-list. The old `reason !== 'DISPOSAL_RELEASE'`
+  // silently folded ANY unrecognized reason into gains/losses. An unknown reason means a
+  // valuation row this formula's memo (§5) never accounted for — folding it in unverified would
+  // silently corrupt the roll-forward identity; fail loud instead (repo's fail-closed convention,
+  // same as jeLight/reconLight/registryLight/revaluationLight/completenessLight).
   let gains = 0n;
   let losses = 0n;
   for (const v of valsLive) {
-    if (!inP(v.period) || v.reason === 'DISPOSAL_RELEASE') continue;
+    if (!inP(v.period)) continue;
+    if (v.reason === 'DISPOSAL_RELEASE') continue;
+    if (!GAINS_FOLD_REASONS.has(v.reason)) {
+      throw new Error(
+        `buildRollForward: unknown lot_valuation reason '${v.reason}' cannot fold into gains/losses `
+        + `(expected one of ${[...GAINS_FOLD_REASONS].join(', ')}, or DISPOSAL_RELEASE which is excluded)`,
+      );
+    }
     if (v.delta > 0n) gains += v.delta;
     else if (v.delta < 0n) losses += -v.delta;
   }

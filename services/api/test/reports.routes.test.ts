@@ -128,6 +128,49 @@ describe('GET /entities/:id/trial-balance', () => {
     expect(body.drift).toEqual({ code: 'LIGHTS_SNAPSHOT_DRIFT', frozenJeStatus: 'green', recomputedBalanced: false });
   });
 
+  it('LOCKED then a raw-UPDATE swaps two debit amounts across two JEs (aggregate preserved, per-JE broken) -> drift non-null (final review I-1: lockedDrift must re-check per-JE balance, not just tieOut)', async () => {
+    await lockPeriod(ctx);
+    // Two brand-new, individually-balanced JEs inserted post-lock.
+    ctx.db.prepare(
+      `INSERT INTO events (id, entity_id, raw_json, status, final_event_type, period_id)
+       VALUES ('swap-ev-a', ?, '{}', 'POSTED', 'MANUAL_ADJUSTMENT', ?)`,
+    ).run(TEST_ENTITY_ID, P);
+    ctx.db.prepare(
+      `INSERT INTO events (id, entity_id, raw_json, status, final_event_type, period_id)
+       VALUES ('swap-ev-b', ?, '{}', 'POSTED', 'MANUAL_ADJUSTMENT', ?)`,
+    ).run(TEST_ENTITY_ID, P);
+    // Uses ACCOUNT_SEED-mapped accounts (DigitalAssets/AccountsPayable), not an unknown-class
+    // account: an unknown account class would already fail tieOut.balanced on its own (trialBalance
+    // fails closed on unmapped accounts), which would defeat the "aggregate preserved" premise here.
+    const jeA = { status: 'POSTED', lines: [{ account: 'DigitalAssets', side: 'DEBIT', amountMinor: '500' }, { account: 'AccountsPayable', side: 'CREDIT', amountMinor: '500' }] };
+    const jeB = { status: 'POSTED', lines: [{ account: 'DigitalAssets', side: 'DEBIT', amountMinor: '300' }, { account: 'AccountsPayable', side: 'CREDIT', amountMinor: '300' }] };
+    ctx.db.prepare(
+      `INSERT INTO journal_entries (id, entity_id, event_id, je_json, idempotency_key, leaf_hash, period_id)
+       VALUES ('swap-je-a', ?, 'swap-ev-a', ?, 'idem-swap-a', 'hash-swap-a', ?)`,
+    ).run(TEST_ENTITY_ID, JSON.stringify(jeA), P);
+    ctx.db.prepare(
+      `INSERT INTO journal_entries (id, entity_id, event_id, je_json, idempotency_key, leaf_hash, period_id)
+       VALUES ('swap-je-b', ?, 'swap-ev-b', ?, 'idem-swap-b', 'hash-swap-b', ?)`,
+    ).run(TEST_ENTITY_ID, JSON.stringify(jeB), P);
+
+    // Now swap the two DEBIT amounts across the JEs: JE-A debit becomes 300 (credit stays 500),
+    // JE-B debit becomes 500 (credit stays 300). Aggregate ΣDr=ΣCr=800 is preserved (still ties
+    // out), and Σsigned-closing is unaffected (same accounts, same total flow) — but each JE is
+    // now individually unbalanced. A tieOut-only re-check cannot see this; a per-JE sweep can.
+    const jeASwapped = { status: 'POSTED', lines: [{ account: 'DigitalAssets', side: 'DEBIT', amountMinor: '300' }, { account: 'AccountsPayable', side: 'CREDIT', amountMinor: '500' }] };
+    const jeBSwapped = { status: 'POSTED', lines: [{ account: 'DigitalAssets', side: 'DEBIT', amountMinor: '500' }, { account: 'AccountsPayable', side: 'CREDIT', amountMinor: '300' }] };
+    ctx.db.prepare('UPDATE journal_entries SET je_json = ? WHERE id = ?').run(JSON.stringify(jeASwapped), 'swap-je-a');
+    ctx.db.prepare('UPDATE journal_entries SET je_json = ? WHERE id = ?').run(JSON.stringify(jeBSwapped), 'swap-je-b');
+
+    const r = await ctx.app.inject({ method: 'GET', url: `/entities/${TEST_ENTITY_ID}/trial-balance?periodId=${P}` });
+    expect(r.statusCode).toBe(200);
+    const body = r.json();
+    // Aggregate tie-out still balances — this is exactly the case a tieOut-only re-check misses.
+    expect(body.tieOut.balanced).toBe(true);
+    expect(body.drift).not.toBeNull();
+    expect(body.drift.code).toBe('LIGHTS_SNAPSHOT_DRIFT');
+  });
+
   it('monkey: malformed periodId -> 400 INVALID_PERIOD (not 500)', async () => {
     for (const bad of ['2026-13', 'garbage']) {
       const r = await ctx.app.inject({ method: 'GET', url: `/entities/${TEST_ENTITY_ID}/trial-balance?periodId=${bad}` });

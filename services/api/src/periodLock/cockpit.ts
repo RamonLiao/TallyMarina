@@ -39,9 +39,15 @@ function classificationLight(db: Db, entityId: string, periodId: string, lowConf
 // aggregate tie-out is now the full buildTrialBalance as-of periodId (Task 4, spec §14 step 5):
 // it also fails closed on unknown-class accounts and Σsigned-closing ≠ 0, which the old
 // raw ΣDr=ΣCr sum could never see.
-function jeLight(db: Db, entityId: string, periodId: string): Light {
+// Single source of truth (Rule 7) for the 'je' light's green/red predicate: per-JE balance sweep
+// AND TB tie-out must both hold. Exported so meta.ts's lockedDrift (LOCKED-period fail-loud
+// re-check, spec ruling 4) recomputes against the EXACT same semantics jeLight uses — a period
+// can only ever drift against what actually made 'je' green at lock time, never a narrower
+// re-derivation (final review I-1: the old lockedDrift only re-checked tieOut.balanced, missing
+// the per-JE dimension entirely).
+export function computeJeGreen(db: Db, entityId: string, periodId: string): boolean {
   const jes = listJournal(db, entityId);
-  if (jes.length === 0) return { key: 'je', status: 'red', label: 'Journal entries (TB tie-out)', real: true };
+  if (jes.length === 0) return false;
   let perJeOk = true;               // §14 step 5: per-JE balance AND TB tie-out must both hold
   for (const r of jes) {
     const je = JSON.parse(r.jeJson) as Je;
@@ -63,7 +69,11 @@ function jeLight(db: Db, entityId: string, periodId: string): Light {
   } catch {
     tieOutOk = false;
   }
-  const green = perJeOk && tieOutOk;
+  return perJeOk && tieOutOk;
+}
+
+function jeLight(db: Db, entityId: string, periodId: string): Light {
+  const green = computeJeGreen(db, entityId, periodId);
   return { key: 'je', status: green ? 'green' : 'red', label: 'Journal entries (TB tie-out)', real: true };
 }
 

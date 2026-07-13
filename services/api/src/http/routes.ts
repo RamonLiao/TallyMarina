@@ -1114,7 +1114,7 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     }
     const tb = buildTrialBalance(db, req.params.id, periodId);
     const meta = buildReportMeta(db, req.params.id, periodId);
-    const drift = lockedDrift(db, req.params.id, periodId, tb.tieOut.balanced);
+    const drift = lockedDrift(db, req.params.id, periodId);
     return { rows: tb.rows, tieOut: tb.tieOut, meta, drift };
   });
 

@@ -208,6 +208,39 @@ describe('buildRollForward', () => {
     expect(rf.identitiesOk).toBe(true);
   });
 
+  it('未知 valuation reason（非白名單、非 DISPOSAL_RELEASE）→ buildRollForward throw（final review Minor #6：fail-loud, not silent fold）', async () => {
+    const app = await buildTestApp(false);
+    const E = 'e-unknown-reason';
+    insertEntity(app._db, { id: E, displayName: 'UnknownReasonCo', chainObjectId: '0xc', capObjectId: '0xk', originalPackageId: '0xp' });
+    registerTestAsset(app._db, E, SUI, 0);
+
+    seedAuto(app._db, E, 'open-sui', opening(E));
+    await runRules(app, E, Q2);
+    await adoptAsu(app, E, { [SUI]: true });
+    await postPriceAt(app, E, SUI, '2026-06-30', '11.00');
+    await runReval(app, E, Q2); // produces at least one live lot_valuation row (reason: OPENING_FV) with a real run_id/lot_id
+
+    const seed = app._db.prepare(
+      `SELECT lot_id, period_id, run_id, basis, qty_minor, prior_carrying_minor, current_value_minor, policy_set_version
+         FROM lot_valuation WHERE entity_id = ? AND superseded_by IS NULL LIMIT 1`,
+    ).get(E) as {
+      lot_id: string; period_id: string; run_id: string; basis: string;
+      qty_minor: string; prior_carrying_minor: string; current_value_minor: string; policy_set_version: string;
+    };
+    // Raw-INSERT a live valuation row with a reason this formula's whitelist (memo §5) does not
+    // know about — simulates a future/unexpected reason value landing via a schema drift or a
+    // raw fix, never produced by the app layer today.
+    app._db.prepare(
+      `INSERT INTO lot_valuation
+         (id, entity_id, lot_id, period_id, run_id, seq, basis, qty_minor, prior_carrying_minor,
+          current_value_minor, delta_minor, reason, policy_set_version, created_at)
+       VALUES ('unknown-reason-row', ?, ?, ?, ?, 999, ?, ?, ?, ?, '500', 'FUTURE_KIND', ?, ?)`,
+    ).run(E, seed.lot_id, seed.period_id, seed.run_id, seed.basis, seed.qty_minor,
+      seed.prior_carrying_minor, seed.current_value_minor, seed.policy_set_version, new Date().toISOString());
+
+    expect(() => buildRollForward(app._db, E, Q2)).toThrow(/FUTURE_KIND/);
+  });
+
   it('空期（無該類資產活動）→ rows=[]、identitiesOk=true', async () => {
     const app = await buildTestApp(false);
     const E = 'e-empty';
