@@ -153,7 +153,7 @@ describe('GET /entities/:id/trial-balance', () => {
 
     const r = await ctx.app.inject({ method: 'GET', url: `/entities/${TEST_ENTITY_ID}/trial-balance?periodId=${P}` });
     expect(r.statusCode).toBe(500);
-    expect(r.json().error.code).not.toBe('INVALID_PERIOD');
+    expect(r.json().error.code).toBe('INTERNAL'); // deterministic fallback code (routes.ts global handler), not INVALID_PERIOD
   });
 });
 
