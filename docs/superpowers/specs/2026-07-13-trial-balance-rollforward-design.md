@@ -100,3 +100,4 @@
 ## Revision log
 
 - v1.0（2026-07-13）：brainstorming 定稿。方案 A（compute-on-read）；GTM review 11 條全收（OPENING_LOT 歸屬修正、單軌裁決、LOCKED drift、審計 meta、N/A 可稽核、export 分叉留痕、證據呈現 UI、property/三視圖一致性測試）。
+- v1.1（2026-07-13）：Task 2 executable derivation 定案 roll-forward 恆等式（`docs/superpowers/specs/2026-07-13-rollforward-identity-memo.md`，`reports.rollforward.derivation.test.ts` 逐期零殘差）。**偏離 §4.2 字面**：disposals 依 **carrying**（成本 + 已釋放估值）減除，非「依成本基礎」；gains/losses = 當期未實現重估 delta（含 OPENING_FV 轉換），realized 處分損益不入資產 roll-forward（走恆等式② tie 回 TB）。理由：資產帳對帳下成本基礎公式無法零殘差（Candidate A 逐期高估 Q2+10000/Q3+45000，雙算已釋放估值）。additions 含 OPENING_LOT（純期界 Choice X，保 openingFV(P)=closingFV(P−1) 連續）。Task 3 依 memo 實作，不採 §4.2 字面。
